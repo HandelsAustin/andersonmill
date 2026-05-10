@@ -31,20 +31,22 @@
     .app-body { padding: 16px 24px; }
 
     /* Toolbar */
-    .toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
     .btn {
-      font-family: 'Open Sans', sans-serif; font-size: 12px; font-weight: 600;
-      padding: 7px 13px; border-radius: 6px; border: 1.5px solid #2e4a70;
+      font-family: 'Open Sans', sans-serif; font-size: 14px; font-weight: 600;
+      padding: 11px 16px; border-radius: 8px; border: 1.5px solid #2e4a70;
       background: #1e3558; color: #c5d8f0; cursor: pointer;
-      display: inline-flex; align-items: center; gap: 5px;
+      display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
       letter-spacing: 0.02em; transition: all 0.15s; text-decoration: none;
+      -webkit-tap-highlight-color: transparent; touch-action: manipulation;
     }
     .btn:hover { background: #26436a; border-color: #4a7ab5; color: #e8f0fb; }
+    .btn:active { opacity: 0.75; }
     .btn-red { background: #7a0f1f; border-color: #a01525; color: #f5d0d5; }
     .btn-red:hover { background: #921222; border-color: #c8102e; color: #ffe0e5; }
     .btn-green { background: #0f4a2a; border-color: #1a7040; color: #b0f0ce; }
     .btn-green:hover { background: #165e35; border-color: #22a05a; color: #c8ffd8; }
-    .btn label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    .btn label { cursor: pointer; display: flex; align-items: center; gap: 6px; }
     .btn input[type=file] { display: none; }
 
     /* Legend */
@@ -67,11 +69,12 @@
     col.col-tomake  { width: 72px; }
     col.col-action  { width: 36px; }
     thead tr { background: #12223a; }
-    thead th { font-size: 11px; font-weight: 600; color: #8fa3be; text-align: left; padding: 8px; border-bottom: 2px solid #c8102e; white-space: nowrap; letter-spacing: 0.06em; text-transform: uppercase; user-select: none; }
+    thead th { font-size: 12px; font-weight: 600; color: #8fa3be; text-align: left; padding: 10px 8px; border-bottom: 2px solid #c8102e; white-space: nowrap; letter-spacing: 0.06em; text-transform: uppercase; user-select: none; }
     tbody tr { border-left: 3px solid transparent; transition: background 0.1s; }
     tbody tr:nth-child(even) { background: rgba(255,255,255,0.03); }
     tbody tr:hover { background: rgba(100,160,255,0.08); }
-    tbody td { padding: 5px 8px; border-bottom: 1px solid #1e3558; vertical-align: middle; }
+    tbody tr:active { background: rgba(100,160,255,0.14); }
+    tbody td { padding: 9px 8px; border-bottom: 1px solid #1e3558; vertical-align: middle; }
 
     /* Flavor type colors */
     .flavor-regular { color: #6ab0ff; font-weight: 500; }
@@ -81,15 +84,16 @@
     /* Type badge */
     .type-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: #1e3558; border: 1px solid #2e4a70; display: inline-block; }
 
-    td select { font-family: 'Open Sans', sans-serif; font-size: 12px; padding: 4px 5px; border: 1px solid #2e4a70; border-radius: 4px; background: #12223a; color: #c5d8f0; cursor: pointer; width: 100%; }
+    td select { font-family: 'Open Sans', sans-serif; font-size: 14px; padding: 7px 6px; border: 1px solid #2e4a70; border-radius: 6px; background: #12223a; color: #c5d8f0; cursor: pointer; width: 100%; min-height: 36px; touch-action: manipulation; }
     td select:focus { outline: none; border-color: #4a7ab5; }
-    td input[type=number] { font-family: 'Open Sans', sans-serif; font-size: 12px; padding: 4px; border: 1px solid #2e4a70; border-radius: 4px; background: #12223a; color: #c5d8f0; width: 100%; text-align: center; }
+    td input[type=number] { font-family: 'Open Sans', sans-serif; font-size: 14px; padding: 7px 4px; border: 1px solid #2e4a70; border-radius: 6px; background: #12223a; color: #c5d8f0; width: 100%; text-align: center; min-height: 36px; touch-action: manipulation; }
     td input[type=number]:focus { outline: none; border-color: #4a7ab5; }
-    .to-make { font-size: 1.05em; font-weight: 700; text-align: center; }
+    .to-make { font-size: 1.1em; font-weight: 700; text-align: center; }
     .to-make-needed { color: #ff6b6b; }
     .to-make-ok     { color: #3a5a80; }
-    .btn-icon { background: transparent; border: none; padding: 4px; cursor: pointer; color: #3a5a80; font-size: 15px; transition: color 0.15s; }
+    .btn-icon { background: transparent; border: none; padding: 8px; cursor: pointer; color: #3a5a80; font-size: 18px; transition: color 0.15s; min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     .btn-icon:hover { color: #c8102e; }
+    .btn-icon:active { color: #c8102e; opacity: 0.7; }
     .empty-state { text-align: center; padding: 2.5rem 1rem; color: #3a5a80; font-size: 13px; }
 
     /* Modal */
@@ -102,7 +106,7 @@
     .btn-primary:hover { background: #e01535; }
     .section-label { font-size: 10px; font-weight: 700; color: #4a6a90; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; flex-shrink: 0; }
     .search-wrap { margin-bottom: 6px; flex-shrink: 0; }
-    .search-wrap input { width: 100%; padding: 8px 11px; font-size: 13px; font-family: 'Open Sans', sans-serif; border-radius: 6px; border: 1.5px solid #2e4a70; background: #12223a; color: #f5f0e8; }
+    .search-wrap input { width: 100%; padding: 11px 13px; font-size: 15px; font-family: 'Open Sans', sans-serif; border-radius: 6px; border: 1.5px solid #2e4a70; background: #12223a; color: #f5f0e8; }
     .search-wrap input::placeholder { color: #4a6a90; }
     .search-wrap input:focus { outline: none; border-color: #4a7ab5; }
     .picker-stats { font-size: 11px; color: #4a6a90; margin-bottom: 6px; flex-shrink: 0; }
@@ -110,21 +114,23 @@
     .picker-list::-webkit-scrollbar { width: 6px; }
     .picker-list::-webkit-scrollbar-track { background: #12223a; }
     .picker-list::-webkit-scrollbar-thumb { background: #2e4a70; border-radius: 3px; }
-    .picker-item { padding: 8px 12px; font-size: 13px; display: flex; align-items: center; border-bottom: 1px solid #1e3558; user-select: none; }
+    .picker-item { padding: 13px 12px; font-size: 14px; display: flex; align-items: center; border-bottom: 1px solid #1e3558; user-select: none; min-height: 48px; }
     .picker-item:last-child { border-bottom: none; }
     .picker-item:hover { background: #253f65; }
+    .picker-item:active { background: #253f65; }
     .picker-item.active { background: #1a3a5c; border-left: 3px solid #22a05a; }
-    .picker-check { width: 20px; font-size: 13px; color: #22a05a; flex-shrink: 0; }
+    .picker-check { width: 24px; font-size: 15px; color: #22a05a; flex-shrink: 0; }
     .picker-name { flex: 1; font-weight: 500; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .picker-type-badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #1e3558; border: 1px solid #2e4a70; flex-shrink: 0; min-width: 36px; text-align: center; }
-    .picker-remove { background: transparent; border: none; color: #3a5a80; cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 3px; flex-shrink: 0; margin-left: 6px; transition: color 0.15s; }
+    .picker-type-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #1e3558; border: 1px solid #2e4a70; flex-shrink: 0; min-width: 40px; text-align: center; }
+    .picker-remove { background: transparent; border: none; color: #3a5a80; cursor: pointer; font-size: 16px; padding: 6px 8px; border-radius: 4px; flex-shrink: 0; margin-left: 4px; transition: color 0.15s; min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; }
     .picker-remove:hover { color: #c8102e; }
+    .picker-remove:active { color: #c8102e; }
     .divider { height: 1px; background: #2e4a70; margin: 12px 0; flex-shrink: 0; }
     .new-flavor-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
-    .new-flavor-row input { flex: 1; min-width: 80px; padding: 6px 9px; font-size: 12px; font-family: 'Open Sans', sans-serif; border-radius: 4px; border: 1px solid #2e4a70; background: #12223a; color: #f5f0e8; }
+    .new-flavor-row input { flex: 1; min-width: 80px; padding: 10px 9px; font-size: 14px; font-family: 'Open Sans', sans-serif; border-radius: 6px; border: 1px solid #2e4a70; background: #12223a; color: #f5f0e8; min-height: 44px; }
     .new-flavor-row input::placeholder { color: #4a6a90; }
     .new-flavor-row input:focus { outline: none; border-color: #4a7ab5; }
-    .new-flavor-row select { padding: 6px 7px; font-size: 12px; border: 1px solid #2e4a70; border-radius: 4px; background: #12223a; color: #c5d8f0; font-family: 'Open Sans', sans-serif; }
+    .new-flavor-row select { padding: 10px 8px; font-size: 14px; border: 1px solid #2e4a70; border-radius: 6px; background: #12223a; color: #c5d8f0; font-family: 'Open Sans', sans-serif; min-height: 44px; }
   </style>
 </head>
 <body>
@@ -484,7 +490,7 @@ function buildRow(f) {
   // Target
   const tdTarget = document.createElement('td');
   const inp = document.createElement('input');
-  inp.type = 'number'; inp.min = 0; inp.value = f.target;
+  inp.type = 'number'; inp.min = 0; inp.value = f.target; inp.inputMode = 'numeric';
   inp.onchange = e => { activeFlavors[idx].target = parseInt(e.target.value) || 0; saveAll(); renderTable(); };
   tdTarget.appendChild(inp);
   tr.appendChild(tdTarget);
