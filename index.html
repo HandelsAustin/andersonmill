@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Count &amp; Run &mdash; Handel's Homemade Ice Cream</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0e1a2e; font-family: 'Open Sans', sans-serif; color: #f5f0e8; min-height: 100vh; }
+    #app { max-width: 980px; margin: 0 auto; background: #1a2744; min-height: 100vh; }
+
+    /* Header */
+    .app-header {
+      background: linear-gradient(135deg, #12223a 0%, #1a2f52 100%);
+      border-bottom: 3px solid #c8102e;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .header-left h1 { font-family: 'Playfair Display', serif; font-size: 26px; color: #f5f0e8; letter-spacing: 0.02em; }
+    .header-left h1 span { color: #c8102e; }
+    .header-sub { font-size: 11px; color: #8fa3be; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 3px; }
+    .header-logo { height: 52px; width: auto; flex-shrink: 0; display: block; }
+
+    .app-body { padding: 16px 24px; }
+
+    /* Toolbar */
+    .toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .btn {
+      font-family: 'Open Sans', sans-serif; font-size: 12px; font-weight: 600;
+      padding: 7px 13px; border-radius: 6px; border: 1.5px solid #2e4a70;
+      background: #1e3558; color: #c5d8f0; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px;
+      letter-spacing: 0.02em; transition: all 0.15s; text-decoration: none;
+    }
+    .btn:hover { background: #26436a; border-color: #4a7ab5; color: #e8f0fb; }
+    .btn-red { background: #7a0f1f; border-color: #a01525; color: #f5d0d5; }
+    .btn-red:hover { background: #921222; border-color: #c8102e; color: #ffe0e5; }
+    .btn-green { background: #0f4a2a; border-color: #1a7040; color: #b0f0ce; }
+    .btn-green:hover { background: #165e35; border-color: #22a05a; color: #c8ffd8; }
+    .btn label { cursor: pointer; display: flex; align-items: center; gap: 5px; }
+    .btn input[type=file] { display: none; }
+
+    /* Legend */
+    .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; padding: 8px 14px; background: #12223a; border-radius: 6px; border: 1px solid #2e4a70; }
+    .legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #8fa3be; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Run banner */
+    .run-banner { display: flex; align-items: center; justify-content: space-between; background: #0f3a1f; border: 1.5px solid #1a7040; border-radius: 6px; padding: 9px 14px; margin-bottom: 12px; font-size: 13px; color: #b0f0ce; gap: 10px; flex-wrap: wrap; }
+    .run-banner .btn { background: #12223a; border-color: #1a7040; color: #b0f0ce; font-size: 11px; padding: 4px 10px; }
+    .run-banner .btn:hover { background: #1a3a28; }
+
+    /* Main table */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+    col.col-flavor  { width: auto; }
+    col.col-type    { width: 60px; }
+    col.col-target  { width: 68px; }
+    col.col-dipping { width: 124px; }
+    col.col-holding { width: 76px; }
+    col.col-tomake  { width: 72px; }
+    col.col-action  { width: 36px; }
+    thead tr { background: #12223a; }
+    thead th { font-size: 11px; font-weight: 600; color: #8fa3be; text-align: left; padding: 8px; border-bottom: 2px solid #c8102e; white-space: nowrap; letter-spacing: 0.06em; text-transform: uppercase; user-select: none; }
+    tbody tr { border-left: 3px solid transparent; transition: background 0.1s; }
+    tbody tr:nth-child(even) { background: rgba(255,255,255,0.03); }
+    tbody tr:hover { background: rgba(100,160,255,0.08); }
+    tbody td { padding: 5px 8px; border-bottom: 1px solid #1e3558; vertical-align: middle; }
+
+    /* Flavor type colors */
+    .flavor-regular { color: #6ab0ff; font-weight: 500; }
+    .flavor-wo      { color: #a8d8f0; font-weight: 500; }
+    .flavor-td      { color: #ff7a7a; font-weight: 500; }
+
+    /* Type badge */
+    .type-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: #1e3558; border: 1px solid #2e4a70; display: inline-block; }
+
+    td select { font-family: 'Open Sans', sans-serif; font-size: 12px; padding: 4px 5px; border: 1px solid #2e4a70; border-radius: 4px; background: #12223a; color: #c5d8f0; cursor: pointer; width: 100%; }
+    td select:focus { outline: none; border-color: #4a7ab5; }
+    td input[type=number] { font-family: 'Open Sans', sans-serif; font-size: 12px; padding: 4px; border: 1px solid #2e4a70; border-radius: 4px; background: #12223a; color: #c5d8f0; width: 100%; text-align: center; }
+    td input[type=number]:focus { outline: none; border-color: #4a7ab5; }
+    .to-make { font-size: 1.05em; font-weight: 700; text-align: center; }
+    .to-make-needed { color: #ff6b6b; }
+    .to-make-ok     { color: #3a5a80; }
+    .btn-icon { background: transparent; border: none; padding: 4px; cursor: pointer; color: #3a5a80; font-size: 15px; transition: color 0.15s; }
+    .btn-icon:hover { color: #c8102e; }
+    .empty-state { text-align: center; padding: 2.5rem 1rem; color: #3a5a80; font-size: 13px; }
+
+    /* Modal */
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(10,18,35,0.88); z-index: 100; align-items: flex-start; justify-content: center; padding-top: 40px; }
+    .modal-backdrop.open { display: flex; }
+    .modal { background: #1a2f52; border-radius: 10px; border: 1.5px solid #2e4a70; width: 500px; max-width: calc(100vw - 24px); padding: 20px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); max-height: calc(100vh - 60px); display: flex; flex-direction: column; overflow: hidden; }
+    .modal h2 { font-family: 'Playfair Display', serif; font-size: 18px; color: #f5f0e8; margin-bottom: 10px; border-bottom: 2px solid #c8102e; padding-bottom: 8px; flex-shrink: 0; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-shrink: 0; }
+    .btn-primary { background: #c8102e; border-color: #e01535; color: #fff; }
+    .btn-primary:hover { background: #e01535; }
+    .section-label { font-size: 10px; font-weight: 700; color: #4a6a90; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; flex-shrink: 0; }
+    .search-wrap { margin-bottom: 6px; flex-shrink: 0; }
+    .search-wrap input { width: 100%; padding: 8px 11px; font-size: 13px; font-family: 'Open Sans', sans-serif; border-radius: 6px; border: 1.5px solid #2e4a70; background: #12223a; color: #f5f0e8; }
+    .search-wrap input::placeholder { color: #4a6a90; }
+    .search-wrap input:focus { outline: none; border-color: #4a7ab5; }
+    .picker-stats { font-size: 11px; color: #4a6a90; margin-bottom: 6px; flex-shrink: 0; }
+    .picker-list { overflow-y: auto; border: 1px solid #2e4a70; border-radius: 6px; background: #12223a; flex: 1; min-height: 0; }
+    .picker-list::-webkit-scrollbar { width: 6px; }
+    .picker-list::-webkit-scrollbar-track { background: #12223a; }
+    .picker-list::-webkit-scrollbar-thumb { background: #2e4a70; border-radius: 3px; }
+    .picker-item { padding: 8px 12px; font-size: 13px; display: flex; align-items: center; border-bottom: 1px solid #1e3558; user-select: none; }
+    .picker-item:last-child { border-bottom: none; }
+    .picker-item:hover { background: #253f65; }
+    .picker-item.active { background: #1a3a5c; border-left: 3px solid #22a05a; }
+    .picker-check { width: 20px; font-size: 13px; color: #22a05a; flex-shrink: 0; }
+    .picker-name { flex: 1; font-weight: 500; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .picker-type-badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #1e3558; border: 1px solid #2e4a70; flex-shrink: 0; min-width: 36px; text-align: center; }
+    .picker-remove { background: transparent; border: none; color: #3a5a80; cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 3px; flex-shrink: 0; margin-left: 6px; transition: color 0.15s; }
+    .picker-remove:hover { color: #c8102e; }
+    .divider { height: 1px; background: #2e4a70; margin: 12px 0; flex-shrink: 0; }
+    .new-flavor-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
+    .new-flavor-row input { flex: 1; min-width: 80px; padding: 6px 9px; font-size: 12px; font-family: 'Open Sans', sans-serif; border-radius: 4px; border: 1px solid #2e4a70; background: #12223a; color: #f5f0e8; }
+    .new-flavor-row input::placeholder { color: #4a6a90; }
+    .new-flavor-row input:focus { outline: none; border-color: #4a7ab5; }
+    .new-flavor-row select { padding: 6px 7px; font-size: 12px; border: 1px solid #2e4a70; border-radius: 4px; background: #12223a; color: #c5d8f0; font-family: 'Open Sans', sans-serif; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="app-header">
+    <div class="header-left">
+      <h1>Count <span>&amp;</span> Run</h1>
+      <div class="header-sub">Production Tool &mdash; Handel's Homemade Ice Cream</div>
+    </div>
+  </div>
+
+  <div class="app-body">
+    <div class="toolbar">
+      <button class="btn" onclick="openAddModal()">&#9998; Edit Flavors</button>
+      <button class="btn"><label>&#8679; Load Session<input type="file" accept=".txt,.tsv" onchange="loadSessionTSV(event)" onclick="this.value=null"></label></button>
+      <button class="btn" onclick="saveSessionTSV()">&#8681; Save Session</button>
+      <button class="btn btn-red" onclick="resetDay()">&#8635; Reset</button>
+      <button class="btn btn-green" onclick="calculateRun()">&#9998; Calculate Run</button>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#6ab0ff"></div> Regular</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a8d8f0"></div> Washout (WO)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ff7a7a"></div> Tear Down (TD)</div>
+    </div>
+
+    <div id="runBanner" style="display:none" class="run-banner">
+      <span id="runBannerMsg"></span>
+      <button class="btn" onclick="clearRunView()">&#10005; Show All</button>
+    </div>
+
+    <table>
+      <colgroup>
+        <col class="col-flavor">
+        <col class="col-type">
+        <col class="col-target">
+        <col class="col-dipping">
+        <col class="col-holding">
+        <col class="col-tomake">
+        <col class="col-action">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Flavor</th>
+          <th>Type</th>
+          <th style="text-align:center">Target</th>
+          <th>In Dipping</th>
+          <th style="text-align:center">Holding</th>
+          <th style="text-align:center">To Make</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="mainTbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal -->
+<div id="modalBackdrop" class="modal-backdrop" onclick="backdropClick(event)">
+  <div class="modal">
+    <h2>Edit Today's Flavors</h2>
+    <p class="section-label">Click a flavor to add/remove from today's list &middot; &#128465; removes from roster</p>
+    <div class="search-wrap">
+      <input type="text" id="pickerSearch" placeholder="Search flavors&hellip;" oninput="renderPicker()">
+    </div>
+    <div id="pickerStats" class="picker-stats"></div>
+    <div class="picker-list" id="pickerList"></div>
+    <div class="divider"></div>
+    <p class="section-label">Add a custom flavor to roster</p>
+    <div class="new-flavor-row">
+      <input type="text" id="newFlavorName" placeholder="Flavor name&hellip;">
+      <select id="newFlavorType">
+        <option value="">Regular</option>
+        <option value="WO">WO</option>
+        <option value="TD">TD</option>
+      </select>
+      <button class="btn" onclick="addNewToRoster()">+ Add</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MASTER ROSTER (baked in from FlavorOrder.csv) ──────────────────────────
+// category is stored internally for run-sort; never shown to user
+const MASTER_ROSTER = [
+  {category:"90300",  name:"Banana",                           type:"TD"},
+  {category:"90301",  name:"Banana Cream Pie",                 type:"TD"},
+  {category:"701",    name:"Birthday Cake",                    type:""},
+  {category:"600",    name:"Black Cherry",                     type:""},
+  {category:"603",    name:"Black Raspberry",                  type:""},
+  {category:"604",    name:"Black Raspberry Chunk",            type:""},
+  {category:"1850",   name:"Black Walnut",                     type:"WO"},
+  {category:"105",    name:"Blueberry Cobbler",                type:""},
+  {category:"82300",  name:"Blue Monster",                     type:"WO"},
+  {category:"94000",  name:"Blue Moon",                        type:"WO"},
+  {category:"ICE81800",name:"Blue Moon Ice",                   type:"WO"},
+  {category:"802",    name:"Blueberry Cheesecake Chunk",       type:""},
+  {category:"90500",  name:"Buckeye",                          type:"TD"},
+  {category:"201",    name:"Butter Fudge",                     type:""},
+  {category:"121",    name:"Butter Pecan",                     type:""},
+  {category:"103",    name:"Butterscotch Ripple",              type:""},
+  {category:"700",    name:"Cake Batter",                      type:""},
+  {category:"903",    name:"Caramel Latte",                    type:""},
+  {category:"1301",   name:"Carmel Apple",                     type:""},
+  {category:"901",    name:"Carmel Pretzel Crunch",            type:""},
+  {category:"93003",  name:"Carrot Cake",                      type:"TD"},
+  {category:"800",    name:"Cheesecake with Oreo",             type:""},
+  {category:"92800",  name:"Cherry Cordial",                   type:"TD"},
+  {category:"601",    name:"Cherry Magnolia",                  type:""},
+  {category:"111",    name:"Cherry Vanilla",                   type:""},
+  {category:"214",    name:"Chocoholic Chunk",                 type:""},
+  {category:"215",    name:"Chocoholic Peanut Butter Ripple",  type:""},
+  {category:"217",    name:"Chocoholic Raspberry Truffle",     type:""},
+  {category:"205",    name:"Chocolate",                        type:""},
+  {category:"202",    name:"Chocolate Almond",                 type:""},
+  {category:"703",    name:"Chocolate Cake Batter",            type:""},
+  {category:"805",    name:"Chocolate Chip Cheesecake Chunk",  type:""},
+  {category:"108",    name:"Chocolate Chip Cookie Dough",      type:""},
+  {category:"200",    name:"Chocolate Malt with Carmel",       type:""},
+  {category:"209",    name:"Chocolate Marshmellow",            type:""},
+  {category:"301",    name:"Chocolate Orange",                 type:""},
+  {category:"213",    name:"Chocolate Oree-Dough",             type:""},
+  {category:"211",    name:"Chocolate Peanut Butter Brownie",  type:""},
+  {category:"207",    name:"Chocolate Pecan",                  type:""},
+  {category:"212",    name:"Chocolate with Oreo",              type:""},
+  {category:"113",    name:"Chuncky Chocolate Chip",           type:""},
+  {category:"406",    name:"Chunky Mint Chip",                 type:""},
+  {category:"82400",  name:"Cinnaman Graham Cracker",          type:"WO"},
+  {category:"92900",  name:"Cinnaman Pecan",                   type:""},
+  {category:"702",    name:"Cinnaman Roll",                    type:"WO"},
+  {category:"91003",  name:"Coconut Almond Fudge Ripple",      type:"TD"},
+  {category:"91001",  name:"Coconut Carmel Delight",           type:"TD"},
+  {category:"91000",  name:"Coconut Cream Pie",                type:"TD"},
+  {category:"91004",  name:"Coconut Pineapple",                type:"TD"},
+  {category:"122",    name:"Coffee",                           type:""},
+  {category:"123",    name:"Coffee Chocolate Chip",            type:""},
+  {category:"124",    name:"Coffee with Heath",                type:""},
+  {category:"218",    name:"Confetti Brownie Batter",          type:""},
+  {category:"81900",  name:"Cotton Candy",                     type:"WO"},
+  {category:"1300",   name:"Deep Dish Apple Pie",              type:""},
+  {category:"900",    name:"Dulce De Leche",                   type:""},
+  {category:"1700",   name:"Egg Nog",                          type:"WO"},
+  {category:"90302",  name:"Elvis",                            type:"TD"},
+  {category:"204",    name:"French Silk Pie",                  type:""},
+  {category:"710",    name:"Frosted Animal Cookie",            type:"WO"},
+  {category:"106",    name:"Fudge Ripple",                     type:""},
+  {category:"107",    name:"Fudge Ripple Brownie",             type:""},
+  {category:"83200",  name:"Gingerbread Cookie",               type:"WO"},
+  {category:"1102",   name:"Graham Canyon",                    type:""},
+  {category:"1100",   name:"Graham Central Station",           type:""},
+  {category:"602",    name:"Grape",                            type:""},
+  {category:"94100",  name:"Green Monster",                    type:""},
+  {category:"300",    name:"Green Tea",                        type:""},
+  {category:"206",    name:"Heavenly Hash",                    type:""},
+  {category:"83100",  name:"Horchata",                         type:"WO"},
+  {category:"82500",  name:"Key Lime Pie",                     type:"WO"},
+  {category:"82600",  name:"Lemon Bar",                        type:"WO"},
+  {category:"ICE81000",name:"Lemon Ice",                       type:"WO"},
+  {category:"SO82200",name:"Mango Sorbet",                     type:"TD"},
+  {category:"91002",  name:"Meri's Joy",                       type:"TD"},
+  {category:"216",    name:"Midnight Madness",                 type:""},
+  {category:"407",    name:"Mint Chocolate Chip",              type:""},
+  {category:"405",    name:"Mint with Oreo",                   type:""},
+  {category:"SO82400",name:"Mixed Berry Sorbet",               type:"TD"},
+  {category:"125",    name:"Mocha Almond Fudge Ripple",        type:""},
+  {category:"90304",  name:"Monkey Business",                  type:"TD"},
+  {category:"126",    name:"Mud Pie",                          type:""},
+  {category:"801",    name:"New York Style Cheesecake",        type:""},
+  {category:"1503",   name:"NSA Banana Fudge",                 type:""},
+  {category:"1502",   name:"NSA Butter Pecan",                 type:""},
+  {category:"1501",   name:"NSA Chocolate Ripple",             type:""},
+  {category:"1600",   name:"NSA Coffee",                       type:""},
+  {category:"1601",   name:"NSA Coffee Chocolate Ripple",      type:""},
+  {category:"1504",   name:"NSA Strawberry Banana",            type:""},
+  {category:"1500",   name:"NSA Vanilla",                      type:""},
+  {category:"93001",  name:"Orange Dream Cream",               type:"TD"},
+  {category:"92750",  name:"Orange Pineapple",                 type:"TD"},
+  {category:"93000",  name:"Orange Sherbet",                   type:"TD"},
+  {category:"110",    name:"Oree-Dough",                       type:""},
+  {category:"93200",  name:"Peach",                            type:"TD"},
+  {category:"90501",  name:"Peanut Butter",                    type:"TD"},
+  {category:"90503",  name:"Peanut Butter and Jelly",          type:"TD"},
+  {category:"203",    name:"Peanut Butter Parfait",            type:""},
+  {category:"403",    name:"Peppermint Bark",                  type:""},
+  {category:"402",    name:"Peppermint Stick",                 type:""},
+  {category:"92700",  name:"Pineapple Upside Down Cake",       type:"TD"},
+  {category:"SH82800",name:"Pink Champagne Shebet",            type:"WO"},
+  {category:"82700",  name:"Pink Lemonaide",                   type:"WO"},
+  {category:"401",    name:"Pistachio",                        type:""},
+  {category:"SO82500",name:"Pomegranate Sorbet",               type:"TD"},
+  {category:"102",    name:"Praline Pecan",                    type:""},
+  {category:"1403",   name:"Pumpkin Cheesecake",               type:""},
+  {category:"1402",   name:"Pumpkin Pecan",                    type:""},
+  {category:"1400",   name:"Pumpkin Pie",                      type:""},
+  {category:"1401",   name:"Pumpkin Ripple",                   type:""},
+  {category:"804",    name:"Raspberry Cheesecake Chunk",       type:""},
+  {category:"9302",   name:"Raspberry Dream Cream",            type:"TD"},
+  {category:"720",    name:"Raspberry Sheet Cake",             type:"WO"},
+  {category:"SH82900",name:"Red Raspberry Sherbet",            type:"WO"},
+  {category:"1900",   name:"Rocky Mocha Blast",                type:"WO"},
+  {category:"210",    name:"Rocky Road",                       type:""},
+  {category:"1101",   name:"S'Mores",                          type:""},
+  {category:"902",    name:"Salty Carmel Truffle",             type:""},
+  {category:"208",    name:"Snappy Turtle",                    type:""},
+  {category:"1800",   name:"Snickerdoodle",                    type:"WO"},
+  {category:"90502",  name:"Snix",                             type:"TD"},
+  {category:"100",    name:"Soft Vanilla",                     type:""},
+  {category:"ICE81100",name:"Sour Green Apple Ice",            type:"WO"},
+  {category:"81200",  name:"Spouse Like A House",              type:"WO"},
+  {category:"90504",  name:"Sticky Fingers",                   type:"TD"},
+  {category:"92000",  name:"Strawberry",                       type:"TD"},
+  {category:"803",    name:"Strawberry Cheesecake Chunk",      type:""},
+  {category:"SO82300",name:"Strawberry Sorbet",                type:"TD"},
+  {category:"2000",   name:"Taro",                             type:"WO"},
+  {category:"94200",  name:"Tiger Stripes",                    type:""},
+  {category:"104",    name:"Tin Lizzy",                        type:""},
+  {category:"400",    name:"Toasted Almond",                   type:""},
+  {category:"112",    name:"Twixter",                          type:""},
+  {category:"101",    name:"Vanilla",                          type:""},
+  {category:"114",    name:"Vanilla Carmel Brownie",           type:""},
+  {category:"115",    name:"Vanilla Carmel Truffle",           type:""},
+  {category:"118",    name:"Vanilla Peanut Butter Chip",       type:""},
+  {category:"119",    name:"Vanilla Peanut Butter Ripple",     type:""},
+  {category:"SO82600",name:"Vanilla Pineapple Sornet",         type:"TD"},
+  {category:"116",    name:"Vanilla Raspberrey Chip",          type:""},
+  {category:"117",    name:"Vanilla Turtle",                   type:""},
+  {category:"109",    name:"Vanilla with Oreo",                type:""},
+  {category:"120",    name:"Vanilla with Reese's Peanut Butter Cup", type:""},
+  {category:"ICE82100",name:"Watermelon Ice",                  type:"WO"},
+];
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let roster = [];        // full list (MASTER_ROSTER + any user-added)
+let activeFlavors = []; // flavors on today's list
+let runMode = false;
+
+// ── CATEGORY SORT ──────────────────────────────────────────────────────────
+// Converts a category string to a numeric-sortable value.
+// Pure-numeric categories sort numerically; alphanumeric sort lexically after.
+function categorySort(cat) {
+  const s = String(cat || '');
+  const n = Number(s);
+  if (!isNaN(n) && s.trim() !== '') return n;
+  // prefix letters → push after numerics by adding a large base
+  return 1e9 + s.charCodeAt(0) * 1e6 + (parseInt(s.replace(/\D/g,'')) || 0);
+}
+
+// ── PERSISTENCE ────────────────────────────────────────────────────────────
+function saveAll() {
+  // Only save additions/removals from the master roster and active list
+  const customAdded = roster.filter(r => !MASTER_ROSTER.find(m => m.name === r.name));
+  const removedNames = MASTER_ROSTER.filter(m => !roster.find(r => r.name === m.name)).map(m => m.name);
+  localStorage.setItem('car_custom', JSON.stringify(customAdded));
+  localStorage.setItem('car_removed', JSON.stringify(removedNames));
+  localStorage.setItem('car_active', JSON.stringify(activeFlavors));
+}
+
+function loadAll() {
+  // Rebuild roster from master + user additions - user removals
+  let removed = [];
+  let custom = [];
+  try { removed = JSON.parse(localStorage.getItem('car_removed') || '[]'); } catch(e) {}
+  try { custom = JSON.parse(localStorage.getItem('car_custom') || '[]'); } catch(e) {}
+  roster = [
+    ...MASTER_ROSTER.filter(m => !removed.includes(m.name)),
+    ...custom
+  ];
+  try { activeFlavors = JSON.parse(localStorage.getItem('car_active') || '[]'); } catch(e) { activeFlavors = []; }
+  // Sync type/category from roster in case roster changed
+  activeFlavors = activeFlavors.map(f => {
+    const r = roster.find(x => x.name === f.name);
+    return r ? { ...f, category: r.category, type: r.type } : f;
+  }).filter(f => roster.find(x => x.name === f.name));
+}
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+function toMake(f) {
+  return Math.max(0, (parseInt(f.target) || 0) - Math.round((Number(f.dipping) || 0) - 0.1) - (parseInt(f.holding) || 0));
+}
+
+function typeColor(type) {
+  if (type === 'TD') return '#ff7a7a';
+  if (type === 'WO') return '#a8d8f0';
+  return '#6ab0ff';
+}
+
+function flavorClass(f) {
+  const t = (f.type || '').toUpperCase();
+  if (t === 'WO') return 'flavor-wo';
+  if (t === 'TD') return 'flavor-td';
+  return 'flavor-regular';
+}
+
+// Sort: alphabetical normally; by category number in run mode
+function getSorted(list) {
+  return [...list].sort((a, b) => {
+    if (runMode) return categorySort(a.category) - categorySort(b.category);
+    return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+  });
+}
+
+// ── DROPDOWNS ──────────────────────────────────────────────────────────────
+const DIPPING_OPTIONS = [
+  {label:'—', value:0},
+  {label:'¼ bucket', value:0.25},
+  {label:'½ bucket', value:0.5},
+  {label:'¾ bucket', value:0.75},
+  {label:'Full bucket', value:1},
+];
+const HOLDING_OPTIONS = [
+  {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
+  {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},
+];
+
+function makeSelect(options, currentVal, fn) {
+  const sel = document.createElement('select');
+  options.forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (Number(currentVal) === opt.value) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = e => fn(Number(e.target.value));
+  return sel;
+}
+
+// ── TABLE ──────────────────────────────────────────────────────────────────
+function buildRow(f) {
+  const idx = activeFlavors.findIndex(x => x.name === f.name);
+  const tr = document.createElement('tr');
+  const tm = toMake(f);
+  const color = typeColor(f.type);
+
+  // Flavor name — colored by type, no category shown
+  const tdName = document.createElement('td');
+  tdName.style.cssText = 'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  const sp = document.createElement('span');
+  sp.className = flavorClass(f);
+  sp.textContent = f.name;
+  tdName.appendChild(sp);
+  tr.appendChild(tdName);
+
+  // Type badge — colored by type
+  const tdType = document.createElement('td');
+  const badge = document.createElement('span');
+  badge.className = 'type-badge';
+  badge.style.color = color;
+  badge.textContent = f.type || '—';
+  tdType.appendChild(badge);
+  tr.appendChild(tdType);
+
+  // Target
+  const tdTarget = document.createElement('td');
+  const inp = document.createElement('input');
+  inp.type = 'number'; inp.min = 0; inp.value = f.target;
+  inp.onchange = e => { activeFlavors[idx].target = parseInt(e.target.value) || 0; saveAll(); renderTable(); };
+  tdTarget.appendChild(inp);
+  tr.appendChild(tdTarget);
+
+  // In Dipping
+  const tdDip = document.createElement('td');
+  tdDip.appendChild(makeSelect(DIPPING_OPTIONS, f.dipping, val => { activeFlavors[idx].dipping = val; saveAll(); renderTable(); }));
+  tr.appendChild(tdDip);
+
+  // Holding
+  const tdHold = document.createElement('td');
+  tdHold.appendChild(makeSelect(HOLDING_OPTIONS, f.holding, val => { activeFlavors[idx].holding = val; saveAll(); renderTable(); }));
+  tr.appendChild(tdHold);
+
+  // To Make
+  const tdTM = document.createElement('td');
+  tdTM.className = 'to-make ' + (tm > 0 ? 'to-make-needed' : 'to-make-ok');
+  tdTM.textContent = tm;
+  tr.appendChild(tdTM);
+
+  // Remove from today
+  const tdAct = document.createElement('td');
+  const btn = document.createElement('button');
+  btn.className = 'btn-icon'; btn.textContent = '🗑'; btn.title = 'Remove from today\'s list';
+  btn.onclick = () => removeFromActive(activeFlavors.findIndex(x => x.name === f.name));
+  tdAct.appendChild(btn);
+  tr.appendChild(tdAct);
+
+  return tr;
+}
+
+function renderTable() {
+  const tbody = document.getElementById('mainTbody');
+  tbody.innerHTML = '';
+  const list = runMode ? activeFlavors.filter(f => toMake(f) > 0) : activeFlavors;
+  const sorted = getSorted(list);
+  if (!sorted.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${
+      runMode
+        ? '🎉 Nothing to make — all flavors are fully stocked!'
+        : 'No flavors on today\'s list. Click "Edit Flavors" to get started.'
+    }</td></tr>`;
+    return;
+  }
+  sorted.forEach(f => tbody.appendChild(buildRow(f)));
+}
+
+function removeFromActive(idx) {
+  if (idx < 0) return;
+  activeFlavors.splice(idx, 1);
+  saveAll(); renderTable();
+}
+
+// ── RUN MODE ───────────────────────────────────────────────────────────────
+function calculateRun() {
+  runMode = true;
+  const needed = activeFlavors.filter(f => toMake(f) > 0);
+  const total = needed.reduce((s, f) => s + toMake(f), 0);
+  document.getElementById('runBannerMsg').textContent =
+    `${needed.length} flavor${needed.length !== 1 ? 's' : ''} to make — ${total} bucket${total !== 1 ? 's' : ''} total. Sorted by category order.`;
+  document.getElementById('runBanner').style.display = 'flex';
+  renderTable();
+}
+
+function clearRunView() {
+  runMode = false;
+  document.getElementById('runBanner').style.display = 'none';
+  renderTable();
+}
+
+function resetDay() {
+  if (!confirm('Reset for today?\n\nThis will clear all Dipping and Holding counts and return to A–Z sort.')) return;
+  activeFlavors.forEach(f => { f.dipping = 0; f.holding = 0; });
+  runMode = false;
+  document.getElementById('runBanner').style.display = 'none';
+  saveAll(); renderTable();
+}
+
+// ── MODAL / PICKER ─────────────────────────────────────────────────────────
+function openAddModal() {
+  document.getElementById('pickerSearch').value = '';
+  document.getElementById('newFlavorName').value = '';
+  document.getElementById('newFlavorType').value = '';
+  document.getElementById('modalBackdrop').classList.add('open');
+  renderPicker();
+  setTimeout(() => document.getElementById('pickerSearch').focus(), 60);
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('open');
+  renderTable();
+}
+
+function backdropClick(e) {
+  if (e.target === document.getElementById('modalBackdrop')) closeModal();
+}
+
+function toggleFlavor(name) {
+  const idx = activeFlavors.findIndex(f => f.name === name);
+  if (idx >= 0) {
+    activeFlavors.splice(idx, 1);
+  } else {
+    const r = roster.find(r => r.name === name);
+    activeFlavors.push({ name, category: r ? r.category : '', type: r ? r.type || '' : '', target: 0, dipping: 0, holding: 0 });
+  }
+  saveAll(); renderPicker();
+}
+
+function removeFromRoster(name) {
+  if (!confirm(`Remove "${name}" from the roster permanently?`)) return;
+  roster = roster.filter(r => r.name !== name);
+  activeFlavors = activeFlavors.filter(f => f.name !== name);
+  saveAll(); renderPicker();
+}
+
+function renderPicker() {
+  const q = document.getElementById('pickerSearch').value.toLowerCase();
+  const activeNames = new Set(activeFlavors.map(f => f.name));
+  const items = roster
+    .filter(r => r.name.toLowerCase().includes(q))
+    .sort((a, b) => {
+      const aOn = activeNames.has(a.name), bOn = activeNames.has(b.name);
+      if (aOn && !bOn) return -1;
+      if (!aOn && bOn) return 1;
+      return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    });
+
+  document.getElementById('pickerStats').textContent =
+    `${activeFlavors.length} on today's list · ${roster.length} in roster`;
+
+  const list = document.getElementById('pickerList');
+  list.innerHTML = '';
+
+  if (!items.length) {
+    const e = document.createElement('div');
+    e.className = 'picker-empty';
+    e.style.cssText = 'padding:1rem;font-size:12px;color:#4a6a90;text-align:center;';
+    e.textContent = q ? 'No matches found' : 'Roster is empty';
+    list.appendChild(e);
+    return;
+  }
+
+  items.forEach(r => {
+    const isActive = activeNames.has(r.name);
+    const color = typeColor(r.type);
+
+    const div = document.createElement('div');
+    div.className = 'picker-item' + (isActive ? ' active' : '');
+
+    // Checkmark
+    const check = document.createElement('span');
+    check.className = 'picker-check';
+    check.textContent = isActive ? '✓' : '';
+    div.appendChild(check);
+
+    // Name — colored by type, no category shown
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'picker-name';
+    nameSpan.style.color = color;
+    nameSpan.textContent = r.name;
+    nameSpan.addEventListener('click', () => toggleFlavor(r.name));
+    div.appendChild(nameSpan);
+
+    // Type badge — colored by type
+    const typeBadge = document.createElement('span');
+    typeBadge.className = 'picker-type-badge';
+    typeBadge.style.color = color;
+    typeBadge.textContent = r.type || '—';
+    div.appendChild(typeBadge);
+
+    // Remove from roster
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'picker-remove';
+    removeBtn.textContent = '🗑';
+    removeBtn.title = 'Remove from roster';
+    removeBtn.addEventListener('click', e => { e.stopPropagation(); removeFromRoster(r.name); });
+    div.appendChild(removeBtn);
+
+    list.appendChild(div);
+  });
+}
+
+function addNewToRoster() {
+  const name = document.getElementById('newFlavorName').value.trim();
+  const type = document.getElementById('newFlavorType').value;
+  if (!name) { document.getElementById('newFlavorName').focus(); return; }
+  if (roster.find(r => r.name.toLowerCase() === name.toLowerCase())) {
+    alert(`"${name}" is already in the roster.`); return;
+  }
+  // Custom flavors get a high category number so they sort to the end in run mode
+  roster.push({ name, category: '99999', type });
+  saveAll(); renderPicker();
+}
+
+// ── SESSION SAVE / LOAD ────────────────────────────────────────────────────
+function saveSessionTSV() {
+  const headers = ['Flavor', 'Category', 'Type', 'Target', 'In Dipping', 'In Holding', 'To Make'];
+  const lines = activeFlavors.map(f =>
+    [f.name, f.category, f.type, f.target, f.dipping, f.holding, toMake(f)].join('\t')
+  );
+  const tsv = [headers.join('\t'), ...lines].join('\n');
+  const today = new Date();
+  const d = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([tsv], {type:'text/tab-separated-values'}));
+  a.download = `count_and_run-${d}.txt`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function loadSessionTSV(event) {
+  const file = event.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result.trim().split(/\r?\n/);
+    if (lines.length < 2) { alert('File has no data rows.'); return; }
+    activeFlavors = [];
+    for (let i = 1; i < lines.length; i++) {
+      const c = lines[i].split('\t'); if (!c[0]) continue;
+      const rEntry = roster.find(r => r.name.toLowerCase() === c[0].toLowerCase());
+      const flavor = {
+        name: c[0],
+        category: rEntry ? rEntry.category : (c[1] || '99999'),
+        type: rEntry ? rEntry.type || '' : (c[2] || ''),
+        target: parseInt(c[3]) || 0,
+        dipping: Number(c[4]) || 0,
+        holding: parseInt(c[5]) || 0,
+      };
+      activeFlavors.push(flavor);
+      if (!rEntry) roster.push({ name: c[0], category: flavor.category, type: flavor.type });
+    }
+    saveAll(); renderTable();
+  };
+  reader.readAsText(file);
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+loadAll();
+renderTable();
+</script>
+</body>
+</html>
