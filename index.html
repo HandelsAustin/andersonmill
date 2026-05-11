@@ -63,11 +63,29 @@
     table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
     col.col-flavor  { width: auto; }
     col.col-type    { width: 60px; }
-    col.col-target  { width: 68px; }
+    col.col-target  { width: 76px; }
     col.col-dipping { width: 124px; }
     col.col-holding { width: 76px; }
     col.col-tomake  { width: 72px; }
-    col.col-action  { width: 36px; }
+
+    @media print {
+      body { background: #fff; color: #000; }
+      #app { background: #fff; max-width: 100%; }
+      .app-header { background: #fff !important; border-bottom: 2px solid #c8102e; padding: 8px 16px; }
+      .app-header h1 { color: #000; font-size: 20px; }
+      .header-sub { color: #444; }
+      .handels-logo { mix-blend-mode: normal; filter: invert(1); height: 36px; }
+      .toolbar, .legend, #runBanner, .modal-backdrop { display: none !important; }
+      table { font-size: 12px; }
+      thead th { color: #000; border-bottom: 2px solid #c8102e; }
+      tbody tr { border-left: none !important; }
+      tbody td { color: #000; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+      .flavor-regular, .flavor-wo, .flavor-td { color: #000 !important; }
+      .type-badge { color: #000 !important; background: #eee; }
+      .to-make-needed { color: #c00 !important; font-weight: 700; }
+      .to-make-ok { color: #666 !important; }
+      select { appearance: none; border: none; background: transparent; font-size: 12px; color: #000; }
+    }
     thead tr { background: #12223a; }
     thead th { font-size: 12px; font-weight: 600; color: #8fa3be; text-align: left; padding: 10px 8px; border-bottom: 2px solid #c8102e; white-space: nowrap; letter-spacing: 0.06em; text-transform: uppercase; user-select: none; }
     tbody tr { border-left: 3px solid transparent; transition: background 0.1s; }
@@ -145,11 +163,10 @@
 
   <div class="app-body">
     <div class="toolbar">
-      <button class="btn" onclick="openAddModal()">&#9998; Edit Flavors</button>
-      <button class="btn"><label>&#8679; Load Session<input type="file" accept=".txt,.tsv" onchange="loadSessionTSV(event)" onclick="this.value=null"></label></button>
-      <button class="btn" onclick="saveSessionTSV()">&#8681; Save Session</button>
+      <button class="btn" onclick="openAddModal()">&#9776; Edit Flavors</button>
       <button class="btn btn-red" onclick="resetDay()">&#8635; Reset</button>
-      <button class="btn btn-green" onclick="calculateRun()">&#9998; Calculate Run</button>
+      <button class="btn btn-green" onclick="calculateRun()">&#9654; Calculate Run</button>
+      <button class="btn" onclick="printRun()" id="printBtn" style="display:none">&#128438; Print Run</button>
     </div>
 
     <div class="legend">
@@ -171,7 +188,6 @@
         <col class="col-dipping">
         <col class="col-holding">
         <col class="col-tomake">
-        <col class="col-action">
       </colgroup>
       <thead>
         <tr>
@@ -181,7 +197,6 @@
           <th>In Dipping</th>
           <th style="text-align:center">Holding</th>
           <th style="text-align:center">To Make</th>
-          <th></th>
         </tr>
       </thead>
       <tbody id="mainTbody"></tbody>
@@ -446,7 +461,8 @@ const DIPPING_OPTIONS = [
 ];
 const HOLDING_OPTIONS = [
   {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
-  {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},
+  {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
+  {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
 ];
 
 function makeSelect(options, currentVal, fn) {
@@ -469,9 +485,10 @@ function buildRow(f) {
   const tm = toMake(f);
   const color = typeColor(f.type);
 
-  // Flavor name — colored by type, no category shown
+  // Flavor name — colored by type, with full name as tooltip
   const tdName = document.createElement('td');
   tdName.style.cssText = 'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  tdName.title = f.name;
   const sp = document.createElement('span');
   sp.className = flavorClass(f);
   sp.textContent = f.name;
@@ -487,12 +504,14 @@ function buildRow(f) {
   tdType.appendChild(badge);
   tr.appendChild(tdType);
 
-  // Target
+  // Target — dropdown 1–10
+  const TARGET_OPTIONS = [
+    {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
+    {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
+    {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
+  ];
   const tdTarget = document.createElement('td');
-  const inp = document.createElement('input');
-  inp.type = 'number'; inp.min = 0; inp.value = f.target; inp.inputMode = 'numeric';
-  inp.onchange = e => { activeFlavors[idx].target = parseInt(e.target.value) || 0; saveAll(); renderTable(); };
-  tdTarget.appendChild(inp);
+  tdTarget.appendChild(makeSelect(TARGET_OPTIONS, f.target, val => { activeFlavors[idx].target = val; saveAll(); renderTable(); }));
   tr.appendChild(tdTarget);
 
   // In Dipping
@@ -505,19 +524,11 @@ function buildRow(f) {
   tdHold.appendChild(makeSelect(HOLDING_OPTIONS, f.holding, val => { activeFlavors[idx].holding = val; saveAll(); renderTable(); }));
   tr.appendChild(tdHold);
 
-  // To Make
+  // To Make — show ✓ when stocked
   const tdTM = document.createElement('td');
   tdTM.className = 'to-make ' + (tm > 0 ? 'to-make-needed' : 'to-make-ok');
-  tdTM.textContent = tm;
+  tdTM.textContent = tm > 0 ? tm : '✓';
   tr.appendChild(tdTM);
-
-  // Remove from today
-  const tdAct = document.createElement('td');
-  const btn = document.createElement('button');
-  btn.className = 'btn-icon'; btn.textContent = '🗑'; btn.title = 'Remove from today\'s list';
-  btn.onclick = () => removeFromActive(activeFlavors.findIndex(x => x.name === f.name));
-  tdAct.appendChild(btn);
-  tr.appendChild(tdAct);
 
   return tr;
 }
@@ -528,7 +539,7 @@ function renderTable() {
   const list = runMode ? activeFlavors.filter(f => toMake(f) > 0) : activeFlavors;
   const sorted = getSorted(list);
   if (!sorted.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${
       runMode
         ? '🎉 Nothing to make — all flavors are fully stocked!'
         : 'No flavors on today\'s list. Click "Edit Flavors" to get started.'
@@ -552,12 +563,70 @@ function calculateRun() {
   document.getElementById('runBannerMsg').textContent =
     `${needed.length} flavor${needed.length !== 1 ? 's' : ''} to make — ${total} bucket${total !== 1 ? 's' : ''} total. Sorted by category order.`;
   document.getElementById('runBanner').style.display = 'flex';
+  document.getElementById('printBtn').style.display = '';
   renderTable();
+}
+
+function printRun() {
+  const needed = activeFlavors.filter(f => toMake(f) > 0);
+  const sorted = getSorted(needed);
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+  let rows = sorted.map(f => {
+    const tm = toMake(f);
+    const dipLabel = DIPPING_OPTIONS.find(o => Number(o.value) === Number(f.dipping))?.label || '—';
+    const holdLabel = f.holding > 0 ? f.holding : '—';
+    return `<tr>
+      <td>${f.name}</td>
+      <td style="text-align:center">${f.type || '—'}</td>
+      <td style="text-align:center">${f.target || '—'}</td>
+      <td style="text-align:center">${dipLabel}</td>
+      <td style="text-align:center">${holdLabel}</td>
+      <td style="text-align:center;font-weight:700;color:#c00">${tm}</td>
+    </tr>`;
+  }).join('');
+
+  const total = sorted.reduce((s, f) => s + toMake(f), 0);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Run Sheet — ${today}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 13px; margin: 24px; color: #000; }
+    h2 { margin: 0 0 4px; font-size: 18px; }
+    p { margin: 0 0 16px; color: #555; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 6px 8px; border-bottom: 2px solid #c8102e; color: #444; }
+    td { padding: 7px 8px; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    .summary { margin-top: 16px; font-size: 13px; font-weight: bold; text-align: right; }
+  </style></head><body>
+  <h2>Handel's — Production Run</h2>
+  <p>${today}</p>
+  <table>
+    <thead><tr>
+      <th>Flavor</th><th style="text-align:center">Type</th>
+      <th style="text-align:center">Target</th><th style="text-align:center">In Dipping</th>
+      <th style="text-align:center">Holding</th><th style="text-align:center">To Make</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="summary">${sorted.length} flavor${sorted.length !== 1 ? 's' : ''} &nbsp;|&nbsp; ${total} bucket${total !== 1 ? 's' : ''} total</div>
+  <script>window.onload = function(){ window.print(); }<\/script>
+  </body></html>`;
+
+  const w = window.open('', '_blank', 'width=800,height=600');
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+  } else {
+    alert('Please allow pop-ups for this page to print the run sheet.');
+  }
 }
 
 function clearRunView() {
   runMode = false;
   document.getElementById('runBanner').style.display = 'none';
+  document.getElementById('printBtn').style.display = 'none';
   renderTable();
 }
 
@@ -599,11 +668,52 @@ function toggleFlavor(name) {
   saveAll(); renderPicker();
 }
 
+let pendingRosterDelete = null;
+let undoTimer = null;
+
 function removeFromRoster(name) {
-  if (!confirm(`Remove "${name}" from the roster permanently?`)) return;
+  // Stage deletion — show undo toast for 5 seconds
+  if (undoTimer) { clearTimeout(undoTimer); commitRosterDelete(); }
+  pendingRosterDelete = { name, roster: [...roster], active: [...activeFlavors] };
   roster = roster.filter(r => r.name !== name);
   activeFlavors = activeFlavors.filter(f => f.name !== name);
   saveAll(); renderPicker();
+  showUndoToast(`"${name}" removed.`);
+  undoTimer = setTimeout(() => { commitRosterDelete(); }, 5000);
+}
+
+function commitRosterDelete() {
+  pendingRosterDelete = null;
+  undoTimer = null;
+  hideUndoToast();
+}
+
+function undoRosterDelete() {
+  if (!pendingRosterDelete) return;
+  clearTimeout(undoTimer);
+  roster = pendingRosterDelete.roster;
+  activeFlavors = pendingRosterDelete.active;
+  pendingRosterDelete = null;
+  undoTimer = null;
+  saveAll(); renderPicker();
+  hideUndoToast();
+}
+
+function showUndoToast(msg) {
+  let t = document.getElementById('undoToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'undoToast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2f52;border:1.5px solid #4a7ab5;color:#c5d8f0;padding:12px 18px;border-radius:8px;display:flex;align-items:center;gap:14px;z-index:200;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
+    document.body.appendChild(t);
+  }
+  t.innerHTML = `<span>${msg}</span><button onclick="undoRosterDelete()" style="background:#c8102e;border:none;color:#fff;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;touch-action:manipulation;">Undo</button>`;
+  t.style.display = 'flex';
+}
+
+function hideUndoToast() {
+  const t = document.getElementById('undoToast');
+  if (t) t.style.display = 'none';
 }
 
 function renderPicker() {
@@ -683,47 +793,6 @@ function addNewToRoster() {
   // Custom flavors get a high category number so they sort to the end in run mode
   roster.push({ name, category: '99999', type });
   saveAll(); renderPicker();
-}
-
-// ── SESSION SAVE / LOAD ────────────────────────────────────────────────────
-function saveSessionTSV() {
-  const headers = ['Flavor', 'Category', 'Type', 'Target', 'In Dipping', 'In Holding', 'To Make'];
-  const lines = activeFlavors.map(f =>
-    [f.name, f.category, f.type, f.target, f.dipping, f.holding, toMake(f)].join('\t')
-  );
-  const tsv = [headers.join('\t'), ...lines].join('\n');
-  const today = new Date();
-  const d = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([tsv], {type:'text/tab-separated-values'}));
-  a.download = `count_and_run-${d}.txt`;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-}
-
-function loadSessionTSV(event) {
-  const file = event.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    const lines = e.target.result.trim().split(/\r?\n/);
-    if (lines.length < 2) { alert('File has no data rows.'); return; }
-    activeFlavors = [];
-    for (let i = 1; i < lines.length; i++) {
-      const c = lines[i].split('\t'); if (!c[0]) continue;
-      const rEntry = roster.find(r => r.name.toLowerCase() === c[0].toLowerCase());
-      const flavor = {
-        name: c[0],
-        category: rEntry ? rEntry.category : (c[1] || '99999'),
-        type: rEntry ? rEntry.type || '' : (c[2] || ''),
-        target: parseInt(c[3]) || 0,
-        dipping: Number(c[4]) || 0,
-        holding: parseInt(c[5]) || 0,
-      };
-      activeFlavors.push(flavor);
-      if (!rEntry) roster.push({ name: c[0], category: flavor.category, type: flavor.type });
-    }
-    saveAll(); renderTable();
-  };
-  reader.readAsText(file);
 }
 
 // ── INIT ───────────────────────────────────────────────────────────────────
