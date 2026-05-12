@@ -61,12 +61,13 @@
 
     /* Main table */
     table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
-    col.col-flavor  { width: auto; }
-    col.col-type    { width: 60px; }
-    col.col-target  { width: 76px; }
-    col.col-dipping { width: 124px; }
-    col.col-holding { width: 76px; }
-    col.col-tomake  { width: 72px; }
+    col.col-flavor   { width: auto; }
+    col.col-category { width: 80px; }
+    col.col-type     { width: 60px; }
+    col.col-target   { width: 76px; }
+    col.col-dipping  { width: 124px; }
+    col.col-holding  { width: 76px; }
+    col.col-tomake   { width: 72px; }
 
     @media print {
       body { background: #fff; color: #000; }
@@ -115,9 +116,9 @@
     .empty-state { text-align: center; padding: 2.5rem 1rem; color: #3a5a80; font-size: 13px; }
 
     /* Modal */
-    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(10,18,35,0.88); z-index: 100; align-items: flex-start; justify-content: center; padding-top: 40px; }
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(10,18,35,0.88); z-index: 100; align-items: flex-start; justify-content: center; padding: 8px; }
     .modal-backdrop.open { display: flex; }
-    .modal { background: #1a2f52; border-radius: 10px; border: 1.5px solid #2e4a70; width: 500px; max-width: calc(100vw - 24px); padding: 20px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); max-height: calc(100vh - 60px); display: flex; flex-direction: column; overflow: hidden; }
+    .modal { background: #1a2f52; border-radius: 10px; border: 1.5px solid #2e4a70; width: 500px; max-width: calc(100vw - 16px); padding: 16px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); height: calc(100vh - 16px); max-height: calc(100vh - 16px); display: flex; flex-direction: column; overflow: hidden; }
     .modal h2 { font-family: 'Playfair Display', serif; font-size: 18px; color: #f5f0e8; margin-bottom: 10px; border-bottom: 2px solid #c8102e; padding-bottom: 8px; flex-shrink: 0; }
     .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-shrink: 0; }
     .btn-primary { background: #c8102e; border-color: #e01535; color: #fff; }
@@ -183,6 +184,7 @@
     <table>
       <colgroup>
         <col class="col-flavor">
+        <col class="col-category">
         <col class="col-type">
         <col class="col-target">
         <col class="col-dipping">
@@ -192,6 +194,7 @@
       <thead>
         <tr>
           <th>Flavor</th>
+          <th>Category</th>
           <th>Type</th>
           <th style="text-align:center">Target</th>
           <th>In Dipping</th>
@@ -495,6 +498,12 @@ function buildRow(f) {
   tdName.appendChild(sp);
   tr.appendChild(tdName);
 
+  // Category
+  const tdCat = document.createElement('td');
+  tdCat.style.cssText = 'font-size:12px;color:#8fa3be;';
+  tdCat.textContent = f.category || '—';
+  tr.appendChild(tdCat);
+
   // Type badge — colored by type
   const tdType = document.createElement('td');
   const badge = document.createElement('span');
@@ -539,7 +548,7 @@ function renderTable() {
   const list = runMode ? activeFlavors.filter(f => toMake(f) > 0) : activeFlavors;
   const sorted = getSorted(list);
   if (!sorted.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${
       runMode
         ? '🎉 Nothing to make — all flavors are fully stocked!'
         : 'No flavors on today\'s list. Click "Edit Flavors" to get started.'
@@ -578,6 +587,7 @@ function printRun() {
     const holdLabel = f.holding > 0 ? f.holding : '—';
     return `<tr>
       <td>${f.name}</td>
+      <td style="text-align:center">${f.category || '—'}</td>
       <td style="text-align:center">${f.type || '—'}</td>
       <td style="text-align:center">${f.target || '—'}</td>
       <td style="text-align:center">${dipLabel}</td>
@@ -604,7 +614,7 @@ function printRun() {
   <p>${today}</p>
   <table>
     <thead><tr>
-      <th>Flavor</th><th style="text-align:center">Type</th>
+      <th>Flavor</th><th style="text-align:center">Category</th><th style="text-align:center">Type</th>
       <th style="text-align:center">Target</th><th style="text-align:center">In Dipping</th>
       <th style="text-align:center">Holding</th><th style="text-align:center">To Make</th>
     </tr></thead>
