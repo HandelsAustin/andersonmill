@@ -178,7 +178,7 @@
 
     <div id="runBanner" style="display:none" class="run-banner">
       <span id="runBannerMsg"></span>
-      <button class="btn" onclick="clearRunView()">&#10005; Show All</button>
+      <button class="btn btn-green" onclick="doneRun()" style="font-size:13px;padding:9px 20px;">&#10003; Done</button>
     </div>
 
     <table>
@@ -196,10 +196,12 @@
           <th>Flavor</th>
           <th>Category</th>
           <th>Type</th>
-          <th style="text-align:center">Target</th>
-          <th>In Dipping</th>
-          <th style="text-align:center">Holding</th>
-          <th style="text-align:center">To Make</th>
+          <th id="thTarget" style="text-align:center">Target</th>
+          <th id="thDipping">In Dipping</th>
+          <th id="thHolding" style="text-align:center">Holding</th>
+          <th id="thToMake" style="text-align:center">To Make</th>
+          <th id="thBucket" style="text-align:center;display:none">Bucket</th>
+          <th id="thActions" style="display:none"></th>
         </tr>
       </thead>
       <tbody id="mainTbody"></tbody>
@@ -238,150 +240,158 @@
 // ── MASTER ROSTER (baked in from FlavorOrder.csv) ──────────────────────────
 // category is stored internally for run-sort; never shown to user
 const MASTER_ROSTER = [
-  {category:"90300",  name:"Banana",                           type:"TD"},
-  {category:"90301",  name:"Banana Cream Pie",                 type:"TD"},
-  {category:"701",    name:"Birthday Cake",                    type:""},
-  {category:"600",    name:"Black Cherry",                     type:""},
-  {category:"603",    name:"Black Raspberry",                  type:""},
-  {category:"604",    name:"Black Raspberry Chunk",            type:""},
-  {category:"1850",   name:"Black Walnut",                     type:"WO"},
-  {category:"105",    name:"Blueberry Cobbler",                type:""},
-  {category:"82300",  name:"Blue Monster",                     type:"WO"},
-  {category:"94000",  name:"Blue Moon",                        type:"WO"},
-  {category:"ICE81800",name:"Blue Moon Ice",                   type:"WO"},
-  {category:"802",    name:"Blueberry Cheesecake Chunk",       type:""},
-  {category:"90500",  name:"Buckeye",                          type:"TD"},
-  {category:"201",    name:"Butter Fudge",                     type:""},
-  {category:"121",    name:"Butter Pecan",                     type:""},
-  {category:"103",    name:"Butterscotch Ripple",              type:""},
-  {category:"700",    name:"Cake Batter",                      type:""},
-  {category:"903",    name:"Caramel Latte",                    type:""},
-  {category:"1301",   name:"Carmel Apple",                     type:""},
-  {category:"901",    name:"Carmel Pretzel Crunch",            type:""},
-  {category:"93003",  name:"Carrot Cake",                      type:"TD"},
-  {category:"800",    name:"Cheesecake with Oreo",             type:""},
-  {category:"92800",  name:"Cherry Cordial",                   type:"TD"},
-  {category:"601",    name:"Cherry Magnolia",                  type:""},
-  {category:"111",    name:"Cherry Vanilla",                   type:""},
-  {category:"214",    name:"Chocoholic Chunk",                 type:""},
-  {category:"215",    name:"Chocoholic Peanut Butter Ripple",  type:""},
-  {category:"217",    name:"Chocoholic Raspberry Truffle",     type:""},
-  {category:"205",    name:"Chocolate",                        type:""},
-  {category:"202",    name:"Chocolate Almond",                 type:""},
-  {category:"703",    name:"Chocolate Cake Batter",            type:""},
-  {category:"805",    name:"Chocolate Chip Cheesecake Chunk",  type:""},
-  {category:"108",    name:"Chocolate Chip Cookie Dough",      type:""},
-  {category:"200",    name:"Chocolate Malt with Carmel",       type:""},
-  {category:"209",    name:"Chocolate Marshmellow",            type:""},
-  {category:"301",    name:"Chocolate Orange",                 type:""},
-  {category:"213",    name:"Chocolate Oree-Dough",             type:""},
-  {category:"211",    name:"Chocolate Peanut Butter Brownie",  type:""},
-  {category:"207",    name:"Chocolate Pecan",                  type:""},
-  {category:"212",    name:"Chocolate with Oreo",              type:""},
-  {category:"113",    name:"Chuncky Chocolate Chip",           type:""},
-  {category:"406",    name:"Chunky Mint Chip",                 type:""},
-  {category:"82400",  name:"Cinnaman Graham Cracker",          type:"WO"},
-  {category:"92900",  name:"Cinnaman Pecan",                   type:""},
-  {category:"702",    name:"Cinnaman Roll",                    type:"WO"},
-  {category:"91003",  name:"Coconut Almond Fudge Ripple",      type:"TD"},
-  {category:"91001",  name:"Coconut Carmel Delight",           type:"TD"},
-  {category:"91000",  name:"Coconut Cream Pie",                type:"TD"},
-  {category:"91004",  name:"Coconut Pineapple",                type:"TD"},
-  {category:"122",    name:"Coffee",                           type:""},
-  {category:"123",    name:"Coffee Chocolate Chip",            type:""},
-  {category:"124",    name:"Coffee with Heath",                type:""},
-  {category:"218",    name:"Confetti Brownie Batter",          type:""},
-  {category:"81900",  name:"Cotton Candy",                     type:"WO"},
-  {category:"1300",   name:"Deep Dish Apple Pie",              type:""},
-  {category:"900",    name:"Dulce De Leche",                   type:""},
-  {category:"1700",   name:"Egg Nog",                          type:"WO"},
-  {category:"90302",  name:"Elvis",                            type:"TD"},
-  {category:"204",    name:"French Silk Pie",                  type:""},
-  {category:"710",    name:"Frosted Animal Cookie",            type:"WO"},
-  {category:"106",    name:"Fudge Ripple",                     type:""},
-  {category:"107",    name:"Fudge Ripple Brownie",             type:""},
-  {category:"83200",  name:"Gingerbread Cookie",               type:"WO"},
-  {category:"1102",   name:"Graham Canyon",                    type:""},
-  {category:"1100",   name:"Graham Central Station",           type:""},
-  {category:"602",    name:"Grape",                            type:""},
-  {category:"94100",  name:"Green Monster",                    type:""},
-  {category:"300",    name:"Green Tea",                        type:""},
-  {category:"206",    name:"Heavenly Hash",                    type:""},
-  {category:"83100",  name:"Horchata",                         type:"WO"},
-  {category:"82500",  name:"Key Lime Pie",                     type:"WO"},
-  {category:"82600",  name:"Lemon Bar",                        type:"WO"},
-  {category:"ICE81000",name:"Lemon Ice",                       type:"WO"},
-  {category:"SO82200",name:"Mango Sorbet",                     type:"TD"},
-  {category:"91002",  name:"Meri's Joy",                       type:"TD"},
-  {category:"216",    name:"Midnight Madness",                 type:""},
-  {category:"407",    name:"Mint Chocolate Chip",              type:""},
-  {category:"405",    name:"Mint with Oreo",                   type:""},
-  {category:"SO82400",name:"Mixed Berry Sorbet",               type:"TD"},
-  {category:"125",    name:"Mocha Almond Fudge Ripple",        type:""},
-  {category:"90304",  name:"Monkey Business",                  type:"TD"},
-  {category:"126",    name:"Mud Pie",                          type:""},
-  {category:"801",    name:"New York Style Cheesecake",        type:""},
-  {category:"1503",   name:"NSA Banana Fudge",                 type:""},
-  {category:"1502",   name:"NSA Butter Pecan",                 type:""},
-  {category:"1501",   name:"NSA Chocolate Ripple",             type:""},
-  {category:"1600",   name:"NSA Coffee",                       type:""},
-  {category:"1601",   name:"NSA Coffee Chocolate Ripple",      type:""},
-  {category:"1504",   name:"NSA Strawberry Banana",            type:""},
-  {category:"1500",   name:"NSA Vanilla",                      type:""},
-  {category:"93001",  name:"Orange Dream Cream",               type:"TD"},
-  {category:"92750",  name:"Orange Pineapple",                 type:"TD"},
-  {category:"93000",  name:"Orange Sherbet",                   type:"TD"},
-  {category:"110",    name:"Oree-Dough",                       type:""},
-  {category:"93200",  name:"Peach",                            type:"TD"},
-  {category:"90501",  name:"Peanut Butter",                    type:"TD"},
-  {category:"90503",  name:"Peanut Butter and Jelly",          type:"TD"},
-  {category:"203",    name:"Peanut Butter Parfait",            type:""},
-  {category:"403",    name:"Peppermint Bark",                  type:""},
-  {category:"402",    name:"Peppermint Stick",                 type:""},
-  {category:"92700",  name:"Pineapple Upside Down Cake",       type:"TD"},
-  {category:"SH82800",name:"Pink Champagne Shebet",            type:"WO"},
-  {category:"82700",  name:"Pink Lemonaide",                   type:"WO"},
-  {category:"401",    name:"Pistachio",                        type:""},
-  {category:"SO82500",name:"Pomegranate Sorbet",               type:"TD"},
-  {category:"102",    name:"Praline Pecan",                    type:""},
-  {category:"1403",   name:"Pumpkin Cheesecake",               type:""},
-  {category:"1402",   name:"Pumpkin Pecan",                    type:""},
-  {category:"1400",   name:"Pumpkin Pie",                      type:""},
-  {category:"1401",   name:"Pumpkin Ripple",                   type:""},
-  {category:"804",    name:"Raspberry Cheesecake Chunk",       type:""},
-  {category:"9302",   name:"Raspberry Dream Cream",            type:"TD"},
-  {category:"720",    name:"Raspberry Sheet Cake",             type:"WO"},
-  {category:"SH82900",name:"Red Raspberry Sherbet",            type:"WO"},
-  {category:"1900",   name:"Rocky Mocha Blast",                type:"WO"},
-  {category:"210",    name:"Rocky Road",                       type:""},
-  {category:"1101",   name:"S'Mores",                          type:""},
-  {category:"902",    name:"Salty Carmel Truffle",             type:""},
-  {category:"208",    name:"Snappy Turtle",                    type:""},
-  {category:"1800",   name:"Snickerdoodle",                    type:"WO"},
-  {category:"90502",  name:"Snix",                             type:"TD"},
-  {category:"100",    name:"Soft Vanilla",                     type:""},
-  {category:"ICE81100",name:"Sour Green Apple Ice",            type:"WO"},
-  {category:"81200",  name:"Spouse Like A House",              type:"WO"},
-  {category:"90504",  name:"Sticky Fingers",                   type:"TD"},
-  {category:"92000",  name:"Strawberry",                       type:"TD"},
-  {category:"803",    name:"Strawberry Cheesecake Chunk",      type:""},
-  {category:"SO82300",name:"Strawberry Sorbet",                type:"TD"},
-  {category:"2000",   name:"Taro",                             type:"WO"},
-  {category:"94200",  name:"Tiger Stripes",                    type:""},
-  {category:"104",    name:"Tin Lizzy",                        type:""},
-  {category:"400",    name:"Toasted Almond",                   type:""},
-  {category:"112",    name:"Twixter",                          type:""},
-  {category:"101",    name:"Vanilla",                          type:""},
-  {category:"114",    name:"Vanilla Carmel Brownie",           type:""},
-  {category:"115",    name:"Vanilla Carmel Truffle",           type:""},
-  {category:"118",    name:"Vanilla Peanut Butter Chip",       type:""},
-  {category:"119",    name:"Vanilla Peanut Butter Ripple",     type:""},
-  {category:"SO82600",name:"Vanilla Pineapple Sornet",         type:"TD"},
-  {category:"116",    name:"Vanilla Raspberrey Chip",          type:""},
-  {category:"117",    name:"Vanilla Turtle",                   type:""},
-  {category:"109",    name:"Vanilla with Oreo",                type:""},
-  {category:"120",    name:"Vanilla with Reese's Peanut Butter Cup", type:""},
-  {category:"ICE82100",name:"Watermelon Ice",                  type:"WO"},
+  {category:"90301", name:"Banana (BAN)", type:"TD"},
+  {category:"90302", name:"Banana Cream Pie (BCP)", type:"TD"},
+  {category:"90300", name:"Bananas Foster (BF)", type:"WO"},
+  {category:"701", name:"Birthday Cake (BDAY)", type:""},
+  {category:"600", name:"Black Cherry (BC)", type:""},
+  {category:"603", name:"Black Raspberry (BR)", type:""},
+  {category:"604", name:"Black Raspberry Chunk (BRC)", type:""},
+  {category:"SH83000", name:"Black Raspberry Sherbet (BRS)", type:"WO"},
+  {category:"1850", name:"Black Walnut (BW)", type:"WO"},
+  {category:"82300", name:"Blue Monster (BMON)", type:"WO"},
+  {category:"82350", name:"Blue Moon (BM)", type:"WO"},
+  {category:"TDICE81800", name:"Blue Moon Ice (BMI)", type:"WO"},
+  {category:"802", name:"Blueberry Cheesecake Chunk (BBCHZ)", type:""},
+  {category:"105", name:"Blueberry Cobbler (BBCOB)", type:""},
+  {category:"201", name:"Brownie Dough (BD)", type:""},
+  {category:"90500", name:"Buckeye (BE)", type:"TD"},
+  {category:"121", name:"Butter Pecan (BP)", type:""},
+  {category:"103", name:"Butterscotch Ripple (BSR)", type:""},
+  {category:"700", name:"Cake Batter (CB)", type:""},
+  {category:"1301", name:"Caramel Apple (CAP)", type:""},
+  {category:"903", name:"Caramel Latte (CL)", type:""},
+  {category:"901", name:"Caramel Pretzel Crunch (CPC)", type:""},
+  {category:"93003", name:"Carrot Cake (CARROT)", type:"TD"},
+  {category:"800", name:"Cheesecake Made with Oreo®️ (OREOCHZ)", type:""},
+  {category:"92800", name:"Cherry Cordial (CORD)", type:"TD"},
+  {category:"601", name:"Cherry Magnolia (CMAG)", type:""},
+  {category:"111", name:"Cherry Vanilla (CV)", type:""},
+  {category:"805", name:"Choc. Chocolate Chip Cheesecake Chunk (CCCHZ)", type:""},
+  {category:"214", name:"Chocoholic Chunk (CK)", type:""},
+  {category:"215", name:"Chocoholic Peanut Butter Ripple (CKPBR)", type:""},
+  {category:"205", name:"Chocolate (C)", type:""},
+  {category:"202", name:"Chocolate Almond (CA)", type:""},
+  {category:"V000002", name:"Chocolate Almond Milk Ice Cream (CAMILK)", type:"TD"},
+  {category:"218", name:"Chocolate Cake Batter (CCB)", type:""},
+  {category:"113", name:"Chocolate Chip (CHOC CHIP)", type:""},
+  {category:"108", name:"Chocolate Chip Cookie Dough (CD)", type:""},
+  {category:"92100", name:"Chocolate Covered Strawberry (CCS)", type:"TD"},
+  {category:"212", name:"Chocolate Made with Oreo®️ (CHOC OREO)", type:""},
+  {category:"200", name:"Chocolate Malt with Carmel (CMC)", type:""},
+  {category:"209", name:"Chocolate Marshmallow (CM)", type:""},
+  {category:"213", name:"Chocolate Ooohh...Dough! (CHOC OD)", type:""},
+  {category:"301", name:"Chocolate Orange (CO)", type:"WO"},
+  {category:"211", name:"Chocolate Peanut Butter Brownie (CPBB)", type:""},
+  {category:"207", name:"Chocolate Pecan (CP)", type:""},
+  {category:"217", name:"Chocolate Raspberry Truffle (CRT)", type:""},
+  {category:"82400", name:"Cinnamon Graham Cracker (CGC)", type:"WO"},
+  {category:"92900", name:"Cinnamon Pecan (CNP)", type:"WO"},
+  {category:"702", name:"Cinnamon Roll (CR)", type:"WO"},
+  {category:"91003", name:"Coconut Almond Fudge Ripple (CAFR)", type:"TD"},
+  {category:"91001", name:"Coconut Caramel Delight (CCD)", type:"TD"},
+  {category:"91000", name:"Coconut Cream Pie (CCP)", type:"TD"},
+  {category:"V000001", name:"Coconut Milk Ice Cream (COMILK)", type:"WO"},
+  {category:"91004", name:"Coconut Pineapple (CPINE)", type:"TD"},
+  {category:"122", name:"Coffee (COF)", type:""},
+  {category:"123", name:"Coffee Chocolate Chip (CCC)", type:""},
+  {category:"124", name:"Coffee with Heath (COF w/ H)", type:""},
+  {category:"219", name:"Confetti Brownie Batter (CBB)", type:""},
+  {category:"81900", name:"Cotton Candy (CC)", type:"WO"},
+  {category:"1300", name:"Deep Dish Apple Pie (DDAP)", type:""},
+  {category:"900", name:"Dulce De Leche (DULCE)", type:""},
+  {category:"1700", name:"Egg Nog (EGG)", type:"WO"},
+  {category:"90303", name:"Elvis (ELVIS)", type:"TD"},
+  {category:"204", name:"French Silk Pie (FSP)", type:""},
+  {category:"82850", name:"Frosted Animal Cookie (FAC)", type:"WO"},
+  {category:"106", name:"Fudge Ripple (FR)", type:""},
+  {category:"107", name:"Fudge Ripple Brownie (FRB)", type:""},
+  {category:"83200", name:"Gingerbread Cookie (GBC)", type:"WO"},
+  {category:"1102", name:"Graham Canyon (GC)", type:""},
+  {category:"1100", name:"Graham Central Station (GCS)", type:""},
+  {category:"602", name:"Grape (G)", type:""},
+  {category:"94100", name:"Green Monster (GMON)", type:"WO"},
+  {category:"300", name:"Green Tea (GT)", type:"WO"},
+  {category:"206", name:"Heavenly Hash (HH)", type:""},
+  {category:"83100", name:"Horchata (HOR)", type:"WO"},
+  {category:"82500", name:"Key Lime Pie (KLP)", type:"WO"},
+  {category:"82800", name:"Knot Your Average Dough (KYAD)", type:"WO"},
+  {category:"82600", name:"Lemon Bar (LB)", type:"WO"},
+  {category:"TDICE82200", name:"Lemon Ice (LEM ICE)", type:"WO"},
+  {category:"82601", name:"Lemon Meringue Pie (LMP)", type:"WO"},
+  {category:"SH83100", name:"Lime Sherbet (LS)", type:"WO"},
+  {category:"SO82200", name:"Mango Sorbet (MANGO SOR)", type:"TD"},
+  {category:"91002", name:"Meri's Joy (MJ)", type:"TD"},
+  {category:"216", name:"Midnight Madness (MM)", type:""},
+  {category:"407", name:"Mint Chocolate Chip (MCC)", type:""},
+  {category:"405", name:"Mint Made with Oreo®️ (MO)", type:""},
+  {category:"SO82400", name:"Mixed Berry Sorbet (MB SOR)", type:"TD"},
+  {category:"125", name:"Mocha Almond Fudge Ripple (MAFR)", type:""},
+  {category:"90304", name:"Monkey Business (MB)", type:"TD"},
+  {category:"126", name:"Mud Pie (MP)", type:""},
+  {category:"801", name:"New York Style Cheesecake (NYC)", type:""},
+  {category:"1503", name:"NSA Banana Fudge", type:""},
+  {category:"1502", name:"NSA Butter Pecan", type:""},
+  {category:"1501", name:"NSA Chocolate Ripple", type:""},
+  {category:"1600", name:"NSA Coffee", type:""},
+  {category:"1601", name:"NSA Coffee Chocolate Ripple", type:""},
+  {category:"1504", name:"NSA Strawberry Banana", type:""},
+  {category:"1500", name:"NSA Vanilla", type:""},
+  {category:"110", name:"Ooohh...Dough! (OD)", type:""},
+  {category:"93001", name:"Orange Dream Cream (ODC)", type:"TD"},
+  {category:"92750", name:"Orange Pineapple (OP)", type:"TD"},
+  {category:"93000", name:"Orange Sherbet (OS)", type:"TD"},
+  {category:"93200", name:"Peach (PEACH)", type:"TD"},
+  {category:"90501", name:"Peanut Butter (PB)", type:"TD"},
+  {category:"90503", name:"Peanut Butter and Jelly (PBJ)", type:"TD"},
+  {category:"203", name:"Peanut Butter Parfait (PBP)", type:""},
+  {category:"403", name:"Peppermint Bark (PBARK)", type:""},
+  {category:"402", name:"Peppermint Stick (PS)", type:""},
+  {category:"SH83200", name:"Pineapple Sherbet (PINE SH)", type:"WO"},
+  {category:"92700", name:"Pineapple Upside Down Cake (PUDC)", type:"TD"},
+  {category:"SH82800", name:"Pink Champagne Sherbet (PC)", type:"WO"},
+  {category:"82700", name:"Pink Lemonade (PL)", type:"WO"},
+  {category:"401", name:"Pistachio (PIST)", type:""},
+  {category:"SO82500", name:"Pomegranate Sorbet (POM SOR)", type:"TD"},
+  {category:"102", name:"Praline Pecan (PP)", type:""},
+  {category:"1403", name:"Pumpkin Cheesecake Chunk (PCHZ)", type:""},
+  {category:"1402", name:"Pumpkin Pecan (PPEC)", type:""},
+  {category:"1400", name:"Pumpkin Pie (PPIE)", type:""},
+  {category:"1401", name:"Pumpkin Ripple (PR)", type:""},
+  {category:"804", name:"Raspberry Cheesecake Chunk (RCHZ)", type:""},
+  {category:"SH82901", name:"Raspberry Dream Cream (RDC)", type:"TD"},
+  {category:"82875", name:"Raspberry Sheet Cake (RSC)", type:"WO"},
+  {category:"SH82900", name:"Red Raspberry Sherbet (RS)", type:"WO"},
+  {category:"127", name:"Rocky Mocha Blast (RMB)", type:"WO"},
+  {category:"210", name:"Rocky Road (RR)", type:""},
+  {category:"1101", name:"S'Mores (S'M)", type:""},
+  {category:"902", name:"Salty Caramel Truffle (SCT)", type:""},
+  {category:"208", name:"Snappy Turtle (ST)", type:""},
+  {category:"1800", name:"Snickerdoodle (SD)", type:"WO"},
+  {category:"90502", name:"Snix (SNIX)", type:"TD"},
+  {category:"100", name:"Soft Vanilla (VAN)", type:""},
+  {category:"TDICE82300", name:"Sour Green Apple Ice (SGA ICE)", type:"WO"},
+  {category:"81200", name:"Spouse Like A House (SLAH)", type:"WO"},
+  {category:"90504", name:"Sticky Fingers (SF)", type:"TD"},
+  {category:"92000", name:"Strawberry (STRAW)", type:"TD"},
+  {category:"803", name:"Strawberry Cheesecake Chunk (SCHZ)", type:""},
+  {category:"SO82300", name:"Strawberry Sorbet (STRAW SOR)", type:"TD"},
+  {category:"2000", name:"Taro (T)", type:"WO"},
+  {category:"94200", name:"Tiger Stripes (TS)", type:""},
+  {category:"104", name:"Tin Lizzy (TL)", type:""},
+  {category:"400", name:"Toasted Almond (TA)", type:"WO"},
+  {category:"112", name:"Twixter (TWIX)", type:""},
+  {category:"101", name:"Vanilla (VAN)", type:""},
+  {category:"114", name:"Vanilla Caramel Brownie (VCB)", type:""},
+  {category:"115", name:"Vanilla Caramel Truffle (VCT)", type:""},
+  {category:"109", name:"Vanilla Made with Oreo®️ (OREO)", type:""},
+  {category:"119", name:"Vanilla Peanut Butter Chip (VPBC)", type:""},
+  {category:"118", name:"Vanilla Peanut Butter Ripple (VPBR)", type:""},
+  {category:"SO82600", name:"Vanilla Pineapple Sorbet (VP SOR)", type:"TD"},
+  {category:"116", name:"Vanilla Raspberry Chip (VRC)", type:""},
+  {category:"117", name:"Vanilla Turtle (VT)", type:""},
+  {category:"120", name:"Vanilla with Reese's Peanut Butter Cup®️ (VRPBC)", type:""},
+  {category:"TDICE82100", name:"Watermelon Ice (WM ICE)", type:"WO"},
 ];
 
 // ── STATE ──────────────────────────────────────────────────────────────────
@@ -482,7 +492,7 @@ function makeSelect(options, currentVal, fn) {
 }
 
 // ── TABLE ──────────────────────────────────────────────────────────────────
-function buildRow(f) {
+function buildRow(f, runIndex, runTotal) {
   const idx = activeFlavors.findIndex(x => x.name === f.name);
   const tr = document.createElement('tr');
   const tm = toMake(f);
@@ -513,31 +523,53 @@ function buildRow(f) {
   tdType.appendChild(badge);
   tr.appendChild(tdType);
 
-  // Target — dropdown 1–10
-  const TARGET_OPTIONS = [
-    {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
-    {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
-    {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
-  ];
-  const tdTarget = document.createElement('td');
-  tdTarget.appendChild(makeSelect(TARGET_OPTIONS, f.target, val => { activeFlavors[idx].target = val; saveAll(); renderTable(); }));
-  tr.appendChild(tdTarget);
+  if (runMode) {
+    // Run mode: show bucket counter, Made + Skip buttons
+    const tdCount = document.createElement('td');
+    tdCount.style.cssText = 'text-align:center;font-size:13px;color:#8fa3be;letter-spacing:0.04em;';
+    tdCount.textContent = runTotal > 1 ? `${runIndex} of ${runTotal}` : '';
+    tr.appendChild(tdCount);
 
-  // In Dipping
-  const tdDip = document.createElement('td');
-  tdDip.appendChild(makeSelect(DIPPING_OPTIONS, f.dipping, val => { activeFlavors[idx].dipping = val; saveAll(); renderTable(); }));
-  tr.appendChild(tdDip);
+    const tdActions = document.createElement('td');
+    tdActions.style.cssText = 'text-align:right;white-space:nowrap;';
 
-  // Holding
-  const tdHold = document.createElement('td');
-  tdHold.appendChild(makeSelect(HOLDING_OPTIONS, f.holding, val => { activeFlavors[idx].holding = val; saveAll(); renderTable(); }));
-  tr.appendChild(tdHold);
+    const madeBtn = document.createElement('button');
+    madeBtn.textContent = 'Made';
+    madeBtn.style.cssText = 'background:#0f4a2a;border:1.5px solid #22a05a;color:#b0f0ce;font-family:\'Open Sans\',sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;margin-right:6px;min-height:40px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
+    madeBtn.onclick = () => dismissRunRow(f.name, runIndex);
+    tdActions.appendChild(madeBtn);
 
-  // To Make — show ✓ when stocked
-  const tdTM = document.createElement('td');
-  tdTM.className = 'to-make ' + (tm > 0 ? 'to-make-needed' : 'to-make-ok');
-  tdTM.textContent = tm > 0 ? tm : '✓';
-  tr.appendChild(tdTM);
+    const skipBtn = document.createElement('button');
+    skipBtn.textContent = 'Skip';
+    skipBtn.style.cssText = 'background:#7a0f1f;border:1.5px solid #c8102e;color:#f5d0d5;font-family:\'Open Sans\',sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:40px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
+    skipBtn.onclick = () => dismissRunRow(f.name, runIndex);
+    tdActions.appendChild(skipBtn);
+
+    tr.appendChild(tdActions);
+  } else {
+    // Normal mode: dropdowns + To Make
+    const TARGET_OPTIONS = [
+      {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
+      {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
+      {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
+    ];
+    const tdTarget = document.createElement('td');
+    tdTarget.appendChild(makeSelect(TARGET_OPTIONS, f.target, val => { activeFlavors[idx].target = val; saveAll(); renderTable(); }));
+    tr.appendChild(tdTarget);
+
+    const tdDip = document.createElement('td');
+    tdDip.appendChild(makeSelect(DIPPING_OPTIONS, f.dipping, val => { activeFlavors[idx].dipping = val; saveAll(); renderTable(); }));
+    tr.appendChild(tdDip);
+
+    const tdHold = document.createElement('td');
+    tdHold.appendChild(makeSelect(HOLDING_OPTIONS, f.holding, val => { activeFlavors[idx].holding = val; saveAll(); renderTable(); }));
+    tr.appendChild(tdHold);
+
+    const tdTM = document.createElement('td');
+    tdTM.className = 'to-make ' + (tm > 0 ? 'to-make-needed' : 'to-make-ok');
+    tdTM.textContent = tm > 0 ? tm : '✓';
+    tr.appendChild(tdTM);
+  }
 
   return tr;
 }
@@ -545,6 +577,29 @@ function buildRow(f) {
 function renderTable() {
   const tbody = document.getElementById('mainTbody');
   tbody.innerHTML = '';
+
+  // Show/hide column headers for run mode
+  const thTarget  = document.getElementById('thTarget');
+  const thDipping = document.getElementById('thDipping');
+  const thHolding = document.getElementById('thHolding');
+  const thToMake  = document.getElementById('thToMake');
+  const thBucket  = document.getElementById('thBucket');
+  const thActions = document.getElementById('thActions');
+  if (runMode) {
+    thTarget.style.display  = 'none';
+    thDipping.style.display = 'none';
+    thHolding.style.display = 'none';
+    thToMake.style.display  = 'none';
+    thBucket.style.display  = '';
+    thActions.style.display = '';
+  } else {
+    thTarget.style.display  = '';
+    thDipping.style.display = '';
+    thHolding.style.display = '';
+    thToMake.style.display  = '';
+    thBucket.style.display  = 'none';
+    thActions.style.display = 'none';
+  }
   const list = runMode ? activeFlavors.filter(f => toMake(f) > 0) : activeFlavors;
   const sorted = getSorted(list);
   if (!sorted.length) {
@@ -555,7 +610,19 @@ function renderTable() {
     }</td></tr>`;
     return;
   }
-  sorted.forEach(f => tbody.appendChild(buildRow(f)));
+  if (runMode) {
+    sorted.forEach(f => {
+      const tm = toMake(f);
+      for (let i = 1; i <= tm; i++) {
+        if (runDismissed.find(d => d.name === f.name && d.index === i)) continue;
+        const tr = buildRow(f, i, tm);
+        if (i === 1 && tm > 1) tr.style.borderTop = '2px solid #2e4a70';
+        tbody.appendChild(tr);
+      }
+    });
+  } else {
+    sorted.forEach(f => tbody.appendChild(buildRow(f)));
+  }
 }
 
 function removeFromActive(idx) {
@@ -565,6 +632,13 @@ function removeFromActive(idx) {
 }
 
 // ── RUN MODE ───────────────────────────────────────────────────────────────
+let runDismissed = []; // tracks {name, index} pairs dismissed during run
+
+function dismissRunRow(name, index) {
+  runDismissed.push({ name, index });
+  renderTable();
+}
+
 function calculateRun() {
   runMode = true;
   const needed = activeFlavors.filter(f => toMake(f) > 0);
@@ -581,20 +655,18 @@ function printRun() {
   const sorted = getSorted(needed);
   const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
-  let rows = sorted.map(f => {
+  let rows = [];
+  sorted.forEach(f => {
     const tm = toMake(f);
-    const dipLabel = DIPPING_OPTIONS.find(o => Number(o.value) === Number(f.dipping))?.label || '—';
-    const holdLabel = f.holding > 0 ? f.holding : '—';
-    return `<tr>
-      <td>${f.name}</td>
-      <td style="text-align:center">${f.category || '—'}</td>
-      <td style="text-align:center">${f.type || '—'}</td>
-      <td style="text-align:center">${f.target || '—'}</td>
-      <td style="text-align:center">${dipLabel}</td>
-      <td style="text-align:center">${holdLabel}</td>
-      <td style="text-align:center;font-weight:700;color:#c00">${tm}</td>
-    </tr>`;
-  }).join('');
+    for (let i = 1; i <= tm; i++) {
+      rows.push(`<tr>
+        <td>${f.name}</td>
+        <td style="text-align:center">${f.category || '—'}</td>
+        <td style="text-align:center">${f.type || '—'}</td>
+        <td style="text-align:center;color:#999">${tm > 1 ? `${i} of ${tm}` : ''}</td>
+      </tr>`);
+    }
+  });
 
   const total = sorted.reduce((s, f) => s + toMake(f), 0);
 
@@ -614,11 +686,12 @@ function printRun() {
   <p>${today}</p>
   <table>
     <thead><tr>
-      <th>Flavor</th><th style="text-align:center">Category</th><th style="text-align:center">Type</th>
-      <th style="text-align:center">Target</th><th style="text-align:center">In Dipping</th>
-      <th style="text-align:center">Holding</th><th style="text-align:center">To Make</th>
+      <th>Flavor</th>
+      <th style="text-align:center">Category</th>
+      <th style="text-align:center">Type</th>
+      <th style="text-align:center">Bucket</th>
     </tr></thead>
-    <tbody>${rows}</tbody>
+    <tbody>${rows.join('')}</tbody>
   </table>
   <div class="summary">${sorted.length} flavor${sorted.length !== 1 ? 's' : ''} &nbsp;|&nbsp; ${total} bucket${total !== 1 ? 's' : ''} total</div>
   <script>window.onload = function(){ window.print(); }<\/script>
@@ -633,8 +706,17 @@ function printRun() {
   }
 }
 
+function doneRun() {
+  runMode = false;
+  runDismissed = [];
+  document.getElementById('runBanner').style.display = 'none';
+  document.getElementById('printBtn').style.display = 'none';
+  renderTable();
+}
+
 function clearRunView() {
   runMode = false;
+  runDismissed = [];
   document.getElementById('runBanner').style.display = 'none';
   document.getElementById('printBtn').style.display = 'none';
   renderTable();
