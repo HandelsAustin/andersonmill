@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyBKwUX3YUUBeC-CGhpOl86_IZtsZATqahE",
@@ -20,24 +20,15 @@
       appId: "1:229630485289:web:10fea67171b35f8f7bcd38"
     };
 
-    try {
-      const firebaseApp = initializeApp(firebaseConfig);
-      const db = getFirestore(firebaseApp);
-      const STORE_ID = 'georgetown';
-
-      window._db = db;
-      window._doc = doc;
-      window._setDoc = setDoc;
-      window._getDoc = getDoc;
-      window._STORE_ID = STORE_ID;
-      window._firebaseReady = true;
-    } catch(e) {
-      console.error('Firebase init error:', e);
-      window._firebaseReady = false;
-    } finally {
-      window._firebaseInitDone = true;
-      window.dispatchEvent(new Event('firebaseInitDone'));
-    }
+    const firebaseApp = initializeApp(firebaseConfig);
+    const db = getFirestore(firebaseApp);
+    window._db = db;
+    window._doc = doc;
+    window._setDoc = setDoc;
+    window._getDoc = getDoc;
+    window._onSnapshot = onSnapshot;
+    window._firebaseReady = true;
+    window.dispatchEvent(new Event('firebaseReady'));
   </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -182,6 +173,16 @@
     .new-flavor-row input::placeholder { color: #4a6a90; }
     .new-flavor-row input:focus { outline: none; border-color: #4a7ab5; }
     .new-flavor-row select { padding: 10px 8px; font-size: 14px; border: 1px solid #2e4a70; border-radius: 6px; background: #12223a; color: #c5d8f0; font-family: 'Open Sans', sans-serif; min-height: 44px; }
+
+    /* Store picker overlay */
+    .store-overlay { display:none; position:fixed; inset:0; background:#0e1a2e; z-index:300; align-items:center; justify-content:center; flex-direction:column; padding:24px; }
+    .store-overlay.open { display:flex; }
+    .store-overlay h2 { font-family:'Playfair Display',serif; font-size:22px; color:#f5f0e8; margin-bottom:6px; text-align:center; }
+    .store-overlay p { font-size:13px; color:#8fa3be; margin-bottom:28px; text-align:center; }
+    .store-list { display:flex; flex-direction:column; gap:12px; width:100%; max-width:340px; }
+    .store-btn { font-family:'Open Sans',sans-serif; font-size:16px; font-weight:600; padding:18px 24px; border-radius:10px; border:1.5px solid #2e4a70; background:#1e3558; color:#c5d8f0; cursor:pointer; text-align:left; touch-action:manipulation; -webkit-tap-highlight-color:transparent; transition:all 0.15s; }
+    .store-btn:hover { background:#26436a; border-color:#4a7ab5; color:#e8f0fb; }
+    .store-btn:active { opacity:0.75; }
   </style>
 </head>
 <body>
@@ -240,6 +241,13 @@
       <tbody id="mainTbody"></tbody>
     </table>
   </div>
+</div>
+
+<!-- Store Picker Overlay -->
+<div id="storeOverlay" class="store-overlay">
+  <h2>Count &amp; Run</h2>
+  <p>Select your store location to get started.</p>
+  <div class="store-list" id="storeList"></div>
 </div>
 
 <!-- Modal -->
@@ -454,6 +462,25 @@ function setSyncStatus(state) {
   if (state === 'offline') { el.textContent = '📴 Offline — using local backup'; el.style.color = '#f0a500'; }
 }
 
+// True while a save is in flight — suppresses echo of our own writes
+let _saving = false;
+let _unsubscribeSnapshot = null;
+
+function applyData(data) {
+  const removed = data?.removedNames || [];
+  const custom  = data?.customAdded  || [];
+  roster = [
+    ...MASTER_ROSTER.filter(m => !removed.includes(m.name)),
+    ...custom
+  ];
+  activeFlavors = data?.activeFlavors || [];
+  // Sync type/category from master roster in case it changed
+  activeFlavors = activeFlavors.map(f => {
+    const r = roster.find(x => x.name === f.name);
+    return r ? { ...f, category: r.category, type: r.type } : f;
+  }).filter(f => roster.find(x => x.name === f.name));
+}
+
 async function saveAll() {
   const customAdded  = roster.filter(r => !MASTER_ROSTER.find(m => m.name === r.name));
   const removedNames = MASTER_ROSTER.filter(m => !roster.find(r => r.name === m.name)).map(m => m.name);
@@ -464,6 +491,7 @@ async function saveAll() {
 
   if (!window._firebaseReady) { setSyncStatus('offline'); return; }
   setSyncStatus('saving');
+  _saving = true;
   try {
     const ref = window._doc(window._db, 'stores', window._STORE_ID);
     await window._setDoc(ref, payload);
@@ -471,12 +499,17 @@ async function saveAll() {
   } catch(e) {
     console.error('Firestore save error:', e);
     setSyncStatus('error');
+  } finally {
+    _saving = false;
   }
 }
 
 async function loadAll() {
-  let data = null;
+  // Tear down any existing listener (e.g. on store switch)
+  if (_unsubscribeSnapshot) { _unsubscribeSnapshot(); _unsubscribeSnapshot = null; }
 
+  // Load initial data
+  let data = null;
   if (window._firebaseReady) {
     try {
       const ref = window._doc(window._db, 'stores', window._STORE_ID);
@@ -499,20 +532,26 @@ async function loadAll() {
     } catch(e) {}
   }
 
-  // Rebuild roster
-  const removed = data?.removedNames || [];
-  const custom  = data?.customAdded  || [];
-  roster = [
-    ...MASTER_ROSTER.filter(m => !removed.includes(m.name)),
-    ...custom
-  ];
+  applyData(data);
 
-  activeFlavors = data?.activeFlavors || [];
-  // Sync type/category from roster in case roster changed
-  activeFlavors = activeFlavors.map(f => {
-    const r = roster.find(x => x.name === f.name);
-    return r ? { ...f, category: r.category, type: r.type } : f;
-  }).filter(f => roster.find(x => x.name === f.name));
+  // Start live listener — updates from other tablets arrive here
+  if (window._firebaseReady && window._onSnapshot) {
+    try {
+      const ref = window._doc(window._db, 'stores', window._STORE_ID);
+      _unsubscribeSnapshot = window._onSnapshot(ref, snap => {
+        if (_saving) return; // ignore echo of our own save
+        if (!snap.exists()) return;
+        applyData(snap.data());
+        localStorage.setItem('car_backup', JSON.stringify(snap.data()));
+        setSyncStatus('loaded');
+        renderTable();
+      }, err => {
+        console.error('Snapshot listener error:', err);
+      });
+    } catch(e) {
+      console.error('Failed to start snapshot listener:', e);
+    }
+  }
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
@@ -613,13 +652,13 @@ function buildRow(f, runIndex, runTotal) {
     const madeBtn = document.createElement('button');
     madeBtn.textContent = 'Made';
     madeBtn.style.cssText = 'background:#0f4a2a;border:1.5px solid #22a05a;color:#b0f0ce;font-family:\'Open Sans\',sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;margin-right:6px;min-height:40px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
-    madeBtn.onclick = () => dismissRunRow(f.name, runIndex);
+    madeBtn.onclick = () => dismissRunRow(f.name, runIndex, 'made');
     tdActions.appendChild(madeBtn);
 
     const skipBtn = document.createElement('button');
     skipBtn.textContent = 'Skip';
     skipBtn.style.cssText = 'background:#7a0f1f;border:1.5px solid #c8102e;color:#f5d0d5;font-family:\'Open Sans\',sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:40px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
-    skipBtn.onclick = () => dismissRunRow(f.name, runIndex);
+    skipBtn.onclick = () => dismissRunRow(f.name, runIndex, 'skip');
     tdActions.appendChild(skipBtn);
 
     tr.appendChild(tdActions);
@@ -711,8 +750,23 @@ function removeFromActive(idx) {
 // ── RUN MODE ───────────────────────────────────────────────────────────────
 let runDismissed = []; // tracks {name, index} pairs dismissed during run
 
-function dismissRunRow(name, index) {
-  runDismissed.push({ name, index });
+function dismissRunRow(name, index, action) {
+  if (action === 'made') {
+    runDismissed.push({ name, index });
+    const idx = activeFlavors.findIndex(f => f.name === name);
+    if (idx >= 0) {
+      activeFlavors[idx].made = (activeFlavors[idx].made || 0) + 1;
+      saveAll();
+    }
+  } else if (action === 'skip') {
+    const idx = activeFlavors.findIndex(f => f.name === name);
+    const tm = idx >= 0 ? toMake(activeFlavors[idx]) : 0;
+    for (let i = 1; i <= tm; i++) {
+      if (!runDismissed.find(d => d.name === name && d.index === i)) {
+        runDismissed.push({ name, index: i });
+      }
+    }
+  }
   renderTable();
 }
 
@@ -964,17 +1018,64 @@ function addNewToRoster() {
   saveAll(); renderPicker();
 }
 
+// ── STORES ─────────────────────────────────────────────────────────────────
+const STORES = [
+  { label: 'Anderson Mill', id: 'anderson-mill' },
+  { label: 'Santee',        id: 'santee'        },
+  { label: 'Tester Store',  id: 'tester-store'  },
+];
+
+function showStorePicker() {
+  const list = document.getElementById('storeList');
+  list.innerHTML = '';
+  STORES.forEach(store => {
+    const btn = document.createElement('button');
+    btn.className = 'store-btn';
+    btn.textContent = store.label;
+    btn.onclick = () => selectStore(store.id);
+    list.appendChild(btn);
+  });
+  document.getElementById('storeOverlay').classList.add('open');
+}
+
+function selectStore(id) {
+  localStorage.setItem('car_store_id', id);
+  window._STORE_ID = id;
+  document.getElementById('storeOverlay').classList.remove('open');
+  const store = STORES.find(s => s.id === id);
+  if (store) {
+    const sub = document.querySelector('.header-sub');
+    if (sub) sub.textContent = store.label + ' — Handel's Homemade Ice Cream';
+  }
+  init();
+}
+
 // ── INIT ───────────────────────────────────────────────────────────────────
 async function init() {
   await loadAll();
   renderTable();
 }
 
-if (window._firebaseInitDone) {
-  init();
+function bootstrap() {
+  const savedId = localStorage.getItem('car_store_id');
+  if (savedId) {
+    window._STORE_ID = savedId;
+    const store = STORES.find(s => s.id === savedId);
+    if (store) {
+      const sub = document.querySelector('.header-sub');
+      if (sub) sub.textContent = store.label + ' — Handel's Homemade Ice Cream';
+    }
+    init();
+  } else {
+    showStorePicker();
+  }
+}
+
+if (window._firebaseReady) {
+  bootstrap();
 } else {
-  window.addEventListener('firebaseInitDone', init);
-  setTimeout(() => { if (!window._firebaseInitDone) init(); }, 5000);
+  window.addEventListener('firebaseReady', bootstrap);
+  setTimeout(() => { if (!window._firebaseReady) bootstrap(); }, 4000);
 }
 </script>
 </body>
