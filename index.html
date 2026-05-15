@@ -516,8 +516,8 @@ async function loadAll() {
       const snap = await window._getDoc(ref);
       if (snap.exists()) {
         data = snap.data();
-        setSyncStatus('loaded');
       }
+      setSyncStatus('loaded'); // connected successfully even if doc is empty
     } catch(e) {
       console.error('Firestore load error:', e);
       setSyncStatus('offline');
@@ -528,7 +528,8 @@ async function loadAll() {
   if (!data) {
     try {
       const backup = localStorage.getItem('car_backup');
-      if (backup) { data = JSON.parse(backup); setSyncStatus('offline'); }
+      if (backup) { data = JSON.parse(backup); }
+      if (!window._firebaseReady) setSyncStatus('offline');
     } catch(e) {}
   }
 
@@ -540,13 +541,13 @@ async function loadAll() {
       const ref = window._doc(window._db, 'stores', window._STORE_ID);
       _unsubscribeSnapshot = window._onSnapshot(ref, snap => {
         if (_saving) return; // ignore echo of our own save
-        if (!snap.exists()) return;
-        applyData(snap.data());
-        localStorage.setItem('car_backup', JSON.stringify(snap.data()));
+        applyData(snap.exists() ? snap.data() : null);
+        if (snap.exists()) localStorage.setItem('car_backup', JSON.stringify(snap.data()));
         setSyncStatus('loaded');
         renderTable();
       }, err => {
         console.error('Snapshot listener error:', err);
+        setSyncStatus('error');
       });
     } catch(e) {
       console.error('Failed to start snapshot listener:', e);
