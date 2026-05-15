@@ -20,17 +20,24 @@
       appId: "1:229630485289:web:10fea67171b35f8f7bcd38"
     };
 
-    const firebaseApp = initializeApp(firebaseConfig);
-    const db = getFirestore(firebaseApp);
-    const STORE_ID = 'georgetown'; // change per location if needed
+    try {
+      const firebaseApp = initializeApp(firebaseConfig);
+      const db = getFirestore(firebaseApp);
+      const STORE_ID = 'georgetown';
 
-    window._db = db;
-    window._doc = doc;
-    window._setDoc = setDoc;
-    window._getDoc = getDoc;
-    window._STORE_ID = STORE_ID;
-    window._firebaseReady = true;
-    window.dispatchEvent(new Event('firebaseReady'));
+      window._db = db;
+      window._doc = doc;
+      window._setDoc = setDoc;
+      window._getDoc = getDoc;
+      window._STORE_ID = STORE_ID;
+      window._firebaseReady = true;
+    } catch(e) {
+      console.error('Firebase init error:', e);
+      window._firebaseReady = false;
+    } finally {
+      window._firebaseInitDone = true;
+      window.dispatchEvent(new Event('firebaseInitDone'));
+    }
   </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -963,12 +970,11 @@ async function init() {
   renderTable();
 }
 
-if (window._firebaseReady) {
+if (window._firebaseInitDone) {
   init();
 } else {
-  window.addEventListener('firebaseReady', init);
-  // If Firebase doesn't load within 4 seconds, fall back to local
-  setTimeout(() => { if (!window._firebaseReady) init(); }, 4000);
+  window.addEventListener('firebaseInitDone', init);
+  setTimeout(() => { if (!window._firebaseInitDone) init(); }, 5000);
 }
 </script>
 </body>
