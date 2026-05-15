@@ -28,7 +28,8 @@
     window._getDoc = getDoc;
     window._onSnapshot = onSnapshot;
     window._firebaseReady = true;
-    window.dispatchEvent(new Event('firebaseReady'));
+    // Signal bootstrap if it's already waiting
+    if (window._bootstrapWaiting) window._bootstrapWaiting();
   </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1075,7 +1076,9 @@ function bootstrap() {
 if (window._firebaseReady) {
   bootstrap();
 } else {
-  window.addEventListener('firebaseReady', bootstrap);
+  // Firebase module is async — register a callback it will call when ready
+  window._bootstrapWaiting = bootstrap;
+  // Fallback: if Firebase hasn't loaded in 4 seconds, run anyway (offline mode)
   setTimeout(() => { if (!window._firebaseReady) bootstrap(); }, 4000);
 }
 </script>
