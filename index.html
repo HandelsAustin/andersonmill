@@ -1073,13 +1073,20 @@ function bootstrap() {
   }
 }
 
-if (window._firebaseReady) {
-  bootstrap();
+// Use DOMContentLoaded to avoid all module timing races
+function waitForFirebaseAndBootstrap() {
+  if (window._firebaseReady) {
+    bootstrap();
+  } else {
+    window._bootstrapWaiting = bootstrap;
+    setTimeout(() => { if (!window._STORE_ID) bootstrap(); }, 4000);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', waitForFirebaseAndBootstrap);
 } else {
-  // Firebase module is async — register a callback it will call when ready
-  window._bootstrapWaiting = bootstrap;
-  // Fallback: if Firebase hasn't loaded in 4 seconds, run anyway (offline mode)
-  setTimeout(() => { if (!window._firebaseReady) bootstrap(); }, 4000);
+  waitForFirebaseAndBootstrap();
 }
 </script>
 </body>
