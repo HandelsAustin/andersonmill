@@ -1047,7 +1047,7 @@ function selectStore(id) {
   const store = STORES.find(s => s.id === id);
   if (store) {
     const sub = document.querySelector('.header-sub');
-    if (sub) sub.textContent = store.label + ' — Handel's Homemade Ice Cream';
+    if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
   }
   init();
 }
@@ -1065,7 +1065,7 @@ function bootstrap() {
     const store = STORES.find(s => s.id === savedId);
     if (store) {
       const sub = document.querySelector('.header-sub');
-      if (sub) sub.textContent = store.label + ' — Handel's Homemade Ice Cream';
+      if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
     }
     init();
   } else {
