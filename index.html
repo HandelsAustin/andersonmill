@@ -194,6 +194,18 @@
     .var-none { font-size:13px; color:#8fa3be; font-style:italic; }
     .var-close { margin-top:22px; width:100%; padding:13px; background:#12223a; border:1.5px solid #2e4a70; border-radius:8px; color:#c5d8f0; font-family:'Open Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; touch-action:manipulation; }
     .var-close:active { opacity:0.75; }
+
+    /* Run summary modal */
+    .summary-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:400; align-items:center; justify-content:center; padding:24px; }
+    .summary-overlay.open { display:flex; }
+    .summary-box { background:#1a2744; border:1.5px solid #2e4a70; border-radius:14px; padding:28px 24px; width:100%; max-width:460px; max-height:85vh; overflow-y:auto; }
+    .summary-box h2 { font-family:'Playfair Display',serif; font-size:18px; color:#f5f0e8; margin-bottom:20px; }
+    .summary-table { width:100%; border-collapse:collapse; font-size:14px; }
+    .summary-table td { padding:10px 8px; color:#c5d8f0; border-bottom:1px solid #1e3558; vertical-align:middle; }
+    .summary-table td:last-child { text-align:right; white-space:nowrap; color:#f5f0e8; font-weight:700; font-size:16px; }
+    .summary-table tr:last-child td { border-bottom:none; }
+    .summary-close { margin-top:22px; width:100%; padding:13px; background:#12223a; border:1.5px solid #2e4a70; border-radius:8px; color:#c5d8f0; font-family:'Open Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; touch-action:manipulation; }
+    .summary-close:active { opacity:0.75; }
   </style>
 </head>
 <body>
@@ -223,6 +235,7 @@
 
     <div id="runBanner" style="display:none" class="run-banner">
       <span id="runBannerMsg"></span>
+      <span id="runTimerDisplay" style="font-size:13px;color:#8fa3be;margin-left:12px;font-variant-numeric:tabular-nums;"></span>
       <button class="btn btn-green" onclick="doneRun()" style="font-size:13px;padding:9px 20px;">&#10003; Done</button>
     </div>
 
@@ -260,7 +273,18 @@
     <h2>Variegates Needed</h2>
     <p class="var-sub">Prepare these before starting your run.</p>
     <div id="varList"></div>
-    <button class="var-close" onclick="document.getElementById('varOverlay').classList.remove('open')">Got it</button>
+    <button class="var-close" onclick="document.getElementById('varOverlay').classList.remove('open'); startRunTimer();">Got it</button>
+  </div>
+</div>
+
+<!-- Run Summary Modal -->
+<div id="summaryOverlay" class="summary-overlay">
+  <div class="summary-box">
+    <h2>Run Complete 🎉</h2>
+    <table class="summary-table">
+      <tbody id="summaryBody"></tbody>
+    </table>
+    <button class="summary-close" onclick="closeSummary()">Done</button>
   </div>
 </div>
 
@@ -761,10 +785,14 @@ function removeFromActive(idx) {
 
 // ── RUN MODE ───────────────────────────────────────────────────────────────
 let runDismissed = []; // tracks {name, index} pairs dismissed during run
+let _runTimerInterval = null;
+let _runStartTime = null;
+let _totalBucketsMade = 0;
 
 function dismissRunRow(name, index, action) {
   if (action === 'made') {
     runDismissed.push({ name, index });
+    _totalBucketsMade++;
     const idx = activeFlavors.findIndex(f => f.name === name);
     if (idx >= 0) {
       activeFlavors[idx].made = (activeFlavors[idx].made || 0) + 1;
@@ -773,7 +801,10 @@ function dismissRunRow(name, index, action) {
     const flavorIdx = activeFlavors.findIndex(f => f.name === name);
     const tm = flavorIdx >= 0 ? toMake(activeFlavors[flavorIdx]) : 0;
     const doneCount = runDismissed.filter(d => d.name === name).length;
-    if (doneCount >= tm) renderTable();
+    if (doneCount >= tm) {
+      renderTable();
+      checkRunComplete();
+    }
   } else if (action === 'skip') {
     const idx = activeFlavors.findIndex(f => f.name === name);
     const tm = idx >= 0 ? toMake(activeFlavors[idx]) : 0;
@@ -783,6 +814,7 @@ function dismissRunRow(name, index, action) {
       }
     }
     renderTable();
+    checkRunComplete();
   }
 }
 
@@ -855,6 +887,7 @@ function printRun() {
 }
 
 function doneRun() {
+  stopRunTimer();
   runMode = false;
   runDismissed = [];
   document.getElementById('runBanner').style.display = 'none';
@@ -863,6 +896,7 @@ function doneRun() {
 }
 
 function clearRunView() {
+  stopRunTimer();
   runMode = false;
   runDismissed = [];
   document.getElementById('runBanner').style.display = 'none';
@@ -1104,6 +1138,93 @@ const STORES = [
   { label: 'Santee',        id: 'santee'        },
   { label: 'Tester Store',  id: 'tester-store'  },
 ];
+
+function fmtTime(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function fmtClock(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const mm = String(m).padStart(2,'0');
+  const ss = String(s).padStart(2,'0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function roundToHalf(n) {
+  return Math.round(n * 2) / 2;
+}
+
+function startRunTimer() {
+  _runStartTime = Date.now();
+  _totalBucketsMade = 0;
+  const el = document.getElementById('runTimerDisplay');
+  if (_runTimerInterval) clearInterval(_runTimerInterval);
+  _runTimerInterval = setInterval(() => {
+    if (el) el.textContent = '⏱ ' + fmtClock(Date.now() - _runStartTime);
+  }, 1000);
+}
+
+function stopRunTimer() {
+  if (_runTimerInterval) { clearInterval(_runTimerInterval); _runTimerInterval = null; }
+  const el = document.getElementById('runTimerDisplay');
+  if (el) el.textContent = '';
+}
+
+function checkRunComplete() {
+  if (!runMode) return;
+  const remaining = activeFlavors.filter(f => {
+    const tm = toMake(f);
+    const done = runDismissed.filter(d => d.name === f.name).length;
+    return tm > 0 && done < tm;
+  });
+  if (remaining.length === 0) showRunSummary();
+}
+
+function showRunSummary() {
+  stopRunTimer();
+  const totalMs   = _runStartTime ? Date.now() - _runStartTime : 0;
+  const totalMins = totalMs / 60000;
+  const buckets   = _totalBucketsMade;
+  const avgPerBucket = buckets > 0 ? fmtTime(totalMs / buckets) : '—';
+  const bph = totalMins > 0 ? roundToHalf((buckets / totalMins) * 60) : 0;
+
+  const body = document.getElementById('summaryBody');
+  body.innerHTML = '';
+
+  const rows = [
+    ['Total Buckets Made', buckets],
+    ['Total Run Time',     fmtTime(totalMs)],
+    ['Avg. Time per Bucket', avgPerBucket],
+    ['Avg. Buckets per Hour', bph > 0 ? bph : '—'],
+  ];
+
+  rows.forEach(([label, value]) => {
+    const tr = document.createElement('tr');
+    const tdL = document.createElement('td');
+    tdL.textContent = label;
+    const tdV = document.createElement('td');
+    tdV.textContent = value;
+    tr.appendChild(tdL);
+    tr.appendChild(tdV);
+    body.appendChild(tr);
+  });
+
+  document.getElementById('summaryOverlay').classList.add('open');
+}
+
+function closeSummary() {
+  document.getElementById('summaryOverlay').classList.remove('open');
+  doneRun();
+}
 
 function showVariegateModal(flavorsInRun) {
   const needed = {};
