@@ -28,7 +28,6 @@
     window._getDoc = getDoc;
     window._onSnapshot = onSnapshot;
     window._firebaseReady = true;
-    // Signal bootstrap if it's already waiting
     if (window._bootstrapWaiting) window._bootstrapWaiting();
   </script>
   <style>
@@ -174,8 +173,6 @@
     .new-flavor-row input::placeholder { color: #4a6a90; }
     .new-flavor-row input:focus { outline: none; border-color: #4a7ab5; }
     .new-flavor-row select { padding: 10px 8px; font-size: 14px; border: 1px solid #2e4a70; border-radius: 6px; background: #12223a; color: #c5d8f0; font-family: 'Open Sans', sans-serif; min-height: 44px; }
-
-    /* Store picker overlay */
     .store-overlay { display:none; position:fixed; inset:0; background:#0e1a2e; z-index:300; align-items:center; justify-content:center; flex-direction:column; padding:24px; }
     .store-overlay.open { display:flex; }
     .store-overlay h2 { font-family:'Playfair Display',serif; font-size:22px; color:#f5f0e8; margin-bottom:6px; text-align:center; }
@@ -463,7 +460,6 @@ function setSyncStatus(state) {
   if (state === 'offline') { el.textContent = '📴 Offline — using local backup'; el.style.color = '#f0a500'; }
 }
 
-// True while a save is in flight — suppresses echo of our own writes
 let _saving = false;
 let _unsubscribeSnapshot = null;
 
@@ -475,7 +471,6 @@ function applyData(data) {
     ...custom
   ];
   activeFlavors = data?.activeFlavors || [];
-  // Sync type/category from master roster in case it changed
   activeFlavors = activeFlavors.map(f => {
     const r = roster.find(x => x.name === f.name);
     return r ? { ...f, category: r.category, type: r.type } : f;
@@ -486,10 +481,7 @@ async function saveAll() {
   const customAdded  = roster.filter(r => !MASTER_ROSTER.find(m => m.name === r.name));
   const removedNames = MASTER_ROSTER.filter(m => !roster.find(r => r.name === m.name)).map(m => m.name);
   const payload = { customAdded, removedNames, activeFlavors, updatedAt: Date.now() };
-
-  // Always keep a local backup
   localStorage.setItem('car_backup', JSON.stringify(payload));
-
   if (!window._firebaseReady) { setSyncStatus('offline'); return; }
   setSyncStatus('saving');
   _saving = true;
@@ -506,26 +498,19 @@ async function saveAll() {
 }
 
 async function loadAll() {
-  // Tear down any existing listener (e.g. on store switch)
   if (_unsubscribeSnapshot) { _unsubscribeSnapshot(); _unsubscribeSnapshot = null; }
-
-  // Load initial data
   let data = null;
   if (window._firebaseReady) {
     try {
       const ref = window._doc(window._db, 'stores', window._STORE_ID);
       const snap = await window._getDoc(ref);
-      if (snap.exists()) {
-        data = snap.data();
-      }
-      setSyncStatus('loaded'); // connected successfully even if doc is empty
+      if (snap.exists()) { data = snap.data(); }
+      setSyncStatus('loaded');
     } catch(e) {
       console.error('Firestore load error:', e);
       setSyncStatus('offline');
     }
   }
-
-  // Fall back to local backup if Firestore unavailable or empty
   if (!data) {
     try {
       const backup = localStorage.getItem('car_backup');
@@ -533,15 +518,12 @@ async function loadAll() {
       if (!window._firebaseReady) setSyncStatus('offline');
     } catch(e) {}
   }
-
   applyData(data);
-
-  // Start live listener — updates from other tablets arrive here
   if (window._firebaseReady && window._onSnapshot) {
     try {
       const ref = window._doc(window._db, 'stores', window._STORE_ID);
       _unsubscribeSnapshot = window._onSnapshot(ref, snap => {
-        if (_saving) return; // ignore echo of our own save
+        if (_saving) return;
         applyData(snap.exists() ? snap.data() : null);
         if (snap.exists()) localStorage.setItem('car_backup', JSON.stringify(snap.data()));
         setSyncStatus('loaded');
@@ -642,27 +624,35 @@ function buildRow(f, runIndex, runTotal) {
   tr.appendChild(tdType);
 
   if (runMode) {
-    // Run mode: show bucket counter, Made + Skip buttons
-    const tdCount = document.createElement('td');
-    tdCount.style.cssText = 'text-align:center;font-size:13px;color:#8fa3be;letter-spacing:0.04em;';
-    tdCount.textContent = runTotal > 1 ? `${runIndex} of ${runTotal}` : '';
-    tr.appendChild(tdCount);
+    // Run mode: checkboxes (one per bucket needed) + Skip button
+    const tdBoxes = document.createElement('td');
+    tdBoxes.style.cssText = 'text-align:center;';
+    const boxWrap = document.createElement('div');
+    boxWrap.style.cssText = 'display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;';
+    for (let i = 1; i <= tm; i++) {
+      const alreadyDone = runDismissed.find(d => d.name === f.name && d.index === i);
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!alreadyDone;
+      cb.disabled = !!alreadyDone;
+      cb.style.cssText = 'width:28px;height:28px;cursor:pointer;accent-color:#22a05a;';
+      cb.addEventListener('change', () => {
+        if (!cb.checked) return;
+        cb.disabled = true;
+        dismissRunRow(f.name, i, 'made');
+      });
+      boxWrap.appendChild(cb);
+    }
+    tdBoxes.appendChild(boxWrap);
+    tr.appendChild(tdBoxes);
 
     const tdActions = document.createElement('td');
     tdActions.style.cssText = 'text-align:right;white-space:nowrap;';
-
-    const madeBtn = document.createElement('button');
-    madeBtn.textContent = 'Made';
-    madeBtn.style.cssText = 'background:#0f4a2a;border:1.5px solid #22a05a;color:#b0f0ce;font-family:\'Open Sans\',sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;margin-right:6px;min-height:40px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
-    madeBtn.onclick = () => dismissRunRow(f.name, runIndex, 'made');
-    tdActions.appendChild(madeBtn);
-
     const skipBtn = document.createElement('button');
     skipBtn.textContent = 'Skip';
     skipBtn.style.cssText = 'background:#7a0f1f;border:1.5px solid #c8102e;color:#f5d0d5;font-family:\'Open Sans\',sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:40px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
-    skipBtn.onclick = () => dismissRunRow(f.name, runIndex, 'skip');
+    skipBtn.onclick = () => dismissRunRow(f.name, null, 'skip');
     tdActions.appendChild(skipBtn);
-
     tr.appendChild(tdActions);
   } else {
     // Normal mode: dropdowns + To Make
@@ -731,12 +721,9 @@ function renderTable() {
   if (runMode) {
     sorted.forEach(f => {
       const tm = toMake(f);
-      for (let i = 1; i <= tm; i++) {
-        if (runDismissed.find(d => d.name === f.name && d.index === i)) continue;
-        const tr = buildRow(f, i, tm);
-        if (i === 1 && tm > 1) tr.style.borderTop = '2px solid #2e4a70';
-        tbody.appendChild(tr);
-      }
+      const doneCount = runDismissed.filter(d => d.name === f.name).length;
+      if (doneCount >= tm) return;
+      tbody.appendChild(buildRow(f, null, tm));
     });
   } else {
     sorted.forEach(f => tbody.appendChild(buildRow(f)));
@@ -760,6 +747,10 @@ function dismissRunRow(name, index, action) {
       activeFlavors[idx].made = (activeFlavors[idx].made || 0) + 1;
       saveAll();
     }
+    const flavorIdx = activeFlavors.findIndex(f => f.name === name);
+    const tm = flavorIdx >= 0 ? toMake(activeFlavors[flavorIdx]) : 0;
+    const doneCount = runDismissed.filter(d => d.name === name).length;
+    if (doneCount >= tm) renderTable();
   } else if (action === 'skip') {
     const idx = activeFlavors.findIndex(f => f.name === name);
     const tm = idx >= 0 ? toMake(activeFlavors[idx]) : 0;
@@ -768,8 +759,8 @@ function dismissRunRow(name, index, action) {
         runDismissed.push({ name, index: i });
       }
     }
+    renderTable();
   }
-  renderTable();
 }
 
 function calculateRun() {
@@ -1073,7 +1064,6 @@ function bootstrap() {
   }
 }
 
-// Use DOMContentLoaded to avoid all module timing races
 function waitForFirebaseAndBootstrap() {
   if (window._firebaseReady) {
     bootstrap();
