@@ -83,14 +83,14 @@
     .run-banner .btn:hover { background: #1a3a28; }
 
     /* Main table */
-    table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
-    col.col-flavor   { width: auto; }
-    col.col-category { width: 80px; }
-    col.col-type     { width: 60px; }
-    col.col-target   { width: 76px; }
-    col.col-dipping  { width: 124px; }
-    col.col-holding  { width: 76px; }
-    col.col-tomake   { width: 72px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    col.col-flavor   { width: 30%; }
+    col.col-category { width: 8%; }
+    col.col-type     { width: 6%; }
+    col.col-target   { width: 8%; }
+    col.col-dipping  { width: 14%; }
+    col.col-holding  { width: 16%; }
+    col.col-tomake   { width: 8%; }
 
     @media print {
       body { background: #fff; color: #000; }
@@ -206,6 +206,21 @@
     .summary-table tr:last-child td { border-bottom:none; }
     .summary-close { margin-top:22px; width:100%; padding:13px; background:#12223a; border:1.5px solid #2e4a70; border-radius:8px; color:#c5d8f0; font-family:'Open Sans',sans-serif; font-size:14px; font-weight:600; cursor:pointer; touch-action:manipulation; }
     .summary-close:active { opacity:0.75; }
+
+    /* Cabinet picker modal */
+    .cabinet-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:500; align-items:center; justify-content:center; padding:24px; }
+    .cabinet-overlay.open { display:flex; }
+    .cabinet-box { background:#1a2744; border:1.5px solid #2e4a70; border-radius:14px; padding:28px 24px; width:100%; max-width:360px; }
+    .cabinet-box h2 { font-family:'Playfair Display',serif; font-size:17px; color:#f5f0e8; margin-bottom:6px; }
+    .cabinet-box p { font-size:12px; color:#8fa3be; margin-bottom:20px; }
+    .cabinet-btns { display:flex; gap:12px; justify-content:center; }
+    .cabinet-btn { flex:1; padding:18px 8px; font-size:22px; font-weight:700; font-family:'Open Sans',sans-serif; background:#12223a; border:1.5px solid #2e4a70; border-radius:10px; color:#c5d8f0; cursor:pointer; touch-action:manipulation; transition:all 0.15s; }
+    .cabinet-btn:hover { background:#1e3558; border-color:#4a7ab5; color:#f5f0e8; }
+    .cabinet-btn:active { opacity:0.75; }
+    .sort-toggle-row { display:flex; align-items:center; justify-content:space-between; padding:8px 16px 10px; font-size:12px; color:#8fa3be; gap:8px; }
+    .sort-toggle-btn { font-size:11px; font-family:'Open Sans',sans-serif; padding:5px 10px; border-radius:6px; border:1px solid #c8102e; background:#2a0a12; color:#f5a0aa; cursor:pointer; white-space:nowrap; }
+    .sort-toggle-btn:active { opacity:0.75; }
+    .cabinet-badge { display:inline-block; font-size:10px; font-weight:700; background:#1e3558; border:1px solid #2e4a70; color:#8fa3be; border-radius:4px; padding:1px 5px; margin-left:6px; vertical-align:middle; }
   </style>
 </head>
 <body>
@@ -252,7 +267,7 @@
       <thead>
         <tr>
           <th>Flavor</th>
-          <th>Category</th>
+          <th id="thCategory">Category</th>
           <th>Type</th>
           <th id="thTarget" style="text-align:center">Target</th>
           <th id="thDipping">In Dipping</th>
@@ -274,6 +289,20 @@
     <p class="var-sub">Prepare these before starting your run.</p>
     <div id="varList"></div>
     <button class="var-close" onclick="document.getElementById('varOverlay').classList.remove('open'); startRunTimer();">Got it</button>
+  </div>
+</div>
+
+<!-- Cabinet Picker Modal -->
+<div id="cabinetOverlay" class="cabinet-overlay">
+  <div class="cabinet-box">
+    <h2 id="cabinetTitle">Which dipping cabinet?</h2>
+    <p id="cabinetSub"></p>
+    <div class="cabinet-btns">
+      <button class="cabinet-btn" onclick="selectCabinet(1)">1</button>
+      <button class="cabinet-btn" onclick="selectCabinet(2)">2</button>
+      <button class="cabinet-btn" onclick="selectCabinet(3)">3</button>
+      <button class="cabinet-btn" onclick="selectCabinet(4)">4</button>
+    </div>
   </div>
 </div>
 
@@ -304,6 +333,10 @@
       <input type="text" id="pickerSearch" placeholder="Search flavors&hellip;" oninput="renderPicker()">
     </div>
     <div id="pickerStats" class="picker-stats"></div>
+    <div class="sort-toggle-row" id="sortToggleRow" style="display:none">
+      <span id="sortToggleLabel"></span>
+      <button class="sort-toggle-btn" onclick="resetCabinetSort()">✕ Turn Off Cabinet Sort</button>
+    </div>
     <div class="picker-list" id="pickerList"></div>
     <div class="divider"></div>
     <p class="section-label">Add a custom flavor to roster</p>
@@ -607,6 +640,11 @@ function flavorClass(f) {
 function getSorted(list) {
   return [...list].sort((a, b) => {
     if (runMode) return categorySort(a.category) - categorySort(b.category);
+    if (_cabinetSortEnabled) {
+      const ca = a.cabinet || 99;
+      const cb = b.cabinet || 99;
+      if (ca !== cb) return ca - cb;
+    }
     return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
   });
 }
@@ -653,11 +691,17 @@ function buildRow(f, runIndex, runTotal) {
   sp.className = flavorClass(f);
   sp.textContent = f.name;
   tdName.appendChild(sp);
+  if (_cabinetSortEnabled && f.cabinet) {
+    const badge = document.createElement('span');
+    badge.className = 'cabinet-badge';
+    badge.textContent = 'C' + f.cabinet;
+    tdName.appendChild(badge);
+  }
   tr.appendChild(tdName);
 
-  // Category
+  // Category — only shown in run mode
   const tdCat = document.createElement('td');
-  tdCat.style.cssText = 'font-size:12px;color:#8fa3be;';
+  tdCat.style.cssText = 'font-size:12px;color:#8fa3be;' + (runMode ? '' : 'display:none;');
   tdCat.textContent = f.category || '—';
   tr.appendChild(tdCat);
 
@@ -717,7 +761,37 @@ function buildRow(f, runIndex, runTotal) {
     tr.appendChild(tdDip);
 
     const tdHold = document.createElement('td');
-    tdHold.appendChild(makeSelect(HOLDING_OPTIONS, f.holding, val => { activeFlavors[idx].holding = val; saveAll(); renderTable(); }));
+    tdHold.style.cssText = 'text-align:center;white-space:nowrap;';
+    const holdWrap = document.createElement('div');
+    holdWrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
+
+    const holdMinus = document.createElement('button');
+    holdMinus.textContent = '−';
+    holdMinus.style.cssText = 'width:32px;height:32px;font-size:18px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;';
+    holdMinus.addEventListener('click', () => {
+      const cur = parseInt(activeFlavors[idx].holding) || 0;
+      if (cur <= 0) return;
+      activeFlavors[idx].holding = cur - 1;
+      saveAll(); renderTable();
+    });
+
+    const holdVal = document.createElement('span');
+    holdVal.textContent = parseInt(f.holding) || 0;
+    holdVal.style.cssText = 'min-width:24px;text-align:center;font-size:14px;font-weight:600;color:#f5f0e8;';
+
+    const holdPlus = document.createElement('button');
+    holdPlus.textContent = '+';
+    holdPlus.style.cssText = 'width:32px;height:32px;font-size:18px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;';
+    holdPlus.addEventListener('click', () => {
+      const cur = parseInt(activeFlavors[idx].holding) || 0;
+      activeFlavors[idx].holding = cur + 1;
+      saveAll(); renderTable();
+    });
+
+    holdWrap.appendChild(holdMinus);
+    holdWrap.appendChild(holdVal);
+    holdWrap.appendChild(holdPlus);
+    tdHold.appendChild(holdWrap);
     tr.appendChild(tdHold);
 
     const tdTM = document.createElement('td');
@@ -734,6 +808,7 @@ function renderTable() {
   tbody.innerHTML = '';
 
   // Show/hide column headers for run mode
+  const thCategory = document.getElementById('thCategory');
   const thTarget  = document.getElementById('thTarget');
   const thDipping = document.getElementById('thDipping');
   const thHolding = document.getElementById('thHolding');
@@ -741,6 +816,7 @@ function renderTable() {
   const thBucket  = document.getElementById('thBucket');
   const thActions = document.getElementById('thActions');
   if (runMode) {
+    thCategory.style.display = '';
     thTarget.style.display  = 'none';
     thDipping.style.display = 'none';
     thHolding.style.display = 'none';
@@ -748,6 +824,7 @@ function renderTable() {
     thBucket.style.display  = '';
     thActions.style.display = '';
   } else {
+    thCategory.style.display = 'none';
     thTarget.style.display  = '';
     thDipping.style.display = '';
     thHolding.style.display = '';
@@ -755,6 +832,7 @@ function renderTable() {
     thBucket.style.display  = 'none';
     thActions.style.display = 'none';
   }
+
   const list = runMode ? activeFlavors.filter(f => toMake(f) > 0) : activeFlavors;
   const sorted = getSorted(list);
   if (!sorted.length) {
@@ -785,6 +863,8 @@ function removeFromActive(idx) {
 
 // ── RUN MODE ───────────────────────────────────────────────────────────────
 let runDismissed = []; // tracks {name, index} pairs dismissed during run
+let _cabinetSortEnabled = false;
+let _cabinetCallback    = null;
 let _runTimerInterval = null;
 let _runStartTime = null;
 let _totalBucketsMade = 0;
@@ -913,13 +993,115 @@ function resetDay() {
 }
 
 // ── MODAL / PICKER ─────────────────────────────────────────────────────────
+// ── CABINET SORT ───────────────────────────────────────────────────────────
+function loadCabinetPref() {
+  const val = localStorage.getItem('car_cabinet_sort');
+  _cabinetSortEnabled = val === 'true';
+}
+
+function saveCabinetPref(val) {
+  _cabinetSortEnabled = val;
+  localStorage.setItem('car_cabinet_sort', val ? 'true' : 'false');
+}
+
+function resetCabinetSort() {
+  if (!confirm('Turn off cabinet sort? This will clear all cabinet assignments.')) return;
+  localStorage.removeItem('car_cabinet_sort');
+  _cabinetSortEnabled = false;
+  activeFlavors.forEach(f => { delete f.cabinet; });
+  saveAll();
+  updateSortToggleUI();
+  renderPicker();
+  renderTable();
+}
+
+function updateSortToggleUI() {
+  const row = document.getElementById('sortToggleRow');
+  const label = document.getElementById('sortToggleLabel');
+  if (!row) return;
+  if (_cabinetSortEnabled) {
+    row.style.display = 'flex';
+    label.textContent = 'Sorted by dipping cabinet';
+  } else {
+    row.style.display = 'none';
+  }
+}
+
+function showCabinetPicker(flavorName, subtitle, callback) {
+  document.getElementById('cabinetTitle').textContent = flavorName;
+  document.getElementById('cabinetSub').textContent = subtitle || '';
+  _cabinetCallback = callback;
+  document.getElementById('cabinetOverlay').classList.add('open');
+}
+
+function selectCabinet(num) {
+  document.getElementById('cabinetOverlay').classList.remove('open');
+  if (_cabinetCallback) { _cabinetCallback(num); _cabinetCallback = null; }
+}
+
+function assignMissingCabinets(queue, onComplete) {
+  if (!queue.length) { onComplete(); return; }
+  const f = queue[0];
+  showCabinetPicker(f.name, 'Which dipping cabinet is this flavor in?', (num) => {
+    const idx = activeFlavors.findIndex(a => a.name === f.name);
+    if (idx >= 0) activeFlavors[idx].cabinet = num;
+    assignMissingCabinets(queue.slice(1), onComplete);
+  });
+}
+
+function askSortPreference() {
+  const box = document.querySelector('.cabinet-box');
+  box.innerHTML = `
+    <h2 style="font-family:'Playfair Display',serif;font-size:17px;color:#f5f0e8;margin-bottom:8px;">Sort flavors by...</h2>
+    <p style="font-size:12px;color:#8fa3be;margin-bottom:20px;">How should active flavors be ordered during inventory?</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <button class="cabinet-btn" style="font-size:15px;padding:16px 8px;" onclick="chooseSortPref('cabinet')">🗂 Dipping Cabinet</button>
+      <button class="cabinet-btn" style="font-size:15px;padding:16px 8px;" onclick="chooseSortPref('alpha')">🔤 Alphabetically</button>
+    </div>`;
+  document.getElementById('cabinetOverlay').classList.add('open');
+}
+
+function restoreCabinetBox() {
+  document.querySelector('.cabinet-box').innerHTML = `
+    <h2 id="cabinetTitle">Which dipping cabinet?</h2>
+    <p id="cabinetSub"></p>
+    <div class="cabinet-btns">
+      <button class="cabinet-btn" onclick="selectCabinet(1)">1</button>
+      <button class="cabinet-btn" onclick="selectCabinet(2)">2</button>
+      <button class="cabinet-btn" onclick="selectCabinet(3)">3</button>
+      <button class="cabinet-btn" onclick="selectCabinet(4)">4</button>
+    </div>`;
+}
+
+function chooseSortPref(mode) {
+  document.getElementById('cabinetOverlay').classList.remove('open');
+  restoreCabinetBox();
+  if (mode === 'alpha') {
+    saveCabinetPref(false);
+    updateSortToggleUI();
+    renderPicker();
+    return;
+  }
+  saveCabinetPref(true);
+  const missing = activeFlavors.filter(f => !f.cabinet);
+  assignMissingCabinets(missing, () => {
+    saveAll();
+    updateSortToggleUI();
+    renderPicker();
+  });
+}
+
 function openAddModal() {
   document.getElementById('pickerSearch').value = '';
   document.getElementById('newFlavorName').value = '';
   document.getElementById('newFlavorType').value = '';
   document.getElementById('modalBackdrop').classList.add('open');
+  updateSortToggleUI();
   renderPicker();
   setTimeout(() => document.getElementById('pickerSearch').focus(), 60);
+  if (localStorage.getItem('car_cabinet_sort') === null) {
+    setTimeout(() => askSortPreference(), 200);
+  }
 }
 
 function closeModal() {
@@ -935,11 +1117,20 @@ function toggleFlavor(name) {
   const idx = activeFlavors.findIndex(f => f.name === name);
   if (idx >= 0) {
     activeFlavors.splice(idx, 1);
+    saveAll(); renderPicker();
   } else {
     const r = roster.find(r => r.name === name);
     activeFlavors.push({ name, category: r ? r.category : '', type: r ? r.type || '' : '', target: 0, dipping: 0, holding: 0 });
+    if (_cabinetSortEnabled) {
+      showCabinetPicker(name, 'Which dipping cabinet is this flavor in?', (num) => {
+        const fi = activeFlavors.findIndex(f => f.name === name);
+        if (fi >= 0) activeFlavors[fi].cabinet = num;
+        saveAll(); renderPicker();
+      });
+    } else {
+      saveAll(); renderPicker();
+    }
   }
-  saveAll(); renderPicker();
 }
 
 let pendingRosterDelete = null;
@@ -1292,6 +1483,7 @@ async function init() {
 }
 
 function bootstrap() {
+  loadCabinetPref();
   const savedId = localStorage.getItem('car_store_id');
   if (savedId) {
     window._STORE_ID = savedId;
