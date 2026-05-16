@@ -985,7 +985,7 @@ function clearRunView() {
 }
 
 function resetDay() {
-  if (!confirm('Reset for today?\n\nThis will clear all Dipping and Holding counts and return to A–Z sort.')) return;
+  if (!confirm('Reset for today?\n\nThis will clear all Dipping and Holding counts. Sort order and cabinet assignments will not be affected.')) return;
   activeFlavors.forEach(f => { f.dipping = 0; f.holding = 0; });
   runMode = false;
   document.getElementById('runBanner').style.display = 'none';
