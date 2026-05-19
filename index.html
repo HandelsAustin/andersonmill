@@ -335,7 +335,7 @@
     <div id="pickerStats" class="picker-stats"></div>
     <div class="sort-toggle-row" id="sortToggleRow" style="display:none">
       <span id="sortToggleLabel"></span>
-      <button class="sort-toggle-btn" onclick="resetCabinetSort()">✕ Turn Off Cabinet Sort</button>
+      <button class="sort-toggle-btn" onclick="resetCabinetSort()">✕ Turn Off Cabinet Numbers</button>
     </div>
     <div class="picker-list" id="pickerList"></div>
     <div class="divider"></div>
@@ -640,11 +640,6 @@ function flavorClass(f) {
 function getSorted(list) {
   return [...list].sort((a, b) => {
     if (runMode) return categorySort(a.category) - categorySort(b.category);
-    if (_cabinetSortEnabled) {
-      const ca = a.cabinet || 99;
-      const cb = b.cabinet || 99;
-      if (ca !== cb) return ca - cb;
-    }
     return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
   });
 }
@@ -1005,8 +1000,8 @@ function saveCabinetPref(val) {
 }
 
 function resetCabinetSort() {
-  if (!confirm('Turn off cabinet sort? This will clear all cabinet assignments.')) return;
-  localStorage.removeItem('car_cabinet_sort');
+  if (!confirm('Turn off cabinet assignments? This will clear all cabinet numbers.')) return;
+  localStorage.setItem('car_cabinet_sort', 'false');
   _cabinetSortEnabled = false;
   activeFlavors.forEach(f => { delete f.cabinet; });
   saveAll();
@@ -1021,7 +1016,7 @@ function updateSortToggleUI() {
   if (!row) return;
   if (_cabinetSortEnabled) {
     row.style.display = 'flex';
-    label.textContent = 'Sorted by dipping cabinet';
+    label.textContent = 'Cabinet numbers assigned';
   } else {
     row.style.display = 'none';
   }
@@ -1049,14 +1044,14 @@ function assignMissingCabinets(queue, onComplete) {
   });
 }
 
-function askSortPreference() {
+function askCabinetPreference() {
   const box = document.querySelector('.cabinet-box');
   box.innerHTML = `
-    <h2 style="font-family:'Playfair Display',serif;font-size:17px;color:#f5f0e8;margin-bottom:8px;">Sort flavors by...</h2>
-    <p style="font-size:12px;color:#8fa3be;margin-bottom:20px;">How should active flavors be ordered during inventory?</p>
+    <h2 style="font-family:'Playfair Display',serif;font-size:17px;color:#f5f0e8;margin-bottom:8px;">Assign cabinet numbers?</h2>
+    <p style="font-size:12px;color:#8fa3be;margin-bottom:20px;">Would you like to assign dipping cabinet numbers to your flavors? Cabinet numbers will appear next to each flavor name.</p>
     <div style="display:flex;flex-direction:column;gap:12px;">
-      <button class="cabinet-btn" style="font-size:15px;padding:16px 8px;" onclick="chooseSortPref('cabinet')">🗂 Dipping Cabinet</button>
-      <button class="cabinet-btn" style="font-size:15px;padding:16px 8px;" onclick="chooseSortPref('alpha')">🔤 Alphabetically</button>
+      <button class="cabinet-btn" style="font-size:15px;padding:16px 8px;" onclick="chooseCabinetPref(true)">Yes, assign cabinets</button>
+      <button class="cabinet-btn" style="font-size:15px;padding:16px 8px;" onclick="chooseCabinetPref(false)">No thanks</button>
     </div>`;
   document.getElementById('cabinetOverlay').classList.add('open');
 }
@@ -1073,10 +1068,10 @@ function restoreCabinetBox() {
     </div>`;
 }
 
-function chooseSortPref(mode) {
+function chooseCabinetPref(enabled) {
   document.getElementById('cabinetOverlay').classList.remove('open');
   restoreCabinetBox();
-  if (mode === 'alpha') {
+  if (!enabled) {
     saveCabinetPref(false);
     updateSortToggleUI();
     renderPicker();
@@ -1100,7 +1095,7 @@ function openAddModal() {
   renderPicker();
   setTimeout(() => document.getElementById('pickerSearch').focus(), 60);
   if (localStorage.getItem('car_cabinet_sort') === null) {
-    setTimeout(() => askSortPreference(), 200);
+    setTimeout(() => askCabinetPreference(), 200);
   }
 }
 
