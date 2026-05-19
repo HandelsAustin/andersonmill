@@ -151,7 +151,7 @@
     .search-wrap input { width: 100%; padding: 11px 13px; font-size: 15px; font-family: 'Open Sans', sans-serif; border-radius: 6px; border: 1.5px solid #2e4a70; background: #12223a; color: #f5f0e8; }
     .search-wrap input::placeholder { color: #4a6a90; }
     .search-wrap input:focus { outline: none; border-color: #4a7ab5; }
-    .picker-stats { font-size: 11px; color: #4a6a90; margin-bottom: 6px; flex-shrink: 0; }
+    .picker-stats { font-size: 13px; font-weight: 600; color: #c5d8f0; margin-bottom: 8px; flex-shrink: 0; padding: 6px 12px; background: #12223a; border-radius: 6px; text-align: center; }
     .picker-list { overflow-y: auto; border: 1px solid #2e4a70; border-radius: 6px; background: #12223a; flex: 1; min-height: 0; }
     .picker-list::-webkit-scrollbar { width: 6px; }
     .picker-list::-webkit-scrollbar-track { background: #12223a; }
@@ -1423,8 +1423,10 @@ function renderPicker() {
       return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
     });
 
+  const selCount = activeFlavors.length;
+  const rosCount = roster.length;
   document.getElementById('pickerStats').textContent =
-    `${activeFlavors.length} on today's list · ${roster.length} in roster`;
+    `${selCount} of ${rosCount} flavor${rosCount !== 1 ? 's' : ''} selected`;
 
   const list = document.getElementById('pickerList');
   list.innerHTML = '';
