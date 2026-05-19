@@ -221,6 +221,20 @@
     .sort-toggle-btn { font-size:11px; font-family:'Open Sans',sans-serif; padding:5px 10px; border-radius:6px; border:1px solid #c8102e; background:#2a0a12; color:#f5a0aa; cursor:pointer; white-space:nowrap; }
     .sort-toggle-btn:active { opacity:0.75; }
     .cabinet-badge { display:inline-block; font-size:10px; font-weight:700; background:#1e3558; border:1px solid #2e4a70; color:#8fa3be; border-radius:4px; padding:1px 5px; margin-left:6px; vertical-align:middle; }
+
+    /* Manager PIN modal */
+    .pin-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:600; align-items:center; justify-content:center; padding:24px; }
+    .pin-overlay.open { display:flex; }
+    .pin-box { background:#1a2744; border:1.5px solid #2e4a70; border-radius:14px; padding:28px 24px; width:100%; max-width:320px; text-align:center; }
+    .pin-box h2 { font-family:'Playfair Display',serif; font-size:17px; color:#f5f0e8; margin-bottom:6px; }
+    .pin-box p { font-size:12px; color:#8fa3be; margin-bottom:20px; }
+    .pin-display { font-size:28px; font-weight:700; letter-spacing:12px; color:#f5f0e8; background:#12223a; border:1.5px solid #2e4a70; border-radius:8px; padding:12px 16px; margin-bottom:20px; min-height:56px; }
+    .pin-keypad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:12px; }
+    .pin-key { padding:16px 8px; font-size:18px; font-weight:700; font-family:'Open Sans',sans-serif; background:#12223a; border:1.5px solid #2e4a70; border-radius:8px; color:#c5d8f0; cursor:pointer; touch-action:manipulation; transition:all 0.1s; }
+    .pin-key:active { background:#1e3558; }
+    .pin-error { color:#c8102e; font-size:12px; margin-top:8px; min-height:18px; }
+    .pin-manager-btn { font-size:11px; font-family:'Open Sans',sans-serif; padding:5px 10px; border-radius:6px; border:1px solid #4a7ab5; background:#12223a; color:#8fa3be; cursor:pointer; margin-left:8px; }
+    .pin-manager-btn.unlocked { border-color:#22a05a; color:#22a05a; background:#0f2e1a; }
   </style>
 </head>
 <body>
@@ -236,10 +250,16 @@
 
   <div class="app-body">
     <div class="toolbar">
-      <button class="btn" onclick="openAddModal()">&#9776; Edit Flavors</button>
+      <button class="btn" id="editFlavorsBtn" onclick="requireManager(openAddModal)">&#9776; Edit Flavors</button>
       <button class="btn btn-red" onclick="resetDay()">&#8635; Reset</button>
       <button class="btn btn-green" onclick="calculateRun()">&#9654; Calculate Run</button>
-      <button class="btn" onclick="printRun()" id="printBtn" style="display:none">&#128438; Print Run</button>
+      <div id="printBtn" style="display:none;position:relative;">
+        <button class="btn" onclick="togglePrintMenu(event)">&#128438; Print</button>
+        <div id="printMenu" style="display:none;position:absolute;top:110%;right:0;background:#1a2744;border:1.5px solid #2e4a70;border-radius:8px;overflow:hidden;z-index:200;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+          <button onclick="printRun();closePrintMenu();" style="display:block;width:100%;text-align:left;padding:12px 16px;background:none;border:none;border-bottom:1px solid #2e4a70;color:#c5d8f0;font-family:'Open Sans',sans-serif;font-size:13px;cursor:pointer;">&#128438; Print Batch Run</button>
+          <button onclick="printInventory();closePrintMenu();" style="display:block;width:100%;text-align:left;padding:12px 16px;background:none;border:none;color:#c5d8f0;font-family:'Open Sans',sans-serif;font-size:13px;cursor:pointer;">&#128203; Print Current Inventory</button>
+        </div>
+      </div>
     </div>
 
     <div class="legend">
@@ -289,6 +309,17 @@
     <p class="var-sub">Prepare these before starting your run.</p>
     <div id="varList"></div>
     <button class="var-close" onclick="document.getElementById('varOverlay').classList.remove('open'); startRunTimer();">Got it</button>
+  </div>
+</div>
+
+<!-- PIN Modal -->
+<div id="pinOverlay" class="pin-overlay">
+  <div class="pin-box">
+    <h2 id="pinTitle">Manager Access</h2>
+    <p id="pinSubtitle">Enter your PIN to continue.</p>
+    <div class="pin-display" id="pinDisplay">____</div>
+    <div class="pin-keypad" id="pinKeypad"></div>
+    <div class="pin-error" id="pinError"></div>
   </div>
 </div>
 
@@ -748,7 +779,17 @@ function buildRow(f, runIndex, runTotal) {
       {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
     ];
     const tdTarget = document.createElement('td');
-    tdTarget.appendChild(makeSelect(TARGET_OPTIONS, f.target, val => { activeFlavors[idx].target = val; saveAll(); renderTable(); }));
+    tdTarget.style.cssText = 'text-align:center;';
+    if (_managerUnlocked) {
+      tdTarget.appendChild(makeSelect(TARGET_OPTIONS, f.target, val => { activeFlavors[idx].target = val; saveAll(); renderTable(); }));
+    } else {
+      const tval = document.createElement('span');
+      tval.textContent = f.target || '—';
+      tval.style.cssText = 'font-size:13px;color:#8fa3be;cursor:pointer;';
+      tval.title = 'Manager access required';
+      tval.addEventListener('click', () => requireManager(() => renderTable()));
+      tdTarget.appendChild(tval);
+    }
     tr.appendChild(tdTarget);
 
     const tdDip = document.createElement('td');
@@ -858,6 +899,13 @@ function removeFromActive(idx) {
 
 // ── RUN MODE ───────────────────────────────────────────────────────────────
 let runDismissed = []; // tracks {name, index} pairs dismissed during run
+// Manager mode
+let _managerUnlocked  = false;
+let _managerTimer     = null;
+let _pinCallback      = null;
+let _pinMode          = 'enter'; // 'enter' | 'set' | 'confirm'
+let _pinSetFirst      = '';
+const MANAGER_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 let _cabinetSortEnabled = false;
 let _cabinetCallback    = null;
 let _runTimerInterval = null;
@@ -903,6 +951,73 @@ function calculateRun() {
   document.getElementById('printBtn').style.display = '';
   renderTable();
   showVariegateModal(activeFlavors.filter(f => toMake(f) > 0));
+}
+
+function togglePrintMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('printMenu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  if (menu.style.display === 'block') {
+    setTimeout(() => document.addEventListener('click', closePrintMenu, { once: true }), 0);
+  }
+}
+
+function closePrintMenu() {
+  const menu = document.getElementById('printMenu');
+  if (menu) menu.style.display = 'none';
+}
+
+function printInventory() {
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  const sorted = getSorted(activeFlavors);
+
+  const rows = sorted.map(f => {
+    const dipping = parseFloat(f.dipping) || 0;
+    const holding = parseInt(f.holding) || 0;
+    const total   = dipping + holding;
+    const cab     = (_cabinetSortEnabled && f.cabinet) ? `C${f.cabinet}` : '—';
+    return `<tr>
+      <td>${f.name}</td>
+      <td style="text-align:center">${cab}</td>
+      <td style="text-align:center">${dipping > 0 ? dipping : '—'}</td>
+      <td style="text-align:center">${holding > 0 ? holding : '—'}</td>
+      <td style="text-align:center;font-weight:bold">${total > 0 ? total : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const totalBuckets = sorted.reduce((s, f) => s + (parseFloat(f.dipping) || 0) + (parseInt(f.holding) || 0), 0);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Inventory — ${today}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 13px; margin: 24px; color: #000; }
+    h2 { margin: 0 0 4px; font-size: 18px; }
+    p { margin: 0 0 16px; color: #555; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 6px 8px; border-bottom: 2px solid #c8102e; color: #444; }
+    td { padding: 7px 8px; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    .summary { margin-top: 16px; font-size: 13px; font-weight: bold; text-align: right; }
+  </style></head><body>
+  <h2>Handel's — Current Inventory</h2>
+  <p>${today}</p>
+  <table>
+    <thead><tr>
+      <th>Flavor</th>
+      <th style="text-align:center">Cabinet</th>
+      <th style="text-align:center">In Dipping</th>
+      <th style="text-align:center">Holding</th>
+      <th style="text-align:center">Total</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="summary">${sorted.length} flavor${sorted.length !== 1 ? 's' : ''} &nbsp;|&nbsp; ${totalBuckets} bucket${totalBuckets !== 1 ? 's' : ''} on hand</div>
+  <script>window.onload = function(){ window.print(); }<\/script>
+  </body></html>`;
+
+  const w = window.open('', '_blank', 'width=800,height=600');
+  if (w) { w.document.write(html); w.document.close(); }
+  else { alert('Please allow pop-ups for this page to print.'); }
 }
 
 function printRun() {
@@ -988,6 +1103,126 @@ function resetDay() {
 }
 
 // ── MODAL / PICKER ─────────────────────────────────────────────────────────
+// ── MANAGER MODE ───────────────────────────────────────────────────────────
+function buildPinKeypad() {
+  const kp = document.getElementById('pinKeypad');
+  kp.innerHTML = '';
+  [1,2,3,4,5,6,7,8,9,'⌫',0,'✓'].forEach(k => {
+    const btn = document.createElement('button');
+    btn.className = 'pin-key';
+    btn.textContent = k;
+    btn.addEventListener('click', () => handlePinKey(String(k)));
+    kp.appendChild(btn);
+  });
+}
+
+let _pinEntry = '';
+
+function updatePinDisplay() {
+  const d = document.getElementById('pinDisplay');
+  d.textContent = _pinEntry.replace(/./g, '●').padEnd(4,'_');
+}
+
+function handlePinKey(k) {
+  document.getElementById('pinError').textContent = '';
+  if (k === '⌫') {
+    _pinEntry = _pinEntry.slice(0, -1);
+    updatePinDisplay();
+    return;
+  }
+  if (k === '✓') {
+    submitPin();
+    return;
+  }
+  if (_pinEntry.length >= 4) return;
+  _pinEntry += k;
+  updatePinDisplay();
+  if (_pinEntry.length === 4) setTimeout(submitPin, 120);
+}
+
+function submitPin() {
+  const stored = localStorage.getItem('car_manager_pin');
+  if (_pinMode === 'set') {
+    _pinSetFirst = _pinEntry;
+    _pinEntry = '';
+    updatePinDisplay();
+    document.getElementById('pinTitle').textContent = 'Confirm PIN';
+    document.getElementById('pinSubtitle').textContent = 'Enter your new PIN again to confirm.';
+    _pinMode = 'confirm';
+    return;
+  }
+  if (_pinMode === 'confirm') {
+    if (_pinEntry !== _pinSetFirst) {
+      document.getElementById('pinError').textContent = 'PINs do not match. Try again.';
+      _pinEntry = ''; _pinSetFirst = '';
+      updatePinDisplay();
+      _pinMode = 'set';
+      document.getElementById('pinTitle').textContent = 'Set Manager PIN';
+      document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for manager access.';
+      return;
+    }
+    localStorage.setItem('car_manager_pin', _pinEntry);
+    closePinModal();
+    unlockManager();
+    return;
+  }
+  // _pinMode === 'enter'
+  if (_pinEntry === stored) {
+    closePinModal();
+    unlockManager();
+  } else {
+    document.getElementById('pinError').textContent = 'Incorrect PIN. Try again.';
+    _pinEntry = '';
+    updatePinDisplay();
+  }
+}
+
+function openPinModal(mode, callback) {
+  _pinMode   = mode;
+  _pinEntry  = '';
+  _pinSetFirst = '';
+  _pinCallback = callback;
+  buildPinKeypad();
+  updatePinDisplay();
+  document.getElementById('pinError').textContent = '';
+  if (mode === 'set') {
+    document.getElementById('pinTitle').textContent = 'Set Manager PIN';
+    document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for manager access.';
+  } else {
+    document.getElementById('pinTitle').textContent = 'Manager Access';
+    document.getElementById('pinSubtitle').textContent = 'Enter your PIN to continue.';
+  }
+  document.getElementById('pinOverlay').classList.add('open');
+}
+
+function closePinModal() {
+  document.getElementById('pinOverlay').classList.remove('open');
+}
+
+function unlockManager() {
+  _managerUnlocked = true;
+  if (_managerTimer) clearTimeout(_managerTimer);
+  _managerTimer = setTimeout(lockManager, MANAGER_TIMEOUT);
+  renderTable(); // re-render so target dropdowns appear
+  if (_pinCallback) { const cb = _pinCallback; _pinCallback = null; cb(); }
+}
+
+function lockManager() {
+  _managerUnlocked = false;
+  _managerTimer = null;
+  renderTable();
+}
+
+function requireManager(callback) {
+  if (_managerUnlocked) { callback(); return; }
+  const stored = localStorage.getItem('car_manager_pin');
+  if (!stored) {
+    openPinModal('set', callback);
+  } else {
+    openPinModal('enter', callback);
+  }
+}
+
 // ── CABINET SORT ───────────────────────────────────────────────────────────
 function loadCabinetPref() {
   const val = localStorage.getItem('car_cabinet_sort');
