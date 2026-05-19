@@ -363,9 +363,9 @@
       <input type="text" id="pickerSearch" placeholder="Search flavors&hellip;" oninput="renderPicker()">
     </div>
     <div id="pickerStats" class="picker-stats"></div>
-    <div class="sort-toggle-row" id="sortToggleRow" style="display:none">
+    <div class="sort-toggle-row" id="sortToggleRow">
       <span id="sortToggleLabel"></span>
-      <button class="sort-toggle-btn" onclick="resetCabinetSort()">✕ Turn Off Cabinet Numbers</button>
+      <button class="sort-toggle-btn" id="cabinetToggleBtn" onclick="toggleCabinetNumbers()"></button>
     </div>
     <div class="picker-list" id="pickerList"></div>
     <div class="divider"></div>
@@ -1248,12 +1248,30 @@ function resetCabinetSort() {
 function updateSortToggleUI() {
   const row = document.getElementById('sortToggleRow');
   const label = document.getElementById('sortToggleLabel');
+  const btn = document.getElementById('cabinetToggleBtn');
   if (!row) return;
+  row.style.display = 'flex';
   if (_cabinetSortEnabled) {
-    row.style.display = 'flex';
     label.textContent = 'Cabinet numbers assigned';
+    if (btn) { btn.textContent = '✕ Turn Off Cabinet Numbers'; btn.style.borderColor = '#d72627'; btn.style.color = '#ffffff'; btn.style.background = '#d72627'; }
   } else {
-    row.style.display = 'none';
+    label.textContent = 'Cabinet numbers not assigned';
+    if (btn) { btn.textContent = '✚ Turn On Cabinet Numbers'; btn.style.borderColor = '#98d4e3'; btn.style.color = '#ffffff'; btn.style.background = '#2c3691'; }
+  }
+}
+
+function toggleCabinetNumbers() {
+  if (_cabinetSortEnabled) {
+    resetCabinetSort();
+  } else {
+    // Turn on — assign cabinets to all active flavors that don't have one
+    saveCabinetPref(true);
+    const missing = activeFlavors.filter(f => !f.cabinet);
+    assignMissingCabinets(missing, () => {
+      saveAll();
+      updateSortToggleUI();
+      renderPicker();
+    });
   }
 }
 
