@@ -418,6 +418,18 @@
 <script>
 // ── MASTER ROSTER (baked in from FlavorOrder.csv) ──────────────────────────
 // category is stored internally for run-sort; never shown to user
+const ROLES = {
+  CORPORATE_ADMIN: 'CORPORATE_ADMIN',
+  STORE_MANAGER: 'STORE_MANAGER',
+  EMPLOYEE: 'EMPLOYEE'
+};
+const DEFAULT_ORG_ID = 'handels';
+const DEFAULT_ORG_META = {
+  name: "Handel's Homemade Ice Cream",
+  tagline: "Production Tool",
+  createdAt: Date.now(),
+  updatedAt: Date.now()
+};
 const MASTER_ROSTER = [
   {category:"90301", name:"Banana (BAN)", type:"TD"},
   {category:"90302", name:"Banana Cream Pie (BCP)", type:"TD"},
