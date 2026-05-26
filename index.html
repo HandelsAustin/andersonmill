@@ -40,6 +40,9 @@
         updateRoleUIVisibility();
       }
     });
+    window._signInWithEmailAndPassword = signInWithEmailAndPassword;
+    window._createUserWithEmailAndPassword = createUserWithEmailAndPassword;
+    window._signOut = signOut;
     if (window._bootstrapWaiting) window._bootstrapWaiting();
   </script>
   <style>
@@ -826,7 +829,7 @@ async function signInManager() {
     return;
   }
   try {
-    await signInWithEmailAndPassword(window._auth, email, password);
+    await window._signInWithEmailAndPassword(window._auth, email, password);
     await loadCurrentUserRole();
     closeAuthModal();
   } catch (e) {
@@ -834,7 +837,7 @@ async function signInManager() {
       const create = confirm('No account found. Create a new manager account?');
       if (!create) return;
       try {
-        await createUserWithEmailAndPassword(window._auth, email, password);
+        await window._createUserWithEmailAndPassword(window._auth, email, password);
         await loadCurrentUserRole(true);
         closeAuthModal();
       } catch (createErr) {
@@ -851,7 +854,7 @@ async function signInManager() {
 async function signOutUser() {
   if (!window._auth) return;
   try {
-    await signOut(window._auth);
+    await window._signOut(window._auth);
     window._USER_ROLE = ROLES.EMPLOYEE;
     localStorage.setItem('car_user_role', window._USER_ROLE);
     updateUserRoleDisplay();
