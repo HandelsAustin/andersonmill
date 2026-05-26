@@ -1,0 +1,2080 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Count &amp; Run &mdash; Handel's Homemade Ice Cream</title>
+  <!-- Brand fonts: TW Cen MT (primary), Brannboll NY (highlights), Raiders (headings), Arial Narrow (small print) -->
+  <!-- These fonts are expected to be installed on devices; system fallbacks provided -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { FIREBASE_CONFIG, DEFAULT_ORG_ID, DEFAULT_ORG_META, ROLES, STORAGE_KEYS } from "./config.js";
+
+    const firebaseApp = initializeApp(FIREBASE_CONFIG);
+    const db = getFirestore(firebaseApp);
+    const auth = getAuth(firebaseApp);
+    window._db = db;
+    window._doc = doc;
+    window._setDoc = setDoc;
+    window._getDoc = getDoc;
+    window._onSnapshot = onSnapshot;
+    window._auth = auth;
+    window._firebaseReady = true;
+    window._ORG_ID = localStorage.getItem(STORAGE_KEYS.orgId) || DEFAULT_ORG_ID;
+    window._STORE_ID = localStorage.getItem(STORAGE_KEYS.storeId) || undefined;
+    window._STORAGE_KEYS = STORAGE_KEYS;
+    window._USER_ROLE = localStorage.getItem('car_user_role') || ROLES.EMPLOYEE;
+    if (!localStorage.getItem(STORAGE_KEYS.orgId)) {
+      localStorage.setItem(STORAGE_KEYS.orgId, DEFAULT_ORG_ID);
+    }
+    onAuthStateChanged(auth, async user => {
+      if (user) {
+        await loadCurrentUserRole();
+        updateAuthButton();
+      } else {
+        window._USER_ROLE = localStorage.getItem('car_user_role') || ROLES.EMPLOYEE;
+        updateUserRoleDisplay();
+        updateAuthButton();
+        updateRoleUIVisibility();
+      }
+    });
+    if (window._bootstrapWaiting) window._bootstrapWaiting();
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #2c3691; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; color: #ffffff; min-height: 100vh; }
+    #app { max-width: 980px; margin: 0 auto; background: #1e2870; min-height: 100vh; }
+
+    /* Header */
+    .app-header {
+      background: #2c3691;
+      border-bottom: 3px solid #d72627;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .header-left h1 { font-family: 'Raiders', 'Impact', sans-serif; font-size: 26px; color: #ffffff; letter-spacing: 0.04em; text-transform: uppercase; }
+    .header-left h1 span { color: #d72627; }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .header-sub { font-size: 11px; color: #98d4e3; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 3px; font-family: 'Arial Narrow', 'Arial', sans-serif; }
+    .header-logo { height: 52px; width: auto; flex-shrink: 0; display: block; }
+    .handels-logo { height: 48px; width: auto; flex-shrink: 0; display: block; mix-blend-mode: screen; }
+
+    .app-body { padding: 16px 24px; }
+
+    /* Toolbar */
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .btn {
+      font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; font-size: 14px; font-weight: 700;
+      padding: 11px 16px; border-radius: 8px; border: 1.5px solid #98d4e3;
+      background: #2c3691; color: #ffffff; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
+      letter-spacing: 0.06em; text-transform: uppercase; transition: all 0.15s; text-decoration: none;
+      -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    }
+    .btn:hover { background: #3a46a8; border-color: #ffffff; color: #ffffff; }
+    .btn:active { opacity: 0.75; }
+    .btn-red { background: #d72627; border-color: #d72627; color: #ffffff; }
+    .btn-red:hover { background: #e83535; border-color: #ffffff; color: #ffffff; }
+    .btn-green { background: #0f4a2a; border-color: #98d4e3; color: #98d4e3; }
+    .btn-green:hover { background: #165e35; border-color: #ffffff; color: #ffffff; }
+    .btn label { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .btn input[type=file] { display: none; }
+
+    /* Legend */
+    .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; padding: 8px 14px; background: #2c3691; border-radius: 6px; border: 1px solid #98d4e3; }
+    .legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #98d4e3; font-family: 'Arial Narrow', Arial, sans-serif; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Run banner */
+    .run-banner { display: flex; align-items: center; justify-content: space-between; background: #1e2870; border: 1.5px solid #98d4e3; border-radius: 6px; padding: 9px 14px; margin-bottom: 12px; font-size: 13px; color: #98d4e3; gap: 10px; flex-wrap: wrap; }
+    .run-banner .btn { background: #2c3691; border-color: #98d4e3; color: #98d4e3; font-size: 11px; padding: 4px 10px; }
+    .run-banner .btn:hover { background: #3a46a8; }
+
+    /* Main table */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    col.col-flavor   { width: 30%; }
+    col.col-category { width: 8%; }
+    col.col-type     { width: 6%; }
+    col.col-target   { width: 8%; }
+    col.col-dipping  { width: 24%; }
+    col.col-holding  { width: 16%; }
+    col.col-tomake   { width: 8%; }
+
+    @media print {
+      body { background: #fff; color: #000; }
+      #app { background: #fff; max-width: 100%; }
+      .app-header { background: #fff !important; border-bottom: 2px solid #d72627; padding: 8px 16px; }
+      .app-header h1 { color: #000; font-size: 20px; }
+      .header-sub { color: #444; }
+      .handels-logo { mix-blend-mode: normal; filter: invert(1); height: 36px; }
+      .toolbar, .legend, #runBanner, .modal-backdrop { display: none !important; }
+      table { font-size: 12px; }
+      thead th { color: #000; border-bottom: 2px solid #d72627; }
+      tbody tr { border-left: none !important; }
+      tbody td { color: #000; border-bottom: 1px solid #ccc; padding: 6px 8px; }
+      .flavor-regular, .flavor-wo, .flavor-td { color: #000 !important; }
+      .type-badge { color: #000 !important; background: #eee; }
+      .to-make-needed { color: #c00 !important; font-weight: 700; }
+      .to-make-ok { color: #666 !important; }
+      select { appearance: none; border: none; background: transparent; font-size: 12px; color: #000; }
+    }
+    thead tr { background: #2c3691; }
+    thead th { font-size: 12px; font-weight: 700; color: #98d4e3; text-align: left; padding: 10px 8px; border-bottom: 2px solid #d72627; white-space: nowrap; letter-spacing: 0.06em; text-transform: uppercase; user-select: none; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; }
+    tbody tr { border-left: 3px solid transparent; transition: background 0.1s; }
+    tbody tr:nth-child(even) { background: rgba(152,212,227,0.05); }
+    tbody tr:hover { background: rgba(152,212,227,0.1); }
+    tbody tr:active { background: rgba(152,212,227,0.15); }
+    tbody td { padding: 9px 8px; border-bottom: 1px solid #2c3691; vertical-align: middle; }
+
+    /* Flavor type colors */
+    .flavor-regular { color: #ffffff; font-weight: 500; }
+    .flavor-wo      { color: #98d4e3; font-weight: 500; }
+    .flavor-td      { color: #ffaaaa; font-weight: 500; }
+
+    /* Type badge */
+    .type-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: #2c3691; border: 1px solid #98d4e3; display: inline-block; color: #98d4e3; font-family: 'Arial Narrow', Arial, sans-serif; }
+
+    td select { font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; font-size: 13px; padding: 7px 2px; border: 1px solid #98d4e3; border-radius: 6px; background: #2c3691; color: #ffffff; cursor: pointer; width: 100%; min-height: 36px; touch-action: manipulation; -webkit-appearance: none; appearance: none; text-align: center; }
+    td select:focus { outline: none; border-color: #ffffff; }
+    td input[type=number] { font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; font-size: 14px; padding: 7px 4px; border: 1px solid #98d4e3; border-radius: 6px; background: #2c3691; color: #ffffff; width: 100%; text-align: center; min-height: 36px; touch-action: manipulation; }
+    td input[type=number]:focus { outline: none; border-color: #ffffff; }
+    .to-make { font-size: 1.1em; font-weight: 700; text-align: center; }
+    .to-make-needed { color: #d72627; }
+    .to-make-ok     { color: #98d4e3; }
+    .btn-icon { background: transparent; border: none; padding: 8px; cursor: pointer; color: #98d4e3; font-size: 18px; transition: color 0.15s; min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    .btn-icon:hover { color: #d72627; }
+    .btn-icon:active { color: #d72627; opacity: 0.7; }
+    .empty-state { text-align: center; padding: 2.5rem 1rem; color: #98d4e3; font-size: 13px; font-family: 'Arial Narrow', Arial, sans-serif; }
+
+    /* Modal */
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(20,24,80,0.92); z-index: 100; align-items: flex-start; justify-content: center; padding: 8px; }
+    .modal-backdrop.open { display: flex; }
+    .modal { background: #1e2870; border-radius: 10px; border: 1.5px solid #98d4e3; width: 500px; max-width: calc(100vw - 16px); padding: 16px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); height: calc(100vh - 16px); max-height: calc(100vh - 16px); display: flex; flex-direction: column; overflow: hidden; }
+    .modal h2 { font-family: 'Raiders', 'Impact', sans-serif; font-size: 18px; color: #ffffff; margin-bottom: 10px; border-bottom: 2px solid #d72627; padding-bottom: 8px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.04em; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-shrink: 0; }
+    .btn-primary { background: #d72627; border-color: #d72627; color: #fff; }
+    .btn-primary:hover { background: #e83535; }
+    .section-label { font-size: 10px; font-weight: 700; color: #98d4e3; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; flex-shrink: 0; font-family: 'Arial Narrow', Arial, sans-serif; }
+    .search-wrap { margin-bottom: 6px; flex-shrink: 0; }
+    .search-wrap input { width: 100%; padding: 11px 13px; font-size: 15px; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; border-radius: 6px; border: 1.5px solid #98d4e3; background: #2c3691; color: #ffffff; }
+    .search-wrap input::placeholder { color: #98d4e3; }
+    .search-wrap input:focus { outline: none; border-color: #ffffff; }
+    .picker-stats { font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 8px; flex-shrink: 0; padding: 6px 12px; background: #d72627; border-radius: 6px; text-align: center; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; text-transform: uppercase; letter-spacing: 0.06em; }
+    .picker-list { overflow-y: auto; border: 1px solid #98d4e3; border-radius: 6px; background: #2c3691; flex: 1; min-height: 0; }
+    .picker-list::-webkit-scrollbar { width: 6px; }
+    .picker-list::-webkit-scrollbar-track { background: #2c3691; }
+    .picker-list::-webkit-scrollbar-thumb { background: #98d4e3; border-radius: 3px; }
+    .picker-item { padding: 13px 12px; font-size: 14px; display: flex; align-items: center; border-bottom: 1px solid #1e2870; user-select: none; min-height: 48px; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; }
+    .picker-item:last-child { border-bottom: none; }
+    .picker-item:hover { background: #3a46a8; }
+    .picker-item:active { background: #3a46a8; }
+    .picker-item.active { background: #1e2870; border-left: 3px solid #98d4e3; }
+    .picker-check { width: 24px; font-size: 15px; color: #98d4e3; flex-shrink: 0; }
+    .picker-name { flex: 1; font-weight: 600; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ffffff; }
+    .picker-type-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #1e2870; border: 1px solid #98d4e3; flex-shrink: 0; min-width: 40px; text-align: center; color: #98d4e3; font-family: 'Arial Narrow', Arial, sans-serif; }
+    .picker-remove { background: transparent; border: none; color: #98d4e3; cursor: pointer; font-size: 16px; padding: 6px 8px; border-radius: 4px; flex-shrink: 0; margin-left: 4px; transition: color 0.15s; min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; touch-action: manipulation; }
+    .picker-remove:hover { color: #d72627; }
+    .picker-remove:active { color: #d72627; }
+    .divider { height: 1px; background: #98d4e3; margin: 12px 0; flex-shrink: 0; }
+    .new-flavor-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0; }
+    .new-flavor-row input { flex: 1; min-width: 80px; padding: 10px 9px; font-size: 14px; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; border-radius: 6px; border: 1px solid #98d4e3; background: #2c3691; color: #ffffff; min-height: 44px; }
+    .new-flavor-row input::placeholder { color: #98d4e3; }
+    .new-flavor-row input:focus { outline: none; border-color: #ffffff; }
+    .new-flavor-row select { padding: 10px 8px; font-size: 14px; border: 1px solid #98d4e3; border-radius: 6px; background: #2c3691; color: #ffffff; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; min-height: 44px; }
+    .store-overlay { display:none; position:fixed; inset:0; background:#2c3691; z-index:300; align-items:center; justify-content:center; flex-direction:column; padding:24px; }
+    .store-overlay.open { display:flex; }
+    .store-overlay h2 { font-family:'Raiders','Impact',sans-serif; font-size:22px; color:#ffffff; margin-bottom:6px; text-align:center; text-transform:uppercase; letter-spacing:0.04em; }
+    .store-overlay p { font-size:13px; color:#98d4e3; margin-bottom:28px; text-align:center; font-family:'Arial Narrow',Arial,sans-serif; }
+    .store-list { display:flex; flex-direction:column; gap:12px; width:100%; max-width:340px; }
+    .store-btn { font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; font-size:16px; font-weight:700; padding:18px 24px; border-radius:10px; border:1.5px solid #98d4e3; background:#1e2870; color:#ffffff; cursor:pointer; text-align:left; touch-action:manipulation; -webkit-tap-highlight-color:transparent; transition:all 0.15s; text-transform:uppercase; letter-spacing:0.04em; }
+    .store-btn:hover { background:#3a46a8; border-color:#ffffff; color:#ffffff; }
+    .store-btn:active { opacity:0.75; }
+
+    /* Variegate modal */
+    .var-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:400; align-items:center; justify-content:center; padding:24px; }
+    .var-overlay.open { display:flex; }
+    .var-box { background:#1e2870; border:1.5px solid #98d4e3; border-radius:14px; padding:28px 24px; width:100%; max-width:420px; max-height:80vh; overflow-y:auto; }
+    .var-box h2 { font-family:'Raiders','Impact',sans-serif; font-size:18px; color:#ffffff; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.04em; }
+    .var-box p.var-sub { font-size:12px; color:#98d4e3; margin-bottom:20px; font-family:'Arial Narrow',Arial,sans-serif; }
+    .var-group { margin-bottom:14px; }
+    .var-group-name { font-size:13px; font-weight:700; color:#98d4e3; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; }
+    .var-flavor-list { font-size:13px; color:#ffffff; line-height:1.7; padding-left:12px; font-family:'Arial Narrow',Arial,sans-serif; }
+    .var-none { font-size:13px; color:#98d4e3; font-style:italic; font-family:'Arial Narrow',Arial,sans-serif; }
+    .var-close { margin-top:22px; width:100%; padding:13px; background:#d72627; border:1.5px solid #d72627; border-radius:8px; color:#ffffff; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; font-size:14px; font-weight:700; cursor:pointer; touch-action:manipulation; text-transform:uppercase; letter-spacing:0.06em; }
+    .var-close:active { opacity:0.75; }
+
+    /* Run summary modal */
+    .summary-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:400; align-items:center; justify-content:center; padding:24px; }
+    .summary-overlay.open { display:flex; }
+    .summary-box { background:#1e2870; border:1.5px solid #98d4e3; border-radius:14px; padding:28px 24px; width:100%; max-width:460px; max-height:85vh; overflow-y:auto; }
+    .summary-box h2 { font-family:'Raiders','Impact',sans-serif; font-size:18px; color:#ffffff; margin-bottom:20px; text-transform:uppercase; letter-spacing:0.04em; }
+    .summary-table { width:100%; border-collapse:collapse; font-size:14px; }
+    .summary-table td { padding:10px 8px; color:#98d4e3; border-bottom:1px solid #2c3691; vertical-align:middle; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; }
+    .summary-table td:last-child { text-align:right; white-space:nowrap; color:#ffffff; font-weight:700; font-size:16px; }
+    .summary-table tr:last-child td { border-bottom:none; }
+    .summary-close { margin-top:22px; width:100%; padding:13px; background:#d72627; border:1.5px solid #d72627; border-radius:8px; color:#ffffff; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; font-size:14px; font-weight:700; cursor:pointer; touch-action:manipulation; text-transform:uppercase; letter-spacing:0.06em; }
+    .summary-close:active { opacity:0.75; }
+
+    /* Cabinet picker modal */
+    .cabinet-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:500; align-items:center; justify-content:center; padding:24px; }
+    .cabinet-overlay.open { display:flex; }
+    .cabinet-box { background:#1e2870; border:1.5px solid #98d4e3; border-radius:14px; padding:28px 24px; width:100%; max-width:360px; }
+    .cabinet-box h2 { font-family:'Raiders','Impact',sans-serif; font-size:17px; color:#ffffff; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em; }
+    .cabinet-box p { font-size:12px; color:#98d4e3; margin-bottom:20px; font-family:'Arial Narrow',Arial,sans-serif; }
+    .cabinet-btns { display:flex; gap:12px; justify-content:center; }
+    .cabinet-btn { flex:1; padding:18px 8px; font-size:22px; font-weight:700; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; background:#2c3691; border:1.5px solid #98d4e3; border-radius:10px; color:#ffffff; cursor:pointer; touch-action:manipulation; transition:all 0.15s; }
+    .cabinet-btn:hover { background:#3a46a8; border-color:#ffffff; color:#ffffff; }
+    .cabinet-btn:active { opacity:0.75; }
+    .sort-toggle-row { display:flex; align-items:center; justify-content:space-between; padding:8px 16px 10px; font-size:12px; color:#98d4e3; gap:8px; font-family:'Arial Narrow',Arial,sans-serif; }
+    .sort-toggle-btn { font-size:11px; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; padding:5px 10px; border-radius:6px; border:1px solid #d72627; background:#2c3691; color:#ffffff; cursor:pointer; white-space:nowrap; text-transform:uppercase; }
+    .sort-toggle-btn:active { opacity:0.75; }
+    .cabinet-badge { display:inline-block; font-size:10px; font-weight:700; background:#2c3691; border:1px solid #98d4e3; color:#98d4e3; border-radius:4px; padding:1px 5px; margin-left:6px; vertical-align:middle; font-family:'Arial Narrow',Arial,sans-serif; }
+
+    /* Manager PIN modal */
+    .pin-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:600; align-items:center; justify-content:center; padding:24px; }
+    .pin-overlay.open { display:flex; }
+    .pin-box { background:#1e2870; border:1.5px solid #98d4e3; border-radius:14px; padding:28px 24px; width:100%; max-width:320px; text-align:center; }
+    .pin-box h2 { font-family:'Raiders','Impact',sans-serif; font-size:17px; color:#ffffff; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em; }
+    .pin-box p { font-size:12px; color:#98d4e3; margin-bottom:20px; font-family:'Arial Narrow',Arial,sans-serif; }
+    .pin-display { font-size:28px; font-weight:700; letter-spacing:12px; color:#ffffff; background:#2c3691; border:1.5px solid #98d4e3; border-radius:8px; padding:12px 16px; margin-bottom:20px; min-height:56px; }
+    .pin-keypad { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:12px; }
+    .pin-key { padding:16px 8px; font-size:18px; font-weight:700; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; background:#2c3691; border:1.5px solid #98d4e3; border-radius:8px; color:#ffffff; cursor:pointer; touch-action:manipulation; transition:all 0.1s; }
+    .pin-key:active { background:#3a46a8; }
+    .pin-error { color:#d72627; font-size:12px; margin-top:8px; min-height:18px; font-family:'Arial Narrow',Arial,sans-serif; }
+    .pin-manager-btn { font-size:11px; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; padding:5px 10px; border-radius:6px; border:1px solid #98d4e3; background:#2c3691; color:#98d4e3; cursor:pointer; margin-left:8px; }
+    .pin-manager-btn.unlocked { border-color:#98d4e3; color:#ffffff; background:#2c3691; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="app-header">
+    <div class="header-left">
+      <h1>Count <span>&amp;</span> Run</h1>
+      <div class="header-sub">Production Tool &mdash; Handel's Homemade Ice Cream</div>
+      <div id="syncStatus" style="font-size:11px;margin-top:4px;color:#8fa3be;">⏳ Connecting...</div>
+      <div id="userRoleStatus" style="font-size:11px;margin-top:4px;color:#98d4e3;"></div>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-green" id="authBtn" onclick="openAuthModal()">Sign In</button>
+      <select id="roleSelect" style="display:none;margin-left:8px;padding:6px 8px;border-radius:6px;background:#2c3691;color:#98d4e3;border:1px solid #98d4e3;">
+        <option value="">Role</option>
+      </select>
+      <div id="roleAudit" style="display:none;margin-left:8px;padding:6px 8px;border-radius:6px;background:#ffffff;color:#2c3691;border:1px solid #98d4e3;font-size:12px;min-width:160px;">
+        <div style="font-weight:600;margin-bottom:4px;color:#2c3691;">Role Changes</div>
+        <div id="roleAuditList" style="max-height:120px;overflow:auto;color:#222;"></div>
+      </div>
+      <div id="printDropdown" style="position:relative;">
+        <button class="btn" onclick="togglePrintMenu(event)">&#128438; Print</button>
+        <div id="printMenu" style="display:none;position:absolute;top:110%;right:0;background:#1a2744;border:1.5px solid #2e4a70;border-radius:8px;overflow:hidden;z-index:200;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+          <button onclick="printRun();closePrintMenu();" style="display:block;width:100%;text-align:left;padding:12px 16px;background:none;border:none;border-bottom:1px solid #2e4a70;color:#c5d8f0;font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif;font-size:13px;cursor:pointer;">&#128438; Print Batch Run</button>
+          <button onclick="printInventory();closePrintMenu();" style="display:block;width:100%;text-align:left;padding:12px 16px;background:none;border:none;color:#c5d8f0;font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif;font-size:13px;cursor:pointer;">&#128203; Print Current Inventory</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="app-body">
+    <div class="toolbar">
+      <button class="btn" id="editFlavorsBtn" onclick="requireManager(openAddModal)">&#9776; Edit Flavors</button>
+      <button class="btn btn-red" onclick="resetDay()">&#8635; Reset</button>
+      <button class="btn btn-green" onclick="calculateRun()">&#9654; Calculate Run</button>
+      <div id="printBtn" style="display:none;position:relative;">
+        <button class="btn" onclick="togglePrintMenu(event)">&#128438; Print</button>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#6ab0ff"></div> Regular</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a8d8f0"></div> Washout (WO)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ff7a7a"></div> Tear Down (TD)</div>
+    </div>
+
+    <div id="runBanner" style="display:none" class="run-banner">
+      <span id="runBannerMsg"></span>
+      <span id="runTimerDisplay" style="font-size:13px;color:#8fa3be;margin-left:12px;font-variant-numeric:tabular-nums;"></span>
+      <button class="btn btn-green" onclick="doneRun()" style="font-size:13px;padding:9px 20px;">&#10003; Done</button>
+    </div>
+
+    <table>
+      <colgroup>
+        <col class="col-flavor">
+        <col class="col-category">
+        <col class="col-type">
+        <col class="col-target">
+        <col class="col-dipping">
+        <col class="col-holding">
+        <col class="col-tomake">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Flavor</th>
+          <th id="thCategory">Category</th>
+          <th>Type</th>
+          <th id="thTarget" style="text-align:center">Target</th>
+          <th id="thDipping">In Dipping</th>
+          <th id="thHolding" style="text-align:center">Holding</th>
+          <th id="thToMake" style="text-align:center">To Make</th>
+          <th id="thBucket" style="text-align:center;display:none">Bucket</th>
+          <th id="thActions" style="display:none"></th>
+        </tr>
+      </thead>
+      <tbody id="mainTbody"></tbody>
+    </table>
+  </div>
+</div>
+<!-- PIN Modal -->
+<div id="pinOverlay" class="pin-overlay">
+  <div class="pin-box">
+    <h2 id="pinTitle">Manager Access</h2>
+    <p id="pinSubtitle">Enter your PIN to continue.</p>
+    <div class="pin-display" id="pinDisplay">____</div>
+    <div class="pin-keypad" id="pinKeypad"></div>
+    <div class="pin-error" id="pinError"></div>
+  </div>
+</div>
+
+<!-- Auth Modal -->
+<div id="authOverlay" class="pin-overlay">
+  <div class="pin-box" style="max-width:380px;">
+    <h2>Manager Login</h2>
+    <p style="font-size:12px;color:#98d4e3;margin-bottom:16px;font-family:'Arial Narrow',Arial,sans-serif;">Sign in to unlock manager features, or sign out when done.</p>
+    <input id="authEmail" type="email" placeholder="Email address" style="width:100%;margin-bottom:10px;padding:12px 14px;font-size:14px;border-radius:8px;border:1.5px solid #98d4e3;background:#2c3691;color:#fff;" />
+    <input id="authPassword" type="password" placeholder="Password" style="width:100%;margin-bottom:10px;padding:12px 14px;font-size:14px;border-radius:8px;border:1.5px solid #98d4e3;background:#2c3691;color:#fff;" />
+    <div class="pin-error" id="authError"></div>
+    <div class="modal-footer" style="justify-content:center;">
+      <button class="btn btn-primary" onclick="signInManager()">Sign In</button>
+      <button class="btn" onclick="closeAuthModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cabinet Picker Modal -->
+<div id="cabinetOverlay" class="cabinet-overlay">
+  <div class="cabinet-box">
+    <h2 id="cabinetTitle">Which dipping cabinet?</h2>
+    <p id="cabinetSub"></p>
+    <div class="cabinet-btns">
+      <button class="cabinet-btn" onclick="selectCabinet(1)">1</button>
+      <button class="cabinet-btn" onclick="selectCabinet(2)">2</button>
+      <button class="cabinet-btn" onclick="selectCabinet(3)">3</button>
+      <button class="cabinet-btn" onclick="selectCabinet(4)">4</button>
+    </div>
+  </div>
+</div>
+
+<!-- Run Summary Modal -->
+<div id="summaryOverlay" class="summary-overlay">
+  <div class="summary-box">
+    <h2>Run Complete 🎉</h2>
+    <table class="summary-table">
+      <tbody id="summaryBody"></tbody>
+    </table>
+    <button class="summary-close" onclick="closeSummary()">Done</button>
+  </div>
+</div>
+
+<!-- Store Picker Overlay -->
+<div id="storeOverlay" class="store-overlay">
+  <h2>Count &amp; Run</h2>
+  <p>Select your store location to get started.</p>
+  <div class="store-list" id="storeList"></div>
+</div>
+
+<!-- Modal -->
+<div id="modalBackdrop" class="modal-backdrop" onclick="backdropClick(event)">
+  <div class="modal">
+    <h2>Edit Today's Flavors</h2>
+    <p class="section-label">Click a flavor to add/remove from today's list &middot; &#128465; removes from roster</p>
+    <div class="search-wrap">
+      <input type="text" id="pickerSearch" placeholder="Search flavors&hellip;" oninput="renderPicker()">
+    </div>
+    <div id="pickerStats" class="picker-stats"></div>
+    <div class="sort-toggle-row" id="sortToggleRow">
+      <span id="sortToggleLabel"></span>
+      <button class="sort-toggle-btn" id="cabinetToggleBtn" onclick="toggleCabinetNumbers()"></button>
+    </div>
+    <div class="picker-list" id="pickerList"></div>
+    <div class="divider"></div>
+    <p class="section-label">Add a custom flavor to roster</p>
+    <div class="new-flavor-row">
+      <input type="text" id="newFlavorName" placeholder="Flavor name&hellip;">
+      <select id="newFlavorType">
+        <option value="">Regular</option>
+        <option value="WO">WO</option>
+        <option value="TD">TD</option>
+      </select>
+      <button class="btn" onclick="addNewToRoster()">+ Add</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MASTER ROSTER (baked in from FlavorOrder.csv) ──────────────────────────
+// category is stored internally for run-sort; never shown to user
+const MASTER_ROSTER = [
+  {category:"90301", name:"Banana (BAN)", type:"TD"},
+  {category:"90302", name:"Banana Cream Pie (BCP)", type:"TD"},
+  {category:"90300", name:"Bananas Foster (BF)", type:"WO"},
+  {category:"701", name:"Birthday Cake (BDAY)", type:""},
+  {category:"600", name:"Black Cherry (BC)", type:""},
+  {category:"603", name:"Black Raspberry (BR)", type:""},
+  {category:"604", name:"Black Raspberry Chunk (BRC)", type:""},
+  {category:"SH83000", name:"Black Raspberry Sherbet (BRS)", type:"WO"},
+  {category:"1850", name:"Black Walnut (BW)", type:"WO"},
+  {category:"82300", name:"Blue Monster (BMON)", type:"WO"},
+  {category:"82350", name:"Blue Moon (BM)", type:"WO"},
+  {category:"TDICE81800", name:"Blue Moon Ice (BMI)", type:"WO"},
+  {category:"802", name:"Blueberry Cheesecake Chunk (BBCHZ)", type:""},
+  {category:"105", name:"Blueberry Cobbler (BBCOB)", type:""},
+  {category:"201", name:"Brownie Dough (BD)", type:""},
+  {category:"90500", name:"Buckeye (BE)", type:"TD"},
+  {category:"121", name:"Butter Pecan (BP)", type:""},
+  {category:"103", name:"Butterscotch Ripple (BSR)", type:""},
+  {category:"700", name:"Cake Batter (CB)", type:""},
+  {category:"1301", name:"Caramel Apple (CAP)", type:""},
+  {category:"903", name:"Caramel Latte (CL)", type:""},
+  {category:"901", name:"Caramel Pretzel Crunch (CPC)", type:""},
+  {category:"93003", name:"Carrot Cake (CARROT)", type:"TD"},
+  {category:"800", name:"Cheesecake Made with Oreo®️ (OREOCHZ)", type:""},
+  {category:"92800", name:"Cherry Cordial (CORD)", type:"TD"},
+  {category:"601", name:"Cherry Magnolia (CMAG)", type:""},
+  {category:"111", name:"Cherry Vanilla (CV)", type:""},
+  {category:"805", name:"Choc. Chocolate Chip Cheesecake Chunk (CCCHZ)", type:""},
+  {category:"214", name:"Chocoholic Chunk (CK)", type:""},
+  {category:"215", name:"Chocoholic Peanut Butter Ripple (CKPBR)", type:""},
+  {category:"205", name:"Chocolate (C)", type:""},
+  {category:"202", name:"Chocolate Almond (CA)", type:""},
+  {category:"V000002", name:"Chocolate Almond Milk Ice Cream (CAMILK)", type:"TD"},
+  {category:"218", name:"Chocolate Cake Batter (CCB)", type:""},
+  {category:"113", name:"Chocolate Chip (CHOC CHIP)", type:""},
+  {category:"108", name:"Chocolate Chip Cookie Dough (CD)", type:""},
+  {category:"92100", name:"Chocolate Covered Strawberry (CCS)", type:"TD"},
+  {category:"212", name:"Chocolate Made with Oreo®️ (CHOC OREO)", type:""},
+  {category:"200", name:"Chocolate Malt with Caramel (CMC)", type:""},
+  {category:"209", name:"Chocolate Marshmallow (CM)", type:""},
+  {category:"213", name:"Chocolate Ooohh...Dough! (CHOC OD)", type:""},
+  {category:"301", name:"Chocolate Orange (CO)", type:"WO"},
+  {category:"211", name:"Chocolate Peanut Butter Brownie (CPBB)", type:""},
+  {category:"207", name:"Chocolate Pecan (CP)", type:""},
+  {category:"217", name:"Chocolate Raspberry Truffle (CRT)", type:""},
+  {category:"82400", name:"Cinnamon Graham Cracker (CGC)", type:"WO"},
+  {category:"92900", name:"Cinnamon Pecan (CNP)", type:"WO"},
+  {category:"702", name:"Cinnamon Roll (CR)", type:"WO"},
+  {category:"91003", name:"Coconut Almond Fudge Ripple (CAFR)", type:"TD"},
+  {category:"91001", name:"Coconut Caramel Delight (CCD)", type:"TD"},
+  {category:"91000", name:"Coconut Cream Pie (CCP)", type:"TD"},
+  {category:"V000001", name:"Coconut Milk Ice Cream (COMILK)", type:"WO"},
+  {category:"91004", name:"Coconut Pineapple (CPINE)", type:"TD"},
+  {category:"122", name:"Coffee (COF)", type:""},
+  {category:"123", name:"Coffee Chocolate Chip (CCC)", type:""},
+  {category:"124", name:"Coffee with Heath (COF w/ H)", type:""},
+  {category:"219", name:"Confetti Brownie Batter (CBB)", type:""},
+  {category:"81900", name:"Cotton Candy (CC)", type:"WO"},
+  {category:"1300", name:"Deep Dish Apple Pie (DDAP)", type:""},
+  {category:"900", name:"Dulce De Leche (DULCE)", type:""},
+  {category:"1700", name:"Egg Nog (EGG)", type:"WO"},
+  {category:"90303", name:"Elvis (ELVIS)", type:"TD"},
+  {category:"204", name:"French Silk Pie (FSP)", type:""},
+  {category:"82850", name:"Frosted Animal Cookie (FAC)", type:"WO"},
+  {category:"106", name:"Fudge Ripple (FR)", type:""},
+  {category:"107", name:"Fudge Ripple Brownie (FRB)", type:""},
+  {category:"83200", name:"Gingerbread Cookie (GBC)", type:"WO"},
+  {category:"1102", name:"Graham Canyon (GC)", type:""},
+  {category:"1100", name:"Graham Central Station (GCS)", type:""},
+  {category:"602", name:"Grape (G)", type:""},
+  {category:"94100", name:"Green Monster (GMON)", type:"WO"},
+  {category:"300", name:"Green Tea (GT)", type:"WO"},
+  {category:"206", name:"Heavenly Hash (HH)", type:""},
+  {category:"83100", name:"Horchata (HOR)", type:"WO"},
+  {category:"82500", name:"Key Lime Pie (KLP)", type:"WO"},
+  {category:"82800", name:"Knot Your Average Dough (KYAD)", type:"WO"},
+  {category:"82600", name:"Lemon Bar (LB)", type:"WO"},
+  {category:"TDICE82200", name:"Lemon Ice (LEM ICE)", type:"WO"},
+  {category:"82601", name:"Lemon Meringue Pie (LMP)", type:"WO"},
+  {category:"SH83100", name:"Lime Sherbet (LS)", type:"WO"},
+  {category:"SO82200", name:"Mango Sorbet (MANGO SOR)", type:"TD"},
+  {category:"91002", name:"Meri's Joy (MJ)", type:"TD"},
+  {category:"216", name:"Midnight Madness (MM)", type:""},
+  {category:"407", name:"Mint Chocolate Chip (MCC)", type:""},
+  {category:"405", name:"Mint Made with Oreo®️ (MO)", type:""},
+  {category:"SO82400", name:"Mixed Berry Sorbet (MB SOR)", type:"TD"},
+  {category:"125", name:"Mocha Almond Fudge Ripple (MAFR)", type:""},
+  {category:"90304", name:"Monkey Business (MB)", type:"TD"},
+  {category:"126", name:"Mud Pie (MP)", type:""},
+  {category:"801", name:"New York Style Cheesecake (NYC)", type:""},
+  {category:"1503", name:"NSA Banana Fudge", type:""},
+  {category:"1502", name:"NSA Butter Pecan", type:""},
+  {category:"1501", name:"NSA Chocolate Ripple", type:""},
+  {category:"1600", name:"NSA Coffee", type:""},
+  {category:"1601", name:"NSA Coffee Chocolate Ripple", type:""},
+  {category:"1504", name:"NSA Strawberry Banana", type:""},
+  {category:"1500", name:"NSA Vanilla", type:""},
+  {category:"110", name:"Ooohh...Dough! (OD)", type:""},
+  {category:"93001", name:"Orange Dream Cream (ODC)", type:"TD"},
+  {category:"92750", name:"Orange Pineapple (OP)", type:"TD"},
+  {category:"93000", name:"Orange Sherbet (OS)", type:"TD"},
+  {category:"93200", name:"Peach (PEACH)", type:"TD"},
+  {category:"90501", name:"Peanut Butter (PB)", type:"TD"},
+  {category:"90503", name:"Peanut Butter and Jelly (PBJ)", type:"TD"},
+  {category:"203", name:"Peanut Butter Parfait (PBP)", type:""},
+  {category:"403", name:"Peppermint Bark (PBARK)", type:""},
+  {category:"402", name:"Peppermint Stick (PS)", type:""},
+  {category:"SH83200", name:"Pineapple Sherbet (PINE SH)", type:"WO"},
+  {category:"92700", name:"Pineapple Upside Down Cake (PUDC)", type:"TD"},
+  {category:"SH82800", name:"Pink Champagne Sherbet (PC)", type:"WO"},
+  {category:"82700", name:"Pink Lemonade (PL)", type:"WO"},
+  {category:"401", name:"Pistachio (PIST)", type:""},
+  {category:"SO82500", name:"Pomegranate Sorbet (POM SOR)", type:"TD"},
+  {category:"102", name:"Praline Pecan (PP)", type:""},
+  {category:"1403", name:"Pumpkin Cheesecake Chunk (PCHZ)", type:""},
+  {category:"1402", name:"Pumpkin Pecan (PPEC)", type:""},
+  {category:"1400", name:"Pumpkin Pie (PPIE)", type:""},
+  {category:"1401", name:"Pumpkin Ripple (PR)", type:""},
+  {category:"804", name:"Raspberry Cheesecake Chunk (RCHZ)", type:""},
+  {category:"SH82901", name:"Raspberry Dream Cream (RDC)", type:"TD"},
+  {category:"82875", name:"Raspberry Sheet Cake (RSC)", type:"WO"},
+  {category:"SH82900", name:"Red Raspberry Sherbet (RS)", type:"WO"},
+  {category:"127", name:"Rocky Mocha Blast (RMB)", type:"WO"},
+  {category:"210", name:"Rocky Road (RR)", type:""},
+  {category:"1101", name:"S'Mores (S'M)", type:""},
+  {category:"902", name:"Salty Caramel Truffle (SCT)", type:""},
+  {category:"208", name:"Snappy Turtle (ST)", type:""},
+  {category:"1800", name:"Snickerdoodle (SD)", type:"WO"},
+  {category:"90502", name:"Snix (SNIX)", type:"TD"},
+  {category:"100", name:"Soft Vanilla (VAN)", type:""},
+  {category:"TDICE82300", name:"Sour Green Apple Ice (SGA ICE)", type:"WO"},
+  {category:"81200", name:"Spouse Like A House (SLAH)", type:"WO"},
+  {category:"90504", name:"Sticky Fingers (SF)", type:"TD"},
+  {category:"92000", name:"Strawberry (STRAW)", type:"TD"},
+  {category:"803", name:"Strawberry Cheesecake Chunk (SCHZ)", type:""},
+  {category:"SO82300", name:"Strawberry Sorbet (STRAW SOR)", type:"TD"},
+  {category:"2000", name:"Taro (T)", type:"WO"},
+  {category:"94200", name:"Tiger Stripes (TS)", type:""},
+  {category:"104", name:"Tin Lizzy (TL)", type:""},
+  {category:"400", name:"Toasted Almond (TA)", type:"WO"},
+  {category:"112", name:"Twixter (TWIX)", type:""},
+  {category:"101", name:"Vanilla (VAN)", type:""},
+  {category:"114", name:"Vanilla Caramel Brownie (VCB)", type:""},
+  {category:"115", name:"Vanilla Caramel Truffle (VCT)", type:""},
+  {category:"109", name:"Vanilla Made with Oreo®️ (OREO)", type:""},
+  {category:"119", name:"Vanilla Peanut Butter Chip (VPBC)", type:""},
+  {category:"118", name:"Vanilla Peanut Butter Ripple (VPBR)", type:""},
+  {category:"SO82600", name:"Vanilla Pineapple Sorbet (VP SOR)", type:"TD"},
+  {category:"116", name:"Vanilla Raspberry Chip (VRC)", type:""},
+  {category:"117", name:"Vanilla Turtle (VT)", type:""},
+  {category:"120", name:"Vanilla with Reese's Peanut Butter Cup®️ (VRPBC)", type:""},
+  {category:"TDICE82100", name:"Watermelon Ice (WM ICE)", type:"WO"},
+];
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let roster = [];        // full list (MASTER_ROSTER + any user-added)
+let activeFlavors = []; // flavors on today's list
+let runMode = false;
+
+// ── CATEGORY SORT ──────────────────────────────────────────────────────────
+// Converts a category string to a numeric-sortable value.
+// Pure-numeric categories sort numerically; alphanumeric sort lexically after.
+function categorySort(cat) {
+  const s = String(cat || '');
+  const n = Number(s);
+  if (!isNaN(n) && s.trim() !== '') return n;
+  // prefix letters → push after numerics by adding a large base
+  return 1e9 + s.charCodeAt(0) * 1e6 + (parseInt(s.replace(/\D/g,'')) || 0);
+}
+
+// ── PERSISTENCE ────────────────────────────────────────────────────────────
+function setSyncStatus(state) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  if (state === 'saving')  { el.textContent = '⏳ Saving...';       el.style.color = '#8fa3be'; }
+  if (state === 'saved')   { el.textContent = '✓ Saved to cloud';   el.style.color = '#22a05a'; }
+  if (state === 'error')   { el.textContent = '⚠️ Save failed — using local backup'; el.style.color = '#ff6b6b'; }
+  if (state === 'loaded')  { el.textContent = '✓ Loaded from cloud'; el.style.color = '#22a05a'; }
+  if (state === 'offline') { el.textContent = '📴 Offline — using local backup'; el.style.color = '#f0a500'; }
+}
+
+let _saving = false;
+let _unsubscribeSnapshot = null;
+
+function getOrgDocRef() {
+  return window._doc(window._db, 'organizations', window._ORG_ID);
+}
+
+async function loadOrgMetadata() {
+  if (!window._firebaseReady) return;
+  try {
+    const ref = getOrgDocRef();
+    const snap = await window._getDoc(ref);
+    if (!snap.exists()) {
+      await ensureOrgDoc();
+      return;
+    }
+    const meta = snap.data();
+    if (meta?.name) {
+      const sub = document.querySelector('.header-sub');
+      if (sub) sub.textContent = `${meta.name} — ${meta.tagline || "Production Tool"}`;
+      document.title = `${meta.name} — Count & Run`;
+    }
+  } catch (e) {
+    console.error('Org metadata load error:', e);
+  }
+}
+
+function userHasRole(role) {
+  return window._USER_ROLE === role;
+}
+
+function userCanManage() {
+  return userHasRole(ROLES.CORPORATE_ADMIN) || userHasRole(ROLES.STORE_MANAGER);
+}
+
+function updateUserRoleDisplay() {
+  const el = document.getElementById('userRoleStatus');
+  if (!el) return;
+  el.textContent = `Role: ${window._USER_ROLE.replace('_', ' ')}`;
+}
+
+function getOrgMemberRef(uid) {
+  return window._doc(window._db, 'organizations', window._ORG_ID, 'members', uid);
+}
+
+async function loadCurrentUserRole(forceCreate = false) {
+  if (!window._auth || !window._auth.currentUser) return;
+  try {
+    const user = window._auth.currentUser;
+    const ref = getOrgMemberRef(user.uid);
+    const snap = await window._getDoc(ref);
+    if (snap.exists()) {
+      const member = snap.data();
+      window._USER_ROLE = member.role || ROLES.STORE_MANAGER;
+    } else if (forceCreate) {
+      window._USER_ROLE = ROLES.STORE_MANAGER;
+      await window._setDoc(ref, {
+        uid: user.uid,
+        email: user.email,
+        role: window._USER_ROLE,
+        stores: window._STORE_ID ? [window._STORE_ID] : [],
+        createdAt: Date.now()
+      });
+    } else {
+      window._USER_ROLE = ROLES.STORE_MANAGER;
+    }
+    localStorage.setItem('car_user_role', window._USER_ROLE);
+    updateUserRoleDisplay();
+    updateAuthButton();
+  } catch (e) {
+    console.error('Load user role error:', e);
+  }
+}
+
+  async function setCurrentUserRole(newRole) {
+    if (!window._auth || !window._auth.currentUser) return;
+    try {
+      const user = window._auth.currentUser;
+      const ref = getOrgMemberRef(user.uid);
+      await window._setDoc(ref, {
+        uid: user.uid,
+        email: user.email,
+        role: newRole,
+        stores: window._STORE_ID ? [window._STORE_ID] : [],
+        updatedAt: Date.now()
+      }, { merge: true });
+      window._USER_ROLE = newRole;
+      localStorage.setItem('car_user_role', window._USER_ROLE);
+      updateUserRoleDisplay();
+      updateAuthButton();
+      updateRoleUIVisibility();
+    } catch (e) {
+      console.error('Set user role error:', e);
+    }
+  }
+
+function updateAuthButton() {
+  const btn = document.getElementById('authBtn');
+  if (!btn) return;
+  btn.textContent = window._auth && window._auth.currentUser ? 'Sign Out' : 'Sign In';
+}
+
+function initRoleUI() {
+  const sel = document.getElementById('roleSelect');
+  if (!sel) return;
+  // populate roles from ROLES constant
+  sel.innerHTML = '<option value="">Role</option>';
+  for (const k in ROLES) {
+    const opt = document.createElement('option');
+    opt.value = ROLES[k];
+    opt.textContent = ROLES[k].replace('_', ' ');
+    sel.appendChild(opt);
+  }
+  sel.addEventListener('change', async (e) => {
+    const v = e.target.value;
+    if (!v) return;
+    if (window._auth && window._auth.currentUser) {
+      await setCurrentUserRole(v);
+      logRoleChange(v, 'auth');
+      showStatusMessage('Role updated to ' + v.replace('_',' '));
+    } else {
+      // local-only role change when not signed in
+      window._USER_ROLE = v;
+      localStorage.setItem('car_user_role', window._USER_ROLE);
+      updateUserRoleDisplay();
+      logRoleChange(v, 'local');
+      showStatusMessage('Local role set to ' + v.replace('_',' '));
+    }
+    sel.value = '';
+  });
+  setTimeout(updateRoleUIVisibility, 0);
+}
+
+function logRoleChange(role, source) {
+  try {
+    const key = 'car_role_audit';
+    const raw = localStorage.getItem(key);
+    const arr = raw ? JSON.parse(raw) : [];
+    arr.unshift({ role, source, at: Date.now() });
+    // keep recent 12 entries
+    localStorage.setItem(key, JSON.stringify(arr.slice(0,12)));
+    renderRoleAudit();
+  } catch (e) {
+    console.error('Role audit log error', e);
+  }
+}
+
+function renderRoleAudit() {
+  const panel = document.getElementById('roleAudit');
+  const listEl = document.getElementById('roleAuditList');
+  if (!panel || !listEl) return;
+  const raw = localStorage.getItem('car_role_audit');
+  const arr = raw ? JSON.parse(raw) : [];
+  if (!arr.length) { panel.style.display = 'none'; listEl.innerHTML = ''; return; }
+  panel.style.display = 'block';
+  listEl.innerHTML = arr.slice(0,8).map(it => {
+    const t = new Date(it.at).toLocaleString();
+    return `<div style="padding:4px 0;border-bottom:1px solid #eee;"><strong style="color:#2c3691">${it.role.replace('_',' ')}</strong> <span style="color:#666;font-size:11px">(${it.source})</span><div style="color:#666;font-size:11px">${t}</div></div>`;
+  }).join('');
+}
+
+function showStatusMessage(msg, timeout=2200) {
+  let el = document.getElementById('statusToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'statusToast';
+    el.style.position = 'fixed';
+    el.style.right = '18px';
+    el.style.bottom = '18px';
+    el.style.padding = '10px 14px';
+    el.style.borderRadius = '8px';
+    el.style.background = '#2c3691';
+    el.style.color = '#fff';
+    el.style.boxShadow = '0 6px 18px rgba(0,0,0,0.12)';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, timeout);
+}
+
+
+function updateRoleUIVisibility() {
+  const sel = document.getElementById('roleSelect');
+  if (!sel) return;
+  // show role control only when signed in OR when current user is a corporate admin
+  const show = (window._auth && window._auth.currentUser) || userHasRole(ROLES.CORPORATE_ADMIN);
+  sel.style.display = show ? 'inline-block' : 'none';
+}
+
+function openAuthModal() {
+  if (window._auth && window._auth.currentUser) {
+    signOutUser();
+    return;
+  }
+  document.getElementById('authError').textContent = '';
+  document.getElementById('authEmail').value = '';
+  document.getElementById('authPassword').value = '';
+  document.getElementById('authOverlay').classList.add('open');
+}
+
+function closeAuthModal() {
+  document.getElementById('authOverlay').classList.remove('open');
+}
+
+async function signInManager() {
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value.trim();
+  const errEl = document.getElementById('authError');
+  errEl.textContent = '';
+  if (!email || !password) {
+    errEl.textContent = 'Email and password are required.';
+    return;
+  }
+  try {
+    await signInWithEmailAndPassword(window._auth, email, password);
+    await loadCurrentUserRole();
+    closeAuthModal();
+  } catch (e) {
+    if (e.code === 'auth/user-not-found') {
+      const create = confirm('No account found. Create a new manager account?');
+      if (!create) return;
+      try {
+        await createUserWithEmailAndPassword(window._auth, email, password);
+        await loadCurrentUserRole(true);
+        closeAuthModal();
+      } catch (createErr) {
+        errEl.textContent = createErr.message || 'Unable to create account.';
+        console.error(createErr);
+      }
+    } else {
+      errEl.textContent = e.message || 'Sign in failed.';
+      console.error(e);
+    }
+  }
+}
+
+async function signOutUser() {
+  if (!window._auth) return;
+  try {
+    await signOut(window._auth);
+    window._USER_ROLE = ROLES.EMPLOYEE;
+    localStorage.setItem('car_user_role', window._USER_ROLE);
+    updateUserRoleDisplay();
+    updateAuthButton();
+    updateRoleUIVisibility();
+  } catch (e) {
+    console.error('Sign out failed:', e);
+  }
+}
+
+async function ensureOrgDoc() {
+  if (!window._firebaseReady) return;
+  try {
+    const ref = getOrgDocRef();
+    await window._setDoc(ref, { ...DEFAULT_ORG_META });
+    await loadOrgMetadata();
+  } catch (e) {
+    console.error('Org creation error:', e);
+  }
+}
+
+function getStoreDocRef() {
+  return window._doc(window._db, 'organizations', window._ORG_ID, 'stores', window._STORE_ID);
+}
+
+function applyData(data) {
+  const removed = data?.removedNames || [];
+  const custom  = data?.customAdded  || [];
+  roster = [
+    ...MASTER_ROSTER.filter(m => !removed.includes(m.name)),
+    ...custom
+  ];
+  activeFlavors = data?.activeFlavors || [];
+  activeFlavors = activeFlavors.map(f => {
+    const r = roster.find(x => x.name === f.name);
+    return r ? { ...f, category: r.category, type: r.type } : f;
+  }).filter(f => roster.find(x => x.name === f.name));
+}
+
+async function saveAll() {
+  const customAdded  = roster.filter(r => !MASTER_ROSTER.find(m => m.name === r.name));
+  const removedNames = MASTER_ROSTER.filter(m => !roster.find(r => r.name === m.name)).map(m => m.name);
+  const payload = { customAdded, removedNames, activeFlavors, updatedAt: Date.now() };
+  localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify(payload));
+  if (!window._firebaseReady) { setSyncStatus('offline'); return; }
+  setSyncStatus('saving');
+  _saving = true;
+  try {
+    const ref = getStoreDocRef();
+    await window._setDoc(ref, payload);
+    setSyncStatus('saved');
+  } catch(e) {
+    console.error('Firestore save error:', e);
+    setSyncStatus('error');
+  } finally {
+    _saving = false;
+  }
+}
+
+async function loadAll() {
+  if (_unsubscribeSnapshot) { _unsubscribeSnapshot(); _unsubscribeSnapshot = null; }
+  let data = null;
+  if (window._firebaseReady) {
+    await loadOrgMetadata();
+    try {
+      const ref = getStoreDocRef();
+      const snap = await window._getDoc(ref);
+      if (snap.exists()) { data = snap.data(); }
+      setSyncStatus('loaded');
+    } catch(e) {
+      console.error('Firestore load error:', e);
+      setSyncStatus('offline');
+    }
+  }
+  if (!data) {
+    try {
+      const backup = localStorage.getItem(window._STORAGE_KEYS.backup);
+      if (backup) { data = JSON.parse(backup); }
+      if (!window._firebaseReady) setSyncStatus('offline');
+    } catch(e) {}
+  }
+  applyData(data);
+  if (window._firebaseReady && window._onSnapshot) {
+    try {
+      const ref = getStoreDocRef();
+      _unsubscribeSnapshot = window._onSnapshot(ref, snap => {
+        if (_saving) return;
+        applyData(snap.exists() ? snap.data() : null);
+        if (snap.exists()) localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify(snap.data()));
+        setSyncStatus('loaded');
+        renderTable();
+      }, err => {
+        console.error('Snapshot listener error:', err);
+        setSyncStatus('error');
+      });
+    } catch(e) {
+      console.error('Failed to start snapshot listener:', e);
+    }
+  }
+}
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+function toMake(f) {
+  return Math.max(0, (parseInt(f.target) || 0) - Math.round((Number(f.dipping) || 0) - 0.1) - (parseInt(f.holding) || 0));
+}
+
+function typeColor(type) {
+  if (type === 'TD') return '#ff7a7a';
+  if (type === 'WO') return '#a8d8f0';
+  return '#6ab0ff';
+}
+
+function flavorClass(f) {
+  const t = (f.type || '').toUpperCase();
+  if (t === 'WO') return 'flavor-wo';
+  if (t === 'TD') return 'flavor-td';
+  return 'flavor-regular';
+}
+
+// Sort: alphabetical normally; by category number in run mode
+function getSorted(list) {
+  return [...list].sort((a, b) => {
+    if (runMode) return categorySort(a.category) - categorySort(b.category);
+    return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+  });
+}
+
+// ── DROPDOWNS ──────────────────────────────────────────────────────────────
+const DIPPING_OPTIONS = [
+  {label:'—', value:0},
+  {label:'¼ Bucket', value:0.25},
+  {label:'½ Bucket', value:0.5},
+  {label:'¾ Bucket', value:0.75},
+  {label:'Full Bucket', value:1},
+];
+const HOLDING_OPTIONS = [
+  {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
+  {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
+  {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
+];
+
+function makeSelect(options, currentVal, fn) {
+  const sel = document.createElement('select');
+  options.forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (Number(currentVal) === opt.value) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = e => fn(Number(e.target.value));
+  return sel;
+}
+
+// ── TABLE ──────────────────────────────────────────────────────────────────
+function buildRow(f, runIndex, runTotal) {
+  const idx = activeFlavors.findIndex(x => x.name === f.name);
+  const tr = document.createElement('tr');
+  const tm = toMake(f);
+  const color = typeColor(f.type);
+
+  // Flavor name — colored by type, with full name as tooltip
+  const tdName = document.createElement('td');
+  tdName.style.cssText = 'font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+  tdName.title = f.name;
+  const sp = document.createElement('span');
+  sp.className = flavorClass(f);
+  sp.textContent = f.name;
+  tdName.appendChild(sp);
+  if (_cabinetSortEnabled && f.cabinet) {
+    const badge = document.createElement('span');
+    badge.className = 'cabinet-badge';
+    badge.textContent = 'C' + f.cabinet;
+    tdName.appendChild(badge);
+  }
+  tr.appendChild(tdName);
+
+  // Category — only shown in run mode
+  const tdCat = document.createElement('td');
+  tdCat.style.cssText = 'font-size:12px;color:#8fa3be;' + (runMode ? '' : 'display:none;');
+  tdCat.textContent = f.category || '—';
+  tr.appendChild(tdCat);
+
+  // Type badge — colored by type
+  const tdType = document.createElement('td');
+  const badge = document.createElement('span');
+  badge.className = 'type-badge';
+  badge.style.color = color;
+  badge.textContent = f.type || '—';
+  tdType.appendChild(badge);
+  tr.appendChild(tdType);
+
+  if (runMode) {
+    // Run mode: checkboxes (one per bucket needed) + Skip button
+    const tdBoxes = document.createElement('td');
+    tdBoxes.style.cssText = 'text-align:center;';
+    const boxWrap = document.createElement('div');
+    boxWrap.style.cssText = 'display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;';
+    for (let i = 1; i <= tm; i++) {
+      const alreadyDone = runDismissed.find(d => d.name === f.name && d.index === i);
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!alreadyDone;
+      cb.disabled = !!alreadyDone;
+      cb.style.cssText = 'width:28px;height:28px;cursor:pointer;accent-color:#22a05a;';
+      cb.addEventListener('change', () => {
+        if (!cb.checked) return;
+        cb.disabled = true;
+        dismissRunRow(f.name, i, 'made');
+      });
+      boxWrap.appendChild(cb);
+    }
+    tdBoxes.appendChild(boxWrap);
+    tr.appendChild(tdBoxes);
+
+    const tdActions = document.createElement('td');
+    tdActions.style.cssText = 'text-align:right;white-space:nowrap;';
+    const skipBtn = document.createElement('button');
+    skipBtn.textContent = 'Skip';
+    skipBtn.style.cssText = 'background:#d72627;border:1.5px solid #d72627;color:#ffffff;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:40px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-transform:uppercase;letter-spacing:0.04em;';
+    skipBtn.onclick = () => dismissRunRow(f.name, null, 'skip');
+    tdActions.appendChild(skipBtn);
+    tr.appendChild(tdActions);
+  } else {
+    // Normal mode: dropdowns + To Make
+    const TARGET_OPTIONS = [
+      {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
+      {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
+      {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
+    ];
+    const tdTarget = document.createElement('td');
+    tdTarget.style.cssText = 'text-align:center;';
+    if (_managerUnlocked) {
+      tdTarget.appendChild(makeSelect(TARGET_OPTIONS, f.target, val => { activeFlavors[idx].target = val; saveAll(); renderTable(); }));
+    } else {
+      const tval = document.createElement('span');
+      tval.textContent = f.target || '—';
+      tval.style.cssText = 'font-size:13px;color:#8fa3be;cursor:pointer;';
+      tval.title = 'Manager access required';
+      tval.addEventListener('click', () => requireManager(() => renderTable()));
+      tdTarget.appendChild(tval);
+    }
+    tr.appendChild(tdTarget);
+
+    const tdDip = document.createElement('td');
+    tdDip.style.cssText = 'padding:6px 2px;';
+    tdDip.appendChild(makeSelect(DIPPING_OPTIONS, f.dipping, val => { activeFlavors[idx].dipping = val; saveAll(); renderTable(); }));
+    tr.appendChild(tdDip);
+
+    const tdHold = document.createElement('td');
+    tdHold.style.cssText = 'text-align:center;white-space:nowrap;';
+    const holdWrap = document.createElement('div');
+    holdWrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
+
+    const holdMinus = document.createElement('button');
+    holdMinus.textContent = '−';
+    holdMinus.style.cssText = 'width:32px;height:32px;font-size:18px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;';
+    holdMinus.addEventListener('click', () => {
+      const cur = parseInt(activeFlavors[idx].holding) || 0;
+      if (cur <= 0) return;
+      activeFlavors[idx].holding = cur - 1;
+      saveAll(); renderTable();
+    });
+
+    const holdVal = document.createElement('span');
+    holdVal.textContent = parseInt(f.holding) || 0;
+    holdVal.style.cssText = 'min-width:24px;text-align:center;font-size:14px;font-weight:600;color:#f5f0e8;';
+
+    const holdPlus = document.createElement('button');
+    holdPlus.textContent = '+';
+    holdPlus.style.cssText = 'width:32px;height:32px;font-size:18px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;';
+    holdPlus.addEventListener('click', () => {
+      const cur = parseInt(activeFlavors[idx].holding) || 0;
+      activeFlavors[idx].holding = cur + 1;
+      saveAll(); renderTable();
+    });
+
+    holdWrap.appendChild(holdMinus);
+    holdWrap.appendChild(holdVal);
+    holdWrap.appendChild(holdPlus);
+    tdHold.appendChild(holdWrap);
+    tr.appendChild(tdHold);
+
+    const tdTM = document.createElement('td');
+    tdTM.className = 'to-make ' + (tm > 0 ? 'to-make-needed' : 'to-make-ok');
+    tdTM.textContent = tm > 0 ? tm : '✓';
+    tr.appendChild(tdTM);
+  }
+
+  return tr;
+}
+
+function renderTable() {
+  const tbody = document.getElementById('mainTbody');
+  tbody.innerHTML = '';
+
+  // Show/hide column headers for run mode
+  const thCategory = document.getElementById('thCategory');
+  const thTarget  = document.getElementById('thTarget');
+  const thDipping = document.getElementById('thDipping');
+  const thHolding = document.getElementById('thHolding');
+  const thToMake  = document.getElementById('thToMake');
+  const thBucket  = document.getElementById('thBucket');
+  const thActions = document.getElementById('thActions');
+  if (runMode) {
+    thCategory.style.display = '';
+    thTarget.style.display  = 'none';
+    thDipping.style.display = 'none';
+    thHolding.style.display = 'none';
+    thToMake.style.display  = 'none';
+    thBucket.style.display  = '';
+    thActions.style.display = '';
+  } else {
+    thCategory.style.display = 'none';
+    thTarget.style.display  = '';
+    thDipping.style.display = '';
+    thHolding.style.display = '';
+    thToMake.style.display  = '';
+    thBucket.style.display  = 'none';
+    thActions.style.display = 'none';
+  }
+
+  const list = runMode ? activeFlavors.filter(f => toMake(f) > 0) : activeFlavors;
+  const sorted = getSorted(list);
+  if (!sorted.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${
+      runMode
+        ? '🎉 Nothing to make — all flavors are fully stocked!'
+        : 'No flavors on today\'s list. Click "Edit Flavors" to get started.'
+    }</td></tr>`;
+    return;
+  }
+  if (runMode) {
+    sorted.forEach(f => {
+      const tm = toMake(f);
+      const doneCount = runDismissed.filter(d => d.name === f.name).length;
+      if (doneCount >= tm) return;
+      tbody.appendChild(buildRow(f, null, tm));
+    });
+  } else {
+    sorted.forEach(f => tbody.appendChild(buildRow(f)));
+  }
+}
+
+function removeFromActive(idx) {
+  if (idx < 0) return;
+  activeFlavors.splice(idx, 1);
+  saveAll(); renderTable();
+}
+
+// ── RUN MODE ───────────────────────────────────────────────────────────────
+let runDismissed = []; // tracks {name, index} pairs dismissed during run
+// Manager mode
+let _managerUnlocked  = false;
+let _managerTimer     = null;
+let _pinCallback      = null;
+let _pinMode          = 'enter'; // 'enter' | 'set' | 'confirm'
+let _pinSetFirst      = '';
+const MANAGER_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+let _cabinetSortEnabled = false;
+let _cabinetCallback    = null;
+let _runTimerInterval = null;
+let _runStartTime = null;
+let _totalBucketsMade = 0;
+
+function dismissRunRow(name, index, action) {
+  if (action === 'made') {
+    runDismissed.push({ name, index });
+    _totalBucketsMade++;
+    const idx = activeFlavors.findIndex(f => f.name === name);
+    if (idx >= 0) {
+      activeFlavors[idx].made = (activeFlavors[idx].made || 0) + 1;
+      saveAll();
+    }
+    const flavorIdx = activeFlavors.findIndex(f => f.name === name);
+    const tm = flavorIdx >= 0 ? toMake(activeFlavors[flavorIdx]) : 0;
+    const doneCount = runDismissed.filter(d => d.name === name).length;
+    if (doneCount >= tm) {
+      renderTable();
+      checkRunComplete();
+    }
+  } else if (action === 'skip') {
+    const idx = activeFlavors.findIndex(f => f.name === name);
+    const tm = idx >= 0 ? toMake(activeFlavors[idx]) : 0;
+    for (let i = 1; i <= tm; i++) {
+      if (!runDismissed.find(d => d.name === name && d.index === i)) {
+        runDismissed.push({ name, index: i });
+      }
+    }
+    renderTable();
+    checkRunComplete();
+  }
+}
+
+function calculateRun() {
+  runMode = true;
+  const needed = activeFlavors.filter(f => toMake(f) > 0);
+  const total = needed.reduce((s, f) => s + toMake(f), 0);
+  document.getElementById('runBannerMsg').textContent =
+    `${needed.length} flavor${needed.length !== 1 ? 's' : ''} to make — ${total} bucket${total !== 1 ? 's' : ''} total. Sorted by category order.`;
+  document.getElementById('runBanner').style.display = 'flex';
+  document.getElementById('printBtn').style.display = '';
+  renderTable();
+  showVariegateModal(activeFlavors.filter(f => toMake(f) > 0));
+}
+
+function togglePrintMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('printMenu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  if (menu.style.display === 'block') {
+    setTimeout(() => document.addEventListener('click', closePrintMenu, { once: true }), 0);
+  }
+}
+
+function closePrintMenu() {
+  const menu = document.getElementById('printMenu');
+  if (menu) menu.style.display = 'none';
+}
+
+function printInventory() {
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  const sorted = getSorted(activeFlavors);
+
+  const rows = sorted.map(f => {
+    const dipping = parseFloat(f.dipping) || 0;
+    const holding = parseInt(f.holding) || 0;
+    const total   = dipping + holding;
+    const cab     = (_cabinetSortEnabled && f.cabinet) ? `C${f.cabinet}` : '—';
+    return `<tr>
+      <td>${f.name}</td>
+      <td style="text-align:center">${cab}</td>
+      <td style="text-align:center">${dipping > 0 ? dipping : '—'}</td>
+      <td style="text-align:center">${holding > 0 ? holding : '—'}</td>
+      <td style="text-align:center;font-weight:bold">${total > 0 ? total : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const totalBuckets = sorted.reduce((s, f) => s + (parseFloat(f.dipping) || 0) + (parseInt(f.holding) || 0), 0);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Inventory — ${today}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 13px; margin: 24px; color: #000; }
+    h2 { margin: 0 0 4px; font-size: 18px; }
+    p { margin: 0 0 16px; color: #555; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 6px 8px; border-bottom: 2px solid #d72627; color: #444; }
+    td { padding: 7px 8px; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    .summary { margin-top: 16px; font-size: 13px; font-weight: bold; text-align: right; }
+  </style></head><body>
+  <h2>Handel's — Current Inventory</h2>
+  <p>${today}</p>
+  <table>
+    <thead><tr>
+      <th>Flavor</th>
+      <th style="text-align:center">Cabinet</th>
+      <th style="text-align:center">In Dipping</th>
+      <th style="text-align:center">Holding</th>
+      <th style="text-align:center">Total</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="summary">${sorted.length} flavor${sorted.length !== 1 ? 's' : ''} &nbsp;|&nbsp; ${totalBuckets} bucket${totalBuckets !== 1 ? 's' : ''} on hand</div>
+  <script>window.onload = function(){ window.print(); }<\/script>
+  </body></html>`;
+
+  const w = window.open('', '_blank', 'width=800,height=600');
+  if (w) { w.document.write(html); w.document.close(); }
+  else { alert('Please allow pop-ups for this page to print.'); }
+}
+
+function printRun() {
+  const needed = activeFlavors.filter(f => toMake(f) > 0);
+  const sorted = getSorted(needed);
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+  let rows = [];
+  sorted.forEach(f => {
+    const tm = toMake(f);
+    for (let i = 1; i <= tm; i++) {
+      rows.push(`<tr>
+        <td>${f.name}</td>
+        <td style="text-align:center">${f.category || '—'}</td>
+        <td style="text-align:center">${f.type || '—'}</td>
+        <td style="text-align:center;color:#999">${tm > 1 ? `${i} of ${tm}` : ''}</td>
+      </tr>`);
+    }
+  });
+
+  const total = sorted.reduce((s, f) => s + toMake(f), 0);
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Run Sheet — ${today}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 13px; margin: 24px; color: #000; }
+    h2 { margin: 0 0 4px; font-size: 18px; }
+    p { margin: 0 0 16px; color: #555; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 6px 8px; border-bottom: 2px solid #d72627; color: #444; }
+    td { padding: 7px 8px; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    .summary { margin-top: 16px; font-size: 13px; font-weight: bold; text-align: right; }
+  </style></head><body>
+  <h2>Handel's — Production Run</h2>
+  <p>${today}</p>
+  <table>
+    <thead><tr>
+      <th>Flavor</th>
+      <th style="text-align:center">Category</th>
+      <th style="text-align:center">Type</th>
+      <th style="text-align:center">Bucket</th>
+    </tr></thead>
+    <tbody>${rows.join('')}</tbody>
+  </table>
+  <div class="summary">${sorted.length} flavor${sorted.length !== 1 ? 's' : ''} &nbsp;|&nbsp; ${total} bucket${total !== 1 ? 's' : ''} total</div>
+  <script>window.onload = function(){ window.print(); }<\/script>
+  </body></html>`;
+
+  const w = window.open('', '_blank', 'width=800,height=600');
+  if (w) {
+    w.document.write(html);
+    w.document.close();
+  } else {
+    alert('Please allow pop-ups for this page to print the run sheet.');
+  }
+}
+
+function doneRun() {
+  stopRunTimer();
+  runMode = false;
+  runDismissed = [];
+  document.getElementById('runBanner').style.display = 'none';
+  document.getElementById('printBtn').style.display = 'none';
+  renderTable();
+}
+
+function clearRunView() {
+  stopRunTimer();
+  runMode = false;
+  runDismissed = [];
+  document.getElementById('runBanner').style.display = 'none';
+  document.getElementById('printBtn').style.display = 'none';
+  renderTable();
+}
+
+function resetDay() {
+  if (!confirm('Reset for today?\n\nThis will clear all Dipping and Holding counts. Sort order and cabinet assignments will not be affected.')) return;
+  activeFlavors.forEach(f => { f.dipping = 0; f.holding = 0; });
+  runMode = false;
+  document.getElementById('runBanner').style.display = 'none';
+  saveAll(); renderTable();
+}
+
+// ── MODAL / PICKER ─────────────────────────────────────────────────────────
+// ── MANAGER MODE ───────────────────────────────────────────────────────────
+function buildPinKeypad() {
+  const kp = document.getElementById('pinKeypad');
+  kp.innerHTML = '';
+  [1,2,3,4,5,6,7,8,9,'⌫',0,'✓'].forEach(k => {
+    const btn = document.createElement('button');
+    btn.className = 'pin-key';
+    btn.textContent = k;
+    btn.addEventListener('click', () => handlePinKey(String(k)));
+    kp.appendChild(btn);
+  });
+}
+
+let _pinEntry = '';
+
+function updatePinDisplay() {
+  const d = document.getElementById('pinDisplay');
+  d.textContent = _pinEntry.replace(/./g, '●').padEnd(4,'_');
+}
+
+function handlePinKey(k) {
+  document.getElementById('pinError').textContent = '';
+  if (k === '⌫') {
+    _pinEntry = _pinEntry.slice(0, -1);
+    updatePinDisplay();
+    return;
+  }
+  if (k === '✓') {
+    submitPin();
+    return;
+  }
+  if (_pinEntry.length >= 4) return;
+  _pinEntry += k;
+  updatePinDisplay();
+  if (_pinEntry.length === 4) setTimeout(submitPin, 120);
+}
+
+function submitPin() {
+  const stored = localStorage.getItem('car_manager_pin');
+  if (_pinMode === 'set') {
+    _pinSetFirst = _pinEntry;
+    _pinEntry = '';
+    updatePinDisplay();
+    document.getElementById('pinTitle').textContent = 'Confirm PIN';
+    document.getElementById('pinSubtitle').textContent = 'Enter your new PIN again to confirm.';
+    _pinMode = 'confirm';
+    return;
+  }
+  if (_pinMode === 'confirm') {
+    if (_pinEntry !== _pinSetFirst) {
+      document.getElementById('pinError').textContent = 'PINs do not match. Try again.';
+      _pinEntry = ''; _pinSetFirst = '';
+      updatePinDisplay();
+      _pinMode = 'set';
+      document.getElementById('pinTitle').textContent = 'Set Manager PIN';
+      document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for manager access.';
+      return;
+    }
+    localStorage.setItem('car_manager_pin', _pinEntry);
+    closePinModal();
+    unlockManager();
+    return;
+  }
+  // _pinMode === 'enter'
+  if (_pinEntry === stored) {
+    closePinModal();
+    unlockManager();
+  } else {
+    document.getElementById('pinError').textContent = 'Incorrect PIN. Try again.';
+    _pinEntry = '';
+    updatePinDisplay();
+  }
+}
+
+function openPinModal(mode, callback) {
+  _pinMode   = mode;
+  _pinEntry  = '';
+  _pinSetFirst = '';
+  _pinCallback = callback;
+  buildPinKeypad();
+  updatePinDisplay();
+  document.getElementById('pinError').textContent = '';
+  if (mode === 'set') {
+    document.getElementById('pinTitle').textContent = 'Set Manager PIN';
+    document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for manager access.';
+  } else {
+    document.getElementById('pinTitle').textContent = 'Manager Access';
+    document.getElementById('pinSubtitle').textContent = 'Enter your PIN to continue.';
+  }
+  document.getElementById('pinOverlay').classList.add('open');
+}
+
+function closePinModal() {
+  document.getElementById('pinOverlay').classList.remove('open');
+}
+
+
+// When PIN is used to unlock, treat user as local store manager (fallback)
+const _origUnlockManager = unlockManager;
+function unlockManager() {
+  _managerUnlocked = true;
+  if (_managerTimer) clearTimeout(_managerTimer);
+  _managerTimer = setTimeout(lockManager, MANAGER_TIMEOUT);
+  // If not authenticated, set local role to STORE_MANAGER so UI gating works
+  if (!(window._auth && window._auth.currentUser)) {
+    window._USER_ROLE = ROLES.STORE_MANAGER;
+    localStorage.setItem('car_user_role', window._USER_ROLE);
+    updateUserRoleDisplay();
+    updateAuthButton();
+    updateRoleUIVisibility();
+  }
+  renderTable(); // re-render so target dropdowns appear
+  if (_pinCallback) { const cb = _pinCallback; _pinCallback = null; cb(); }
+}
+
+function lockManager() {
+  _managerUnlocked = false;
+  _managerTimer = null;
+  renderTable();
+}
+
+function requireManager(callback) {
+  if (userCanManage()) { callback(); return; }
+  if (_managerUnlocked) { callback(); return; }
+  const stored = localStorage.getItem('car_manager_pin');
+  if (!stored) {
+    openPinModal('set', callback);
+  } else {
+    openPinModal('enter', callback);
+  }
+}
+
+// ── CABINET SORT ───────────────────────────────────────────────────────────
+function loadCabinetPref() {
+  const val = localStorage.getItem('car_cabinet_sort');
+  _cabinetSortEnabled = val === 'true';
+}
+
+function saveCabinetPref(val) {
+  _cabinetSortEnabled = val;
+  localStorage.setItem('car_cabinet_sort', val ? 'true' : 'false');
+}
+
+function resetCabinetSort() {
+  if (!confirm('Turn off cabinet assignments? This will clear all cabinet numbers.')) return;
+  localStorage.setItem('car_cabinet_sort', 'false');
+  _cabinetSortEnabled = false;
+  activeFlavors.forEach(f => { delete f.cabinet; });
+  saveAll();
+  updateSortToggleUI();
+  renderPicker();
+  renderTable();
+}
+
+function updateSortToggleUI() {
+  const row = document.getElementById('sortToggleRow');
+  const label = document.getElementById('sortToggleLabel');
+  const btn = document.getElementById('cabinetToggleBtn');
+  if (!row) return;
+  row.style.display = 'flex';
+  if (_cabinetSortEnabled) {
+    label.textContent = 'Cabinet numbers assigned';
+    if (btn) { btn.textContent = '✕ Turn Off Cabinet Numbers'; btn.style.borderColor = '#d72627'; btn.style.color = '#ffffff'; btn.style.background = '#d72627'; }
+  } else {
+    label.textContent = 'Cabinet numbers not assigned';
+    if (btn) { btn.textContent = '✚ Turn On Cabinet Numbers'; btn.style.borderColor = '#98d4e3'; btn.style.color = '#ffffff'; btn.style.background = '#2c3691'; }
+  }
+}
+
+function toggleCabinetNumbers() {
+  if (_cabinetSortEnabled) {
+    resetCabinetSort();
+  } else {
+    // Turn on — assign cabinets to all active flavors that don't have one
+    saveCabinetPref(true);
+    const missing = activeFlavors.filter(f => !f.cabinet);
+    assignMissingCabinets(missing, () => {
+      saveAll();
+      updateSortToggleUI();
+      renderPicker();
+    });
+  }
+}
+
+function showCabinetPicker(flavorName, subtitle, callback) {
+  document.getElementById('cabinetTitle').textContent = flavorName;
+  document.getElementById('cabinetSub').textContent = subtitle || '';
+  _cabinetCallback = callback;
+  document.getElementById('cabinetOverlay').classList.add('open');
+}
+
+function selectCabinet(num) {
+  document.getElementById('cabinetOverlay').classList.remove('open');
+  if (_cabinetCallback) { _cabinetCallback(num); _cabinetCallback = null; }
+}
+
+function assignMissingCabinets(queue, onComplete) {
+  if (!queue.length) { onComplete(); return; }
+  const f = queue[0];
+  showCabinetPicker(f.name, 'Which dipping cabinet is this flavor in?', (num) => {
+    const idx = activeFlavors.findIndex(a => a.name === f.name);
+    if (idx >= 0) activeFlavors[idx].cabinet = num;
+    assignMissingCabinets(queue.slice(1), onComplete);
+  });
+}
+
+function askCabinetPreference() {
+  const box = document.querySelector('.cabinet-box');
+  box.innerHTML = `
+    <h2 style="font-family:'Raiders','Impact',sans-serif;font-size:17px;color:#ffffff;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.04em;">Assign cabinet numbers?</h2>
+    <p style="font-size:12px;color:#8fa3be;margin-bottom:20px;">Would you like to assign dipping cabinet numbers to your flavors? Cabinet numbers will appear next to each flavor name.</p>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <button class="cabinet-btn" style="font-size:15px;padding:16px 8px;" onclick="chooseCabinetPref(true)">Yes, assign cabinets</button>
+      <button class="cabinet-btn" style="font-size:15px;padding:16px 8px;" onclick="chooseCabinetPref(false)">No thanks</button>
+    </div>`;
+  document.getElementById('cabinetOverlay').classList.add('open');
+}
+
+function restoreCabinetBox() {
+  document.querySelector('.cabinet-box').innerHTML = `
+    <h2 id="cabinetTitle">Which dipping cabinet?</h2>
+    <p id="cabinetSub"></p>
+    <div class="cabinet-btns">
+      <button class="cabinet-btn" onclick="selectCabinet(1)">1</button>
+      <button class="cabinet-btn" onclick="selectCabinet(2)">2</button>
+      <button class="cabinet-btn" onclick="selectCabinet(3)">3</button>
+      <button class="cabinet-btn" onclick="selectCabinet(4)">4</button>
+    </div>`;
+}
+
+function chooseCabinetPref(enabled) {
+  document.getElementById('cabinetOverlay').classList.remove('open');
+  restoreCabinetBox();
+  if (!enabled) {
+    saveCabinetPref(false);
+    updateSortToggleUI();
+    renderPicker();
+    return;
+  }
+  saveCabinetPref(true);
+  const missing = activeFlavors.filter(f => !f.cabinet);
+  assignMissingCabinets(missing, () => {
+    saveAll();
+    updateSortToggleUI();
+    renderPicker();
+  });
+}
+
+function openAddModal() {
+  document.getElementById('pickerSearch').value = '';
+  document.getElementById('newFlavorName').value = '';
+  document.getElementById('newFlavorType').value = '';
+  document.getElementById('modalBackdrop').classList.add('open');
+  updateSortToggleUI();
+  renderPicker();
+  setTimeout(() => document.getElementById('pickerSearch').focus(), 60);
+  if (localStorage.getItem('car_cabinet_sort') === null) {
+    setTimeout(() => askCabinetPreference(), 200);
+  }
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('open');
+  renderTable();
+}
+
+function backdropClick(e) {
+  if (e.target === document.getElementById('modalBackdrop')) closeModal();
+}
+
+function toggleFlavor(name) {
+  const idx = activeFlavors.findIndex(f => f.name === name);
+  if (idx >= 0) {
+    activeFlavors.splice(idx, 1);
+    saveAll(); renderPicker();
+  } else {
+    const r = roster.find(r => r.name === name);
+    activeFlavors.push({ name, category: r ? r.category : '', type: r ? r.type || '' : '', target: 0, dipping: 0, holding: 0 });
+    if (_cabinetSortEnabled) {
+      showCabinetPicker(name, 'Which dipping cabinet is this flavor in?', (num) => {
+        const fi = activeFlavors.findIndex(f => f.name === name);
+        if (fi >= 0) activeFlavors[fi].cabinet = num;
+        saveAll(); renderPicker();
+      });
+    } else {
+      saveAll(); renderPicker();
+    }
+  }
+}
+
+let pendingRosterDelete = null;
+let undoTimer = null;
+
+function removeFromRoster(name) {
+  // Stage deletion — show undo toast for 5 seconds
+  if (undoTimer) { clearTimeout(undoTimer); commitRosterDelete(); }
+  pendingRosterDelete = { name, roster: [...roster], active: [...activeFlavors] };
+  roster = roster.filter(r => r.name !== name);
+  activeFlavors = activeFlavors.filter(f => f.name !== name);
+  saveAll(); renderPicker();
+  showUndoToast(`"${name}" removed.`);
+  undoTimer = setTimeout(() => { commitRosterDelete(); }, 5000);
+}
+
+function commitRosterDelete() {
+  pendingRosterDelete = null;
+  undoTimer = null;
+  hideUndoToast();
+}
+
+function undoRosterDelete() {
+  if (!pendingRosterDelete) return;
+  clearTimeout(undoTimer);
+  roster = pendingRosterDelete.roster;
+  activeFlavors = pendingRosterDelete.active;
+  pendingRosterDelete = null;
+  undoTimer = null;
+  saveAll(); renderPicker();
+  hideUndoToast();
+}
+
+function showUndoToast(msg) {
+  let t = document.getElementById('undoToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'undoToast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2f52;border:1.5px solid #4a7ab5;color:#c5d8f0;padding:12px 18px;border-radius:8px;display:flex;align-items:center;gap:14px;z-index:200;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
+    document.body.appendChild(t);
+  }
+  t.innerHTML = `<span>${msg}</span><button onclick="undoRosterDelete()" style="background:#d72627;border:none;color:#fff;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;touch-action:manipulation;">Undo</button>`;
+  t.style.display = 'flex';
+}
+
+function hideUndoToast() {
+  const t = document.getElementById('undoToast');
+  if (t) t.style.display = 'none';
+}
+
+function renderPicker() {
+  const q = document.getElementById('pickerSearch').value.toLowerCase();
+  const activeNames = new Set(activeFlavors.map(f => f.name));
+  const items = roster
+    .filter(r => r.name.toLowerCase().includes(q))
+    .sort((a, b) => {
+      const aOn = activeNames.has(a.name), bOn = activeNames.has(b.name);
+      if (aOn && !bOn) return -1;
+      if (!aOn && bOn) return 1;
+      return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+    });
+
+  const selCount = activeFlavors.length;
+  const rosCount = roster.length;
+  document.getElementById('pickerStats').textContent =
+    `${selCount} of ${rosCount} flavor${rosCount !== 1 ? 's' : ''} selected`;
+
+  const list = document.getElementById('pickerList');
+  list.innerHTML = '';
+
+  if (!items.length) {
+    const e = document.createElement('div');
+    e.className = 'picker-empty';
+    e.style.cssText = 'padding:1rem;font-size:12px;color:#4a6a90;text-align:center;';
+    e.textContent = q ? 'No matches found' : 'Roster is empty';
+    list.appendChild(e);
+    return;
+  }
+
+  items.forEach(r => {
+    const isActive = activeNames.has(r.name);
+    const color = typeColor(r.type);
+
+    const div = document.createElement('div');
+    div.className = 'picker-item' + (isActive ? ' active' : '');
+
+    // Checkmark
+    const check = document.createElement('span');
+    check.className = 'picker-check';
+    check.textContent = isActive ? '✓' : '';
+    div.appendChild(check);
+
+    // Name — colored by type, no category shown
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'picker-name';
+    nameSpan.style.color = color;
+    nameSpan.textContent = r.name;
+    nameSpan.addEventListener('click', () => toggleFlavor(r.name));
+    div.appendChild(nameSpan);
+
+    // Type badge — colored by type
+    const typeBadge = document.createElement('span');
+    typeBadge.className = 'picker-type-badge';
+    typeBadge.style.color = color;
+    typeBadge.textContent = r.type || '—';
+    div.appendChild(typeBadge);
+
+    // Remove from roster
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'picker-remove';
+    removeBtn.textContent = '🗑';
+    removeBtn.title = 'Remove from roster';
+    removeBtn.addEventListener('click', e => { e.stopPropagation(); removeFromRoster(r.name); });
+    div.appendChild(removeBtn);
+
+    list.appendChild(div);
+  });
+}
+
+function addNewToRoster() {
+  const name = document.getElementById('newFlavorName').value.trim();
+  const type = document.getElementById('newFlavorType').value;
+  if (!name) { document.getElementById('newFlavorName').focus(); return; }
+  if (roster.find(r => r.name.toLowerCase() === name.toLowerCase())) {
+    alert(`"${name}" is already in the roster.`); return;
+  }
+  // Custom flavors get a high category number so they sort to the end in run mode
+  roster.push({ name, category: '99999', type });
+  saveAll(); renderPicker();
+}
+
+// ── VARIEGATES ──────────────────────────────────────────────────────────────
+const VARIEGATES = {
+  'Deep Dish Apple Pie (DDAP)': ['Applesauce'],
+  'Birthday Cake (BDAY)': ['Blue Icing'],
+  'Blueberry Cheesecake Chunk (BBCHZ)': ['Blueberry'],
+  'Blueberry Cobbler (BBCOB)': ['Blueberry'],
+  'Cinnamon Roll (CR)': ['Brown Sugar Cinnamon'],
+  'Butterscotch Ripple (BSR)': ['Butterscotch'],
+  'Praline Pecan (PP)': ['Butterscotch'],
+  'Tin Lizzy (TL)': ['Butterscotch'],
+  'Bananas Foster (BF)': ['Caramel'],
+  'Caramel Apple (CAP)': ['Caramel'],
+  'Caramel Pretzel Crunch (CPC)': ['Caramel'],
+  'Chocolate Malt with Caramel (CMC)': ['Caramel'],
+  'Coconut Caramel Delight (CCD)': ['Caramel'],
+  'Dulce De Leche (DULCE)': ['Caramel'],
+  'Graham Canyon (GC)': ['Caramel'],
+  'Monkey Business (MB)': ['Caramel'],
+  'Snappy Turtle (ST)': ['Caramel'],
+  'Sticky Fingers (SF)': ['Caramel'],
+  'Twixter (TWIX)': ['Caramel'],
+  'Vanilla Caramel Brownie (VCB)': ['Caramel'],
+  'Vanilla Caramel Truffle (VCT)': ['Caramel'],
+  'Vanilla Turtle (VT)': ['Caramel'],
+  'Snix (SNIX)': ['Caramel Ripple'],
+  'Caramel Latte (CL)': ['Chocolate Espresso'],
+  'Buckeye (BE)': ['Fudge'],
+  'Chocolate Covered Strawberry (CCS)': ['Fudge'],
+  'Coconut Almond Fudge Ripple (CAFR)': ['Fudge'],
+  'Fudge Ripple (FR)': ['Fudge'],
+  'Fudge Ripple Brownie (FRB)': ['Fudge'],
+  'Mocha Almond Fudge Ripple (MAFR)': ['Fudge'],
+  'Mud Pie (MP)': ['Fudge'],
+  'Cinnamon Graham Cracker (CGC)': ['Graham Cracker'],
+  'French Silk Pie (FSP)': ['Graham Cracker'],
+  'Graham Central Station (GCS)': ['Graham Cracker'],
+  'Key Lime Pie (KLP)': ['Graham Cracker'],
+  'Lemon Bar (LB)': ['Graham Cracker'],
+  'New York Style Cheesecake (NYC)': ['Graham Cracker'],
+  'Pumpkin Pie (PPIE)': ['Graham Cracker'],
+  'Banana Cream Pie (BCP)': ['Marshmallow'],
+  'Coconut Cream Pie (CCP)': ['Marshmallow'],
+  'Heavenly Hash (HH)': ['Marshmallow'],
+  'Lemon Meringue Pie (LMP)': ['Marshmallow'],
+  'Pumpkin Ripple (PR)': ['Marshmallow'],
+  "S'Mores (S'M)": ['Marshmallow'],
+  'Chocoholic Peanut Butter Ripple (CKPBR)': ['Peanut Butter'],
+  'Chocolate Peanut Butter Brownie (CPBB)': ['Peanut Butter'],
+  'Midnight Madness (MM)': ['Peanut Butter'],
+  'Peanut Butter Parfait (PBP)': ['Peanut Butter'],
+  'Spouse Like A House (SLAH)': ['Peanut Butter'],
+  'Vanilla Peanut Butter Chip (VPBC)': ['Peanut Butter'],
+  'Vanilla Peanut Butter Ripple (VPBR)': ['Peanut Butter'],
+  'Chocolate Raspberry Truffle (CRT)': ['Raspberry'],
+  'Raspberry Cheesecake Chunk (RCHZ)': ['Raspberry'],
+  'Raspberry Sheet Cake (RSC)': ['Raspberry'],
+  'Vanilla Raspberry Chip (VRC)': ['Raspberry'],
+  'Knot Your Average Dough (KYAD)': ['Salted Pretzel'],
+  'Peanut Butter and Jelly (PBJ)': ['Strawberry'],
+  'Strawberry Cheesecake Chunk (SCHZ)': ['Strawberry'],
+  'Frosted Animal Cookie (FAC)': ['White Icing'],
+};
+
+// ── STORES ─────────────────────────────────────────────────────────────────
+const STORES = [
+  { label: 'Anderson Mill', id: 'anderson-mill' },
+  { label: 'Santee',        id: 'santee'        },
+  { label: 'Tester Store',  id: 'tester-store'  },
+];
+
+function fmtTime(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function fmtClock(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const mm = String(m).padStart(2,'0');
+  const ss = String(s).padStart(2,'0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function roundToHalf(n) {
+  return Math.round(n * 2) / 2;
+}
+
+function startRunTimer() {
+  _runStartTime = Date.now();
+  _totalBucketsMade = 0;
+  const el = document.getElementById('runTimerDisplay');
+  if (_runTimerInterval) clearInterval(_runTimerInterval);
+  _runTimerInterval = setInterval(() => {
+    if (el) el.textContent = '⏱ ' + fmtClock(Date.now() - _runStartTime);
+  }, 1000);
+}
+
+function stopRunTimer() {
+  if (_runTimerInterval) { clearInterval(_runTimerInterval); _runTimerInterval = null; }
+  const el = document.getElementById('runTimerDisplay');
+  if (el) el.textContent = '';
+}
+
+function checkRunComplete() {
+  if (!runMode) return;
+  const remaining = activeFlavors.filter(f => {
+    const tm = toMake(f);
+    const done = runDismissed.filter(d => d.name === f.name).length;
+    return tm > 0 && done < tm;
+  });
+  if (remaining.length === 0) showRunSummary();
+}
+
+function showRunSummary() {
+  stopRunTimer();
+  const totalMs   = _runStartTime ? Date.now() - _runStartTime : 0;
+  const totalMins = totalMs / 60000;
+  const buckets   = _totalBucketsMade;
+  const avgPerBucket = buckets > 0 ? fmtTime(totalMs / buckets) : '—';
+  const bph = totalMins > 0 ? roundToHalf((buckets / totalMins) * 60) : 0;
+
+  const body = document.getElementById('summaryBody');
+  body.innerHTML = '';
+
+  const rows = [
+    ['Total Buckets Made', buckets],
+    ['Total Run Time',     fmtTime(totalMs)],
+    ['Avg. Time per Bucket', avgPerBucket],
+    ['Avg. Buckets per Hour', bph > 0 ? bph : '—'],
+  ];
+
+  rows.forEach(([label, value]) => {
+    const tr = document.createElement('tr');
+    const tdL = document.createElement('td');
+    tdL.textContent = label;
+    const tdV = document.createElement('td');
+    tdV.textContent = value;
+    tr.appendChild(tdL);
+    tr.appendChild(tdV);
+    body.appendChild(tr);
+  });
+
+  document.getElementById('summaryOverlay').classList.add('open');
+}
+
+function closeSummary() {
+  document.getElementById('summaryOverlay').classList.remove('open');
+  doneRun();
+}
+
+function showVariegateModal(flavorsInRun) {
+  const needed = {};
+  flavorsInRun.forEach(f => {
+    (VARIEGATES[f.name] || []).forEach(v => {
+      if (!needed[v]) needed[v] = [];
+      needed[v].push(f.name);
+    });
+  });
+  const list = document.getElementById('varList');
+  list.innerHTML = '';
+  const keys = Object.keys(needed).sort();
+  if (!keys.length) {
+    const p = document.createElement('p');
+    p.className = 'var-none';
+    p.textContent = 'No variegates needed for this run.';
+    list.appendChild(p);
+  } else {
+    keys.forEach(v => {
+      const group = document.createElement('div');
+      group.className = 'var-group';
+      const name = document.createElement('div');
+      name.className = 'var-group-name';
+      name.textContent = v;
+      const flavors = document.createElement('div');
+      flavors.className = 'var-flavor-list';
+      flavors.textContent = needed[v].join(', ');
+      group.appendChild(name);
+      group.appendChild(flavors);
+      list.appendChild(group);
+    });
+  }
+  document.getElementById('varOverlay').classList.add('open');
+}
+
+function showStorePicker() {
+  const list = document.getElementById('storeList');
+  list.innerHTML = '';
+  STORES.forEach(store => {
+    const btn = document.createElement('button');
+    btn.className = 'store-btn';
+    btn.textContent = store.label;
+    btn.onclick = () => selectStore(store.id);
+    list.appendChild(btn);
+  });
+  document.getElementById('storeOverlay').classList.add('open');
+}
+
+function selectStore(id) {
+  localStorage.setItem(window._STORAGE_KEYS.storeId, id);
+  window._STORE_ID = id;
+  document.getElementById('storeOverlay').classList.remove('open');
+  const store = STORES.find(s => s.id === id);
+  if (store) {
+    const sub = document.querySelector('.header-sub');
+    if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
+  }
+  init();
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+async function init() {
+  await loadAll();
+  renderTable();
+}
+
+function bootstrap() {
+  loadCabinetPref();
+  updateUserRoleDisplay();
+  initRoleUI();
+  if (window._firebaseReady) {
+    loadOrgMetadata();
+  }
+  renderRoleAudit();
+  const savedId = localStorage.getItem(window._STORAGE_KEYS.storeId);
+  if (savedId) {
+    window._STORE_ID = savedId;
+    const store = STORES.find(s => s.id === savedId);
+    if (store) {
+      const sub = document.querySelector('.header-sub');
+      if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
+    }
+    init();
+  } else {
+    showStorePicker();
+  }
+}
+
+function waitForFirebaseAndBootstrap() {
+  if (window._firebaseReady) {
+    bootstrap();
+  } else {
+    window._bootstrapWaiting = bootstrap;
+    setTimeout(() => { if (!window._STORE_ID) bootstrap(); }, 4000);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', waitForFirebaseAndBootstrap);
+} else {
+  waitForFirebaseAndBootstrap();
+}
+</script>
+</body>
+</html>
