@@ -833,7 +833,7 @@ async function signInManager() {
     await loadCurrentUserRole();
     closeAuthModal();
   } catch (e) {
-    if (e.code === 'auth/user-not-found') {
+    if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') {
       const create = confirm('No account found. Create a new manager account?');
       if (!create) return;
       try {
