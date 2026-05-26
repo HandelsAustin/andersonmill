@@ -630,8 +630,6 @@ async function loadOrgMetadata() {
     }
     const meta = snap.data();
     if (meta?.name) {
-      const sub = document.querySelector('.header-sub');
-      if (sub) sub.textContent = `${meta.name} — ${meta.tagline || "Production Tool"}`;
       document.title = `${meta.name} — Count & Run`;
     }
   } catch (e) {
