@@ -838,6 +838,7 @@ async function signInManager() {
       if (!create) return;
       try {
         await window._createUserWithEmailAndPassword(window._auth, email, password);
+        await window._signInWithEmailAndPassword(window._auth, email, password);
         await loadCurrentUserRole(true);
         closeAuthModal();
       } catch (createErr) {
