@@ -47,13 +47,17 @@
     if (!localStorage.getItem(STORAGE_KEYS.orgId)) {
       localStorage.setItem(STORAGE_KEYS.orgId, DEFAULT_ORG_ID);
     }
+    let _authBootstrapped = false;
     onAuthStateChanged(auth, async user => {
       window.setSignedInUser(user);
       if (user) {
         await loadCurrentUserRole();
         updateAuthButton();
-        // Reload store data if bootstrap ran before auth was restored
-        if (window.init && window.getCurrentStoreId && window.getCurrentStoreId()) {
+        if (!_authBootstrapped) {
+          // First auth event on page load — trigger bootstrap now that auth is known
+          _authBootstrapped = true;
+          if (window._bootstrapWaiting) { const fn = window._bootstrapWaiting; window._bootstrapWaiting = null; fn(); }
+        } else if (window.init && window.getCurrentStoreId && window.getCurrentStoreId()) {
           window.init();
         }
       } else {
@@ -61,6 +65,10 @@
         updateUserRoleDisplay();
         updateAuthButton();
         updateRoleUIVisibility();
+        if (!_authBootstrapped) {
+          _authBootstrapped = true;
+          if (window._bootstrapWaiting) { const fn = window._bootstrapWaiting; window._bootstrapWaiting = null; fn(); }
+        }
       }
     });
     window._signInWithEmailAndPassword = signInWithEmailAndPassword;
@@ -3370,7 +3378,11 @@ function bootstrap() {
 
 function waitForFirebaseAndBootstrap() {
   if (window._firebaseReady) {
-    bootstrap();
+    // Firebase ready but auth state not yet known — defer bootstrap until
+    // onAuthStateChanged fires so Firestore reads go out with valid credentials.
+    window._bootstrapWaiting = bootstrap;
+    // Safety: if onAuthStateChanged hasn't fired within 3s (e.g. no network), bootstrap anyway
+    setTimeout(() => { if (window._bootstrapWaiting) { window._bootstrapWaiting = null; bootstrap(); } }, 3000);
   } else {
     window._bootstrapWaiting = bootstrap;
     setTimeout(() => { if (!window._STORE_ID) bootstrap(); }, 4000);
