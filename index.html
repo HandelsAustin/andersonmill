@@ -2,13 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#2c3691">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Count &amp; Run">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
   <title>Count &amp; Run &mdash; Handel's Homemade Ice Cream</title>
   <!-- Brand fonts: TW Cen MT (primary), Brannboll NY (highlights), Raiders (headings), Arial Narrow (small print) -->
   <!-- These fonts are expected to be installed on devices; system fallbacks provided -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, getDocs, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import { FIREBASE_CONFIG, DEFAULT_ORG_ID, DEFAULT_ORG_META, ROLES, STORAGE_KEYS } from "./config.js";
 
@@ -19,17 +25,28 @@
     window._doc = doc;
     window._setDoc = setDoc;
     window._getDoc = getDoc;
+    window._getDocs = getDocs;
     window._onSnapshot = onSnapshot;
+    window._collection = collection;
     window._auth = auth;
     window._firebaseReady = true;
     window._ORG_ID = localStorage.getItem(STORAGE_KEYS.orgId) || DEFAULT_ORG_ID;
     window._STORE_ID = localStorage.getItem(STORAGE_KEYS.storeId) || undefined;
     window._STORAGE_KEYS = STORAGE_KEYS;
     window._USER_ROLE = localStorage.getItem('car_user_role') || ROLES.EMPLOYEE;
+    window.DEFAULT_ORG_ID = DEFAULT_ORG_ID;
+    window.DEFAULT_ORG_META = DEFAULT_ORG_META;
+    window.ROLES = ROLES;
+    window.setSignedInUser = function(user) {
+      window.APP_STATE = window.APP_STATE || {};
+      window.APP_STATE.userUid = user?.uid || null;
+      window.APP_STATE.isSignedIn = !!user;
+    };
     if (!localStorage.getItem(STORAGE_KEYS.orgId)) {
       localStorage.setItem(STORAGE_KEYS.orgId, DEFAULT_ORG_ID);
     }
     onAuthStateChanged(auth, async user => {
+      window.setSignedInUser(user);
       if (user) {
         await loadCurrentUserRole();
         updateAuthButton();
@@ -49,6 +66,12 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #2c3691; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; color: #ffffff; min-height: 100vh; }
     #app { max-width: 980px; margin: 0 auto; background: #1e2870; min-height: 100vh; }
+
+    /* iOS safe-area-inset: prevents content from clipping behind notch / Dynamic Island in standalone mode */
+    @supports (padding: env(safe-area-inset-top)) {
+      .app-header { padding-top: max(10px, calc(10px + env(safe-area-inset-top))); }
+      body        { padding-bottom: env(safe-area-inset-bottom); }
+    }
 
     /* Header */
     .app-header {
@@ -94,7 +117,7 @@
     .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
     /* Run banner */
-    .run-banner { display: flex; align-items: center; justify-content: space-between; background: #1e2870; border: 1.5px solid #98d4e3; border-radius: 6px; padding: 9px 14px; margin-bottom: 12px; font-size: 13px; color: #98d4e3; gap: 10px; flex-wrap: wrap; }
+    .run-banner { position: sticky; top: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: space-between; background: #1e2870; border: 1.5px solid #98d4e3; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px; font-size: 13px; color: #98d4e3; gap: 10px; flex-wrap: wrap; }
     .run-banner .btn { background: #2c3691; border-color: #98d4e3; color: #98d4e3; font-size: 11px; padding: 4px 10px; }
     .run-banner .btn:hover { background: #3a46a8; }
 
@@ -142,7 +165,7 @@
     /* Type badge */
     .type-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: #2c3691; border: 1px solid #98d4e3; display: inline-block; color: #98d4e3; font-family: 'Arial Narrow', Arial, sans-serif; }
 
-    td select { font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; font-size: 13px; padding: 7px 2px; border: 1px solid #98d4e3; border-radius: 6px; background: #2c3691; color: #ffffff; cursor: pointer; width: 100%; min-height: 36px; touch-action: manipulation; -webkit-appearance: none; appearance: none; text-align: center; }
+    td select { font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; font-size: 13px; padding: 7px 2px; border: 1px solid #98d4e3; border-radius: 6px; background: #2c3691; color: #ffffff; cursor: pointer; width: 100%; min-height: 44px; touch-action: manipulation; -webkit-appearance: none; appearance: none; text-align: center; }
     td select:focus { outline: none; border-color: #ffffff; }
     td input[type=number] { font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; font-size: 14px; padding: 7px 4px; border: 1px solid #98d4e3; border-radius: 6px; background: #2c3691; color: #ffffff; width: 100%; text-align: center; min-height: 36px; touch-action: manipulation; }
     td input[type=number]:focus { outline: none; border-color: #ffffff; }
@@ -252,6 +275,7 @@
     .pin-manager-btn { font-size:11px; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; padding:5px 10px; border-radius:6px; border:1px solid #98d4e3; background:#2c3691; color:#98d4e3; cursor:pointer; margin-left:8px; }
     .pin-manager-btn.unlocked { border-color:#98d4e3; color:#ffffff; background:#2c3691; }
   </style>
+  <script src="./appHelpers.js" defer></script>
 </head>
 <body>
 <div id="app">
@@ -259,10 +283,12 @@
     <div class="header-left">
       <h1>Count <span>&amp;</span> Run</h1>
       <div class="header-sub">Production Tool &mdash; Handel's Homemade Ice Cream</div>
-      <div id="syncStatus" style="font-size:11px;margin-top:4px;color:#8fa3be;">⏳ Connecting...</div>
+      <div id="syncStatus" style="font-size:12px;margin-top:4px;color:#8fa3be;padding-left:0;border-left:2px solid transparent;transition:border-color 0.2s;">⏳ Connecting...</div>
       <div id="userRoleStatus" style="font-size:11px;margin-top:4px;color:#98d4e3;"></div>
     </div>
     <div class="header-right">
+      <button class="btn" onclick="showOrgPicker()" title="Switch organization">Org</button>
+      <button class="btn btn-primary" id="dashboardBtn" style="display:none;" onclick="showCorporateDashboard()">Dashboard</button>
       <button class="btn btn-green" id="authBtn" onclick="openAuthModal()">Sign In</button>
       <select id="roleSelect" style="display:none;margin-left:8px;padding:6px 8px;border-radius:6px;background:#2c3691;color:#98d4e3;border:1px solid #98d4e3;">
         <option value="">Role</option>
@@ -285,6 +311,7 @@
       <button class="btn" id="editFlavorsBtn" onclick="requireManager(openAddModal)">&#9776; Edit Flavors</button>
       <button class="btn btn-red" onclick="resetDay()">&#8635; Reset</button>
       <button class="btn btn-green" onclick="calculateRun()">&#9654; Calculate Run</button>
+      <button class="btn" id="pwaInstallBtn" onclick="triggerPwaInstall()" style="display:none" title="Install this app on your device for offline use">&#11015; Install App</button>
       <div id="printBtn" style="display:none;position:relative;">
         <button class="btn" onclick="togglePrintMenu(event)">&#128438; Print</button>
       </div>
@@ -299,7 +326,7 @@
     <div id="runBanner" style="display:none" class="run-banner">
       <span id="runBannerMsg"></span>
       <span id="runTimerDisplay" style="font-size:13px;color:#8fa3be;margin-left:12px;font-variant-numeric:tabular-nums;"></span>
-      <button class="btn btn-green" onclick="doneRun()" style="font-size:13px;padding:9px 20px;">&#10003; Done</button>
+      <button class="btn btn-green" onclick="confirmDoneRun()" style="font-size:13px;padding:9px 20px;">&#10003; Done</button>
     </div>
 
     <table>
@@ -390,6 +417,31 @@
   </div>
 </div>
 
+<!-- Organization Picker Overlay -->
+<div id="orgOverlay" class="store-overlay">
+  <h2>Select Organization</h2>
+  <p>Enter the organization ID for the org you want to manage.</p>
+  <div class="store-list" style="max-width:340px;">
+    <input id="orgIdInput" type="text" placeholder="handels" style="width:100%;padding:14px 12px;border-radius:10px;border:1.5px solid #98d4e3;background:#1e2870;color:#ffffff;font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif;font-size:14px; margin-bottom:14px;" />
+    <button class="store-btn" onclick="selectOrg(document.getElementById('orgIdInput').value)">Switch Org</button>
+    <div style="margin-top:20px;font-size:12px;color:#98d4e3;line-height:1.4;font-family:'Arial Narrow',Arial,sans-serif;">Tip: Use the same org IDs shown in your Firestore organization collection.</div>
+  </div>
+</div>
+
+<!-- Corporate Dashboard Overlay -->
+<div id="dashboardOverlay" class="store-overlay">
+  <div style="max-width:680px;width:100%;background:#1e2870;border:1.5px solid #98d4e3;border-radius:14px;padding:24px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+      <div>
+        <h2 style="font-family:'Raiders','Impact',sans-serif;font-size:22px;color:#ffffff;margin:0;text-transform:uppercase;letter-spacing:0.04em;">Corporate Dashboard</h2>
+        <p style="font-size:12px;color:#98d4e3;margin:6px 0 0;font-family:'Arial Narrow',Arial,sans-serif;">Organization overview for the current org.</p>
+      </div>
+      <button class="btn" onclick="closeCorporateDashboard()">Close</button>
+    </div>
+    <div id="dashboardContent" style="display:grid;gap:16px;"></div>
+  </div>
+</div>
+
 <!-- Store Picker Overlay -->
 <div id="storeOverlay" class="store-overlay">
   <h2>Count &amp; Run</h2>
@@ -406,6 +458,7 @@
       <input type="text" id="pickerSearch" placeholder="Search flavors&hellip;" oninput="renderPicker()">
     </div>
     <div id="pickerStats" class="picker-stats"></div>
+    <div id="pickerHint" style="display:none;font-size:12px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;padding:4px 2px 6px;text-align:center;">Tap a flavor name to add it to today's list</div>
     <div class="sort-toggle-row" id="sortToggleRow">
       <span id="sortToggleLabel"></span>
       <button class="sort-toggle-btn" id="cabinetToggleBtn" onclick="toggleCabinetNumbers()"></button>
@@ -428,7 +481,7 @@
   </div>
 </div>
 
-<script>
+<script defer>
 // ── MASTER ROSTER (baked in from FlavorOrder.csv) ──────────────────────────
 // category is stored internally for run-sort; never shown to user
 const ROLES = {
@@ -443,6 +496,9 @@ const DEFAULT_ORG_META = {
   createdAt: Date.now(),
   updatedAt: Date.now()
 };
+const ORGS = [
+  { id: DEFAULT_ORG_ID, label: DEFAULT_ORG_META.name }
+];
 const MASTER_ROSTER = [
   {category:"90301", name:"Banana (BAN)", type:"TD"},
   {category:"90302", name:"Banana Cream Pie (BCP)", type:"TD"},
@@ -602,6 +658,13 @@ const MASTER_ROSTER = [
 let roster = [];        // full list (MASTER_ROSTER + any user-added)
 let activeFlavors = []; // flavors on today's list
 let runMode = false;
+let _storeEvents = [];  // recent activity log for current store (max 10, from storeEvents field)
+let _lastSyncAt  = null; // timestamp of last successful cloud sync (saved or loaded)
+let _wasOffline  = false; // tracks previous connectivity state for reconnect detection
+let _resetSnapshot  = null; // activeFlavors snapshot before resetDay() — enables 5s undo
+let _resetUndoTimer = null;
+let _doneRunPending = false; // double-tap guard: first tap of Done mid-run shows warning
+let _doneRunTimer   = null;
 
 // ── CATEGORY SORT ──────────────────────────────────────────────────────────
 // Converts a category string to a numeric-sortable value.
@@ -618,18 +681,70 @@ function categorySort(cat) {
 function setSyncStatus(state) {
   const el = document.getElementById('syncStatus');
   if (!el) return;
-  if (state === 'saving')  { el.textContent = '⏳ Saving...';       el.style.color = '#8fa3be'; }
-  if (state === 'saved')   { el.textContent = '✓ Saved to cloud';   el.style.color = '#22a05a'; }
-  if (state === 'error')   { el.textContent = '⚠️ Save failed — using local backup'; el.style.color = '#ff6b6b'; }
-  if (state === 'loaded')  { el.textContent = '✓ Loaded from cloud'; el.style.color = '#22a05a'; }
-  if (state === 'offline') { el.textContent = '📴 Offline — using local backup'; el.style.color = '#f0a500'; }
+  // Helper: apply color + left border (border draws the eye to urgent states without being noisy)
+  const _applyStyle = (color, borderColor) => {
+    el.style.color       = color;
+    el.style.borderLeft  = `2px solid ${borderColor}`;
+    el.style.paddingLeft = borderColor === 'transparent' ? '0' : '5px';
+  };
+  if (state === 'saving') {
+    el.textContent = '⏳ Saving...';
+    _applyStyle('#8fa3be', 'transparent');
+  }
+  if (state === 'saved') {
+    _lastSyncAt = Date.now();
+    el.textContent = '✓ Saved to cloud';
+    _applyStyle('#22a05a', 'transparent');
+  }
+  if (state === 'error') {
+    el.textContent = '⚠️ Save failed — tap to retry';
+    el.style.cursor = 'pointer';
+    el.title = 'Tap to retry save';
+    el.onclick = () => saveAll();
+    _applyStyle('#ff6b6b', '#ff6b6b');
+    return; // don't clear onclick below
+  }
+  // Clear retry affordance for all non-error states
+  el.onclick = null;
+  el.style.cursor = '';
+  el.title = '';
+  if (state === 'loaded') {
+    _lastSyncAt = Date.now();
+    el.textContent = '✓ Loaded from cloud';
+    _applyStyle('#22a05a', 'transparent');
+  }
+  if (state === 'offline') {
+    const sinceStr = _lastSyncAt ? ` — last sync ${relativeTime(_lastSyncAt)}` : '';
+    el.textContent = `📴 Offline — using local backup${sinceStr}`;
+    _applyStyle('#f0a500', '#f0a500');
+  }
+  if (state === 'reconnected') {
+    _lastSyncAt = Date.now();
+    el.textContent = '🔄 Reconnected — your work is safe';
+    _applyStyle('#22a05a', 'transparent');
+    // Revert to normal loaded state after 3s
+    setTimeout(() => {
+      const current = document.getElementById('syncStatus');
+      if (current && current.textContent.startsWith('🔄')) {
+        current.textContent = '✓ Loaded from cloud';
+      }
+    }, 3000);
+  }
 }
 
 let _saving = false;
 let _unsubscribeSnapshot = null;
 
 function getOrgDocRef() {
-  return window._doc(window._db, 'organizations', window._ORG_ID);
+  return window.getOrgDocRef();
+}
+
+function getStoreDocRef() {
+  return window.getStoreDocRef();
+}
+
+function getOrgMemberRef(uid) {
+  return window.getOrgMemberRef(uid);
 }
 
 async function loadOrgMetadata() {
@@ -664,10 +779,6 @@ function updateUserRoleDisplay() {
   el.textContent = `Role: ${window._USER_ROLE.replace('_', ' ')}`;
 }
 
-function getOrgMemberRef(uid) {
-  return window._doc(window._db, 'organizations', window._ORG_ID, 'members', uid);
-}
-
 async function loadCurrentUserRole(forceCreate = false) {
   if (!window._auth || !window._auth.currentUser) return;
   try {
@@ -683,7 +794,7 @@ async function loadCurrentUserRole(forceCreate = false) {
         uid: user.uid,
         email: user.email,
         role: window._USER_ROLE,
-        stores: window._STORE_ID ? [window._STORE_ID] : [],
+        stores: window.getCurrentStoreId() ? [window.getCurrentStoreId()] : [],
         createdAt: Date.now()
       });
     } else {
@@ -692,6 +803,8 @@ async function loadCurrentUserRole(forceCreate = false) {
     localStorage.setItem('car_user_role', window._USER_ROLE);
     updateUserRoleDisplay();
     updateAuthButton();
+    updateRoleUIVisibility();
+    renderRoleAudit();
   } catch (e) {
     console.error('Load user role error:', e);
   }
@@ -706,7 +819,7 @@ async function loadCurrentUserRole(forceCreate = false) {
         uid: user.uid,
         email: user.email,
         role: newRole,
-        stores: window._STORE_ID ? [window._STORE_ID] : [],
+        stores: window.getCurrentStoreId() ? [window.getCurrentStoreId()] : [],
         updatedAt: Date.now()
       }, { merge: true });
       window._USER_ROLE = newRole;
@@ -808,10 +921,14 @@ function showStatusMessage(msg, timeout=2200) {
 
 function updateRoleUIVisibility() {
   const sel = document.getElementById('roleSelect');
-  if (!sel) return;
-  // show role control only when signed in OR when current user is a corporate admin
-  const show = (window._auth && window._auth.currentUser) || userHasRole(ROLES.CORPORATE_ADMIN);
-  sel.style.display = show ? 'inline-block' : 'none';
+  const dashboardBtn = document.getElementById('dashboardBtn');
+  if (sel) {
+    const show = !window._auth || !window._auth.currentUser || userHasRole(ROLES.CORPORATE_ADMIN);
+    sel.style.display = show ? 'inline-block' : 'none';
+  }
+  if (dashboardBtn) {
+    dashboardBtn.style.display = userHasRole(ROLES.CORPORATE_ADMIN) ? 'inline-flex' : 'none';
+  }
 }
 
 function openAuthModal() {
@@ -841,6 +958,7 @@ async function signInManager() {
   try {
     await window._signInWithEmailAndPassword(window._auth, email, password);
     await loadCurrentUserRole();
+    await window.logOrgEvent('signed_in', { email });
     closeAuthModal();
   } catch (e) {
     if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') {
@@ -850,6 +968,7 @@ async function signInManager() {
         await window._createUserWithEmailAndPassword(window._auth, email, password);
         await window._signInWithEmailAndPassword(window._auth, email, password);
         await loadCurrentUserRole(true);
+        await window.logOrgEvent('account_created', { email });
         closeAuthModal();
       } catch (createErr) {
         errEl.textContent = createErr.message || 'Unable to create account.';
@@ -866,6 +985,7 @@ async function signOutUser() {
   if (!window._auth) return;
   try {
     await window._signOut(window._auth);
+    await window.logOrgEvent('signed_out', {});
     window._USER_ROLE = ROLES.EMPLOYEE;
     localStorage.setItem('car_user_role', window._USER_ROLE);
     updateUserRoleDisplay();
@@ -887,9 +1007,7 @@ async function ensureOrgDoc() {
   }
 }
 
-function getStoreDocRef() {
-  return window._doc(window._db, 'organizations', window._ORG_ID, 'stores', window._STORE_ID);
-}
+// Store doc helper is provided by appHelpers.js
 
 function applyData(data) {
   const removed = data?.removedNames || [];
@@ -903,6 +1021,7 @@ function applyData(data) {
     const r = roster.find(x => x.name === f.name);
     return r ? { ...f, category: r.category, type: r.type } : f;
   }).filter(f => roster.find(x => x.name === f.name));
+  _storeEvents = data?.storeEvents || [];
 }
 
 async function saveAll() {
@@ -1070,7 +1189,7 @@ function buildRow(f, runIndex, runTotal) {
       cb.type = 'checkbox';
       cb.checked = !!alreadyDone;
       cb.disabled = !!alreadyDone;
-      cb.style.cssText = 'width:28px;height:28px;cursor:pointer;accent-color:#22a05a;';
+      cb.style.cssText = 'width:36px;height:36px;cursor:pointer;accent-color:#22a05a;';
       cb.addEventListener('change', () => {
         if (!cb.checked) return;
         cb.disabled = true;
@@ -1085,7 +1204,7 @@ function buildRow(f, runIndex, runTotal) {
     tdActions.style.cssText = 'text-align:right;white-space:nowrap;';
     const skipBtn = document.createElement('button');
     skipBtn.textContent = 'Skip';
-    skipBtn.style.cssText = 'background:#d72627;border:1.5px solid #d72627;color:#ffffff;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:40px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-transform:uppercase;letter-spacing:0.04em;';
+    skipBtn.style.cssText = 'background:#d72627;border:1.5px solid #d72627;color:#ffffff;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:44px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-transform:uppercase;letter-spacing:0.04em;';
     skipBtn.onclick = () => dismissRunRow(f.name, null, 'skip');
     tdActions.appendChild(skipBtn);
     tr.appendChild(tdActions);
@@ -1122,25 +1241,83 @@ function buildRow(f, runIndex, runTotal) {
 
     const holdMinus = document.createElement('button');
     holdMinus.textContent = '−';
-    holdMinus.style.cssText = 'width:32px;height:32px;font-size:18px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;';
-    holdMinus.addEventListener('click', () => {
-      const cur = parseInt(activeFlavors[idx].holding) || 0;
-      if (cur <= 0) return;
-      activeFlavors[idx].holding = cur - 1;
-      saveAll(); renderTable();
-    });
+    holdMinus.style.cssText = 'width:44px;height:44px;font-size:20px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;-webkit-tap-highlight-color:transparent;';
 
     const holdVal = document.createElement('span');
     holdVal.textContent = parseInt(f.holding) || 0;
-    holdVal.style.cssText = 'min-width:24px;text-align:center;font-size:14px;font-weight:600;color:#f5f0e8;';
+    holdVal.style.cssText = 'min-width:28px;text-align:center;font-size:15px;font-weight:600;color:#f5f0e8;cursor:pointer;user-select:none;';
+    holdVal.title = 'Tap to enter value';
 
     const holdPlus = document.createElement('button');
     holdPlus.textContent = '+';
-    holdPlus.style.cssText = 'width:32px;height:32px;font-size:18px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;';
-    holdPlus.addEventListener('click', () => {
-      const cur = parseInt(activeFlavors[idx].holding) || 0;
-      activeFlavors[idx].holding = cur + 1;
-      saveAll(); renderTable();
+    holdPlus.style.cssText = 'width:44px;height:44px;font-size:20px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;-webkit-tap-highlight-color:transparent;';
+
+    // Rapid-fire long-press: increments immediately on press, accelerates on hold, saves once on release
+    const _attachRapidPress = (btn, delta) => {
+      let timerId = null, delay = 400, pressing = false;
+      const tick = () => {
+        if (!pressing) return;
+        const cur = parseInt(activeFlavors[idx].holding) || 0;
+        const next = Math.min(99, Math.max(0, cur + delta));
+        activeFlavors[idx].holding = next;
+        holdVal.textContent = next;
+        delay = Math.max(60, delay * 0.85);
+        timerId = setTimeout(tick, delay);
+      };
+      const start = (e) => {
+        e.preventDefault();
+        pressing = true;
+        delay = 400;
+        const cur = parseInt(activeFlavors[idx].holding) || 0;
+        const next = Math.min(99, Math.max(0, cur + delta));
+        activeFlavors[idx].holding = next;
+        holdVal.textContent = next;
+        timerId = setTimeout(tick, delay);
+      };
+      const stop = () => {
+        if (!pressing) return;
+        pressing = false;
+        clearTimeout(timerId);
+        saveAll(); renderTable();
+      };
+      btn.addEventListener('pointerdown', start);
+      btn.addEventListener('pointerup',   stop);
+      btn.addEventListener('pointercancel', stop);
+      btn.addEventListener('pointerleave', stop);
+    };
+    _attachRapidPress(holdMinus, -1);
+    _attachRapidPress(holdPlus, +1);
+
+    // Tap-to-type: click the value display to enter a number directly
+    holdVal.addEventListener('click', () => {
+      let settled = false;
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.inputMode = 'numeric';
+      inp.pattern = '[0-9]*';
+      inp.value = parseInt(activeFlavors[idx].holding) || 0;
+      inp.style.cssText = 'width:52px;font-size:15px;font-weight:600;text-align:center;background:#12223a;border:1.5px solid #98d4e3;border-radius:6px;color:#f5f0e8;padding:4px 2px;';
+      holdWrap.replaceChild(inp, holdVal);
+      inp.focus();
+      inp.select();
+      const commit = () => {
+        if (settled) return;
+        settled = true;
+        const val = Math.max(0, parseInt(inp.value) || 0);
+        activeFlavors[idx].holding = val;
+        holdWrap.replaceChild(holdVal, inp);
+        holdVal.textContent = val;
+        saveAll(); renderTable();
+      };
+      inp.addEventListener('blur', commit);
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { inp.blur(); }
+        if (e.key === 'Escape') {
+          if (settled) return;
+          settled = true;
+          holdWrap.replaceChild(holdVal, inp);
+        }
+      });
     });
 
     holdWrap.appendChild(holdMinus);
@@ -1159,6 +1336,10 @@ function buildRow(f, runIndex, runTotal) {
 }
 
 function renderTable() {
+  // Guard: don't interrupt an active tap-to-type holding edit.
+  // applyData() already ran, so Firestore state is current — re-render deferred until commit.
+  if (document.querySelector('#mainTbody input[inputmode="numeric"]')) return;
+
   const tbody = document.getElementById('mainTbody');
   tbody.innerHTML = '';
 
@@ -1191,11 +1372,27 @@ function renderTable() {
   const list = runMode ? activeFlavors.filter(f => toMake(f) > 0) : activeFlavors;
   const sorted = getSorted(list);
   if (!sorted.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">${
-      runMode
-        ? '🎉 Nothing to make — all flavors are fully stocked!'
-        : 'No flavors on today\'s list. Click "Edit Flavors" to get started.'
-    }</td></tr>`;
+    if (runMode) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">🎉 Nothing to make — all flavors are fully stocked!</td></tr>';
+    } else if (userCanManage() || _managerUnlocked) {
+      // Manager/admin empty state: give a clear first action
+      tbody.innerHTML = `<tr><td colspan="7"><div style="text-align:center;padding:2.5rem 1rem;">
+        <div style="font-size:26px;margin-bottom:12px;">🧁</div>
+        <div style="font-size:15px;font-weight:700;color:#ffffff;margin-bottom:8px;">Set up today's flavors</div>
+        <div style="font-size:13px;color:#98d4e3;line-height:1.6;margin-bottom:18px;font-family:'Arial Narrow',Arial,sans-serif;">
+          Tap <strong style="color:#ffffff;">&#9776; Edit Flavors</strong> to select which flavors you're running today.
+        </div>
+        <button class="btn" onclick="requireManager(openAddModal)" style="font-size:14px;padding:12px 22px;">&#9776; Set Up Today's Flavors</button>
+      </div></td></tr>`;
+    } else {
+      // Employee empty state: explain they need a manager
+      tbody.innerHTML = `<tr><td colspan="7"><div style="text-align:center;padding:2.5rem 1rem;color:#98d4e3;">
+        <div style="font-size:13px;font-family:'Arial Narrow',Arial,sans-serif;line-height:1.8;">
+          No flavors on today's list.<br>
+          Ask a manager to set up this store's flavor list.
+        </div>
+      </div></td></tr>`;
+    }
     return;
   }
   if (runMode) {
@@ -1258,18 +1455,36 @@ function dismissRunRow(name, index, action) {
     renderTable();
     checkRunComplete();
   }
+  // Persist run progress so init() can detect an interrupted run on next load
+  if (runMode) {
+    try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now() })); } catch(e) {}
+  }
 }
 
 function calculateRun() {
-  runMode = true;
   const needed = activeFlavors.filter(f => toMake(f) > 0);
+
+  // Guard: if everything is fully stocked, skip run mode and inform the user
+  if (!needed.length) {
+    showStatusMessage('✓ All flavors fully stocked — nothing to make today.', 3500);
+    return;
+  }
+
+  runMode = true;
+  // Persist run start so init() can detect an interrupted run if the page is force-closed
+  try { localStorage.setItem('car_run_state', JSON.stringify({ made: 0, at: Date.now() })); } catch(e) {}
   const total = needed.reduce((s, f) => s + toMake(f), 0);
-  document.getElementById('runBannerMsg').textContent =
-    `${needed.length} flavor${needed.length !== 1 ? 's' : ''} to make — ${total} bucket${total !== 1 ? 's' : ''} total. Sorted by category order.`;
+
+  // Two-line banner: prominent bucket count + secondary flavor count
+  const bannerMsg = document.getElementById('runBannerMsg');
+  bannerMsg.innerHTML =
+    `<span style="font-size:18px;font-weight:700;color:#ffffff;line-height:1.2;">${total} bucket${total !== 1 ? 's' : ''}</span>` +
+    `<span style="font-size:11px;color:#98d4e3;display:block;margin-top:2px;font-family:'Arial Narrow',Arial,sans-serif;">${needed.length} flavor${needed.length !== 1 ? 's' : ''} · category order</span>`;
+
   document.getElementById('runBanner').style.display = 'flex';
   document.getElementById('printBtn').style.display = '';
   renderTable();
-  showVariegateModal(activeFlavors.filter(f => toMake(f) > 0));
+  showVariegateModal(needed);
 }
 
 function togglePrintMenu(e) {
@@ -1396,29 +1611,84 @@ function printRun() {
 }
 
 function doneRun() {
+  _doneRunPending = false;
+  if (_doneRunTimer) { clearTimeout(_doneRunTimer); _doneRunTimer = null; }
   stopRunTimer();
   runMode = false;
   runDismissed = [];
+  localStorage.removeItem('car_run_state'); // Clear interrupted-run recovery flag
   document.getElementById('runBanner').style.display = 'none';
   document.getElementById('printBtn').style.display = 'none';
   renderTable();
+}
+
+// Guards against accidentally exiting a partially-complete run.
+// If no buckets have been made, exits freely. If work is in progress,
+// requires a second tap within 3 seconds to confirm early exit.
+function confirmDoneRun() {
+  if (_totalBucketsMade === 0) { doneRun(); return; }
+  if (_doneRunPending) {
+    clearTimeout(_doneRunTimer);
+    _doneRunPending = false;
+    _doneRunTimer = null;
+    doneRun();
+    return;
+  }
+  _doneRunPending = true;
+  const b = _totalBucketsMade;
+  showStatusMessage(`Run in progress — ${b} bucket${b !== 1 ? 's' : ''} made. Tap Done again to exit early.`, 3000);
+  _doneRunTimer = setTimeout(() => {
+    _doneRunPending = false;
+    _doneRunTimer = null;
+  }, 3000);
 }
 
 function clearRunView() {
   stopRunTimer();
   runMode = false;
   runDismissed = [];
+  localStorage.removeItem('car_run_state'); // Clear interrupted-run recovery flag
   document.getElementById('runBanner').style.display = 'none';
   document.getElementById('printBtn').style.display = 'none';
   renderTable();
 }
 
 function resetDay() {
-  if (!confirm('Reset for today?\n\nThis will clear all Dipping and Holding counts. Sort order and cabinet assignments will not be affected.')) return;
+  // Commit any pending roster delete — two undoable actions can't coexist
+  if (undoTimer) { clearTimeout(undoTimer); commitRosterDelete(); }
+  // Commit any pending prior reset before starting a new one
+  if (_resetUndoTimer) { clearTimeout(_resetUndoTimer); _resetSnapshot = null; _resetUndoTimer = null; }
+
+  // Snapshot current state so the operator can undo within 5 seconds
+  _resetSnapshot = activeFlavors.map(f => ({ ...f }));
+
+  // Apply reset immediately — no confirm() dialog; undo toast is the recovery path
   activeFlavors.forEach(f => { f.dipping = 0; f.holding = 0; });
   runMode = false;
+  // Clear stale run state — prevents dismissed entries carrying over to the next run
+  runDismissed = [];
+  _totalBucketsMade = 0;
+  localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
   saveAll(); renderTable();
+
+  // Show undo toast — 5-second recovery window
+  showUndoToast('⟳ Day reset — tap Undo to restore', undoResetDay);
+  _resetUndoTimer = setTimeout(() => {
+    _resetSnapshot = null;
+    _resetUndoTimer = null;
+    hideUndoToast();
+  }, 5000);
+}
+
+function undoResetDay() {
+  if (!_resetSnapshot) return;
+  clearTimeout(_resetUndoTimer);
+  activeFlavors = _resetSnapshot;
+  _resetSnapshot = null;
+  _resetUndoTimer = null;
+  saveAll(); renderTable();
+  hideUndoToast();
 }
 
 // ── MODAL / PICKER ─────────────────────────────────────────────────────────
@@ -1683,7 +1953,7 @@ function openAddModal() {
   document.getElementById('modalBackdrop').classList.add('open');
   updateSortToggleUI();
   renderPicker();
-  setTimeout(() => document.getElementById('pickerSearch').focus(), 60);
+  setTimeout(() => document.getElementById('pickerSearch').focus(), 10);
   if (localStorage.getItem('car_cabinet_sort') === null) {
     setTimeout(() => askCabinetPreference(), 200);
   }
@@ -1724,11 +1994,13 @@ let undoTimer = null;
 function removeFromRoster(name) {
   // Stage deletion — show undo toast for 5 seconds
   if (undoTimer) { clearTimeout(undoTimer); commitRosterDelete(); }
+  // Also commit any pending day-reset undo so the two don't conflict
+  if (_resetUndoTimer) { clearTimeout(_resetUndoTimer); _resetSnapshot = null; _resetUndoTimer = null; }
   pendingRosterDelete = { name, roster: [...roster], active: [...activeFlavors] };
   roster = roster.filter(r => r.name !== name);
   activeFlavors = activeFlavors.filter(f => f.name !== name);
   saveAll(); renderPicker();
-  showUndoToast(`"${name}" removed.`);
+  showUndoToast(`"${name}" removed.`, undoRosterDelete);
   undoTimer = setTimeout(() => { commitRosterDelete(); }, 5000);
 }
 
@@ -1749,7 +2021,10 @@ function undoRosterDelete() {
   hideUndoToast();
 }
 
-function showUndoToast(msg) {
+// Generic undo toast — undoFn is stored globally so the inline onclick can call it.
+// Defaults to undoRosterDelete for backward compatibility.
+function showUndoToast(msg, undoFn) {
+  window._undoToastHandler = undoFn || undoRosterDelete;
   let t = document.getElementById('undoToast');
   if (!t) {
     t = document.createElement('div');
@@ -1757,7 +2032,7 @@ function showUndoToast(msg) {
     t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2f52;border:1.5px solid #4a7ab5;color:#c5d8f0;padding:12px 18px;border-radius:8px;display:flex;align-items:center;gap:14px;z-index:200;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
     document.body.appendChild(t);
   }
-  t.innerHTML = `<span>${msg}</span><button onclick="undoRosterDelete()" style="background:#d72627;border:none;color:#fff;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;touch-action:manipulation;">Undo</button>`;
+  t.innerHTML = `<span>${msg}</span><button onclick="window._undoToastHandler && window._undoToastHandler()" style="background:#d72627;border:none;color:#fff;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;touch-action:manipulation;">Undo</button>`;
   t.style.display = 'flex';
 }
 
@@ -1782,6 +2057,9 @@ function renderPicker() {
   const rosCount = roster.length;
   document.getElementById('pickerStats').textContent =
     `${selCount} of ${rosCount} flavor${rosCount !== 1 ? 's' : ''} selected`;
+  // Show first-use hint when nothing is selected yet; hides after first flavor is toggled
+  const hintEl = document.getElementById('pickerHint');
+  if (hintEl) hintEl.style.display = selCount === 0 ? '' : 'none';
 
   const list = document.getElementById('pickerList');
   list.innerHTML = '';
@@ -1910,13 +2188,6 @@ const VARIEGATES = {
   'Frosted Animal Cookie (FAC)': ['White Icing'],
 };
 
-// ── STORES ─────────────────────────────────────────────────────────────────
-const STORES = [
-  { label: 'Anderson Mill', id: 'anderson-mill' },
-  { label: 'Santee',        id: 'santee'        },
-  { label: 'Tester Store',  id: 'tester-store'  },
-];
-
 function fmtTime(ms) {
   const totalSec = Math.floor(ms / 1000);
   const h = Math.floor(totalSec / 3600);
@@ -1978,14 +2249,24 @@ function showRunSummary() {
   const body = document.getElementById('summaryBody');
   body.innerHTML = '';
 
-  const rows = [
-    ['Total Buckets Made', buckets],
-    ['Total Run Time',     fmtTime(totalMs)],
-    ['Avg. Time per Bucket', avgPerBucket],
-    ['Avg. Buckets per Hour', bph > 0 ? bph : '—'],
-  ];
+  // ── Primary metric: Total Buckets Made — visually prominent ──────────────
+  const primaryRow = document.createElement('tr');
+  const primaryL = document.createElement('td');
+  primaryL.style.cssText = 'padding:16px 8px 14px;font-size:13px;color:#22a05a;font-weight:700;border-bottom:1px solid rgba(34,160,90,0.25);';
+  primaryL.textContent = 'Total Buckets Made';
+  const primaryV = document.createElement('td');
+  primaryV.style.cssText = 'padding:16px 8px 14px;text-align:right;font-size:32px;font-weight:700;color:#22a05a;letter-spacing:-0.02em;border-bottom:1px solid rgba(34,160,90,0.25);';
+  primaryV.textContent = buckets;
+  primaryRow.appendChild(primaryL);
+  primaryRow.appendChild(primaryV);
+  body.appendChild(primaryRow);
 
-  rows.forEach(([label, value]) => {
+  // ── Secondary metrics — smaller, muted ────────────────────────────────────
+  [
+    ['Total Run Time',        fmtTime(totalMs)],
+    ['Avg. Time per Bucket',  avgPerBucket],
+    ['Avg. Buckets per Hour', bph > 0 ? bph : '—'],
+  ].forEach(([label, value]) => {
     const tr = document.createElement('tr');
     const tdL = document.createElement('td');
     tdL.textContent = label;
@@ -2001,7 +2282,43 @@ function showRunSummary() {
 
 function closeSummary() {
   document.getElementById('summaryOverlay').classList.remove('open');
+  writeRunSummary(); // fire-and-forget — non-blocking
   doneRun();
+}
+
+// Derives a short operational display name from the signed-in user's email.
+// Used for lightweight activity attribution — first segment of the email username, title-cased.
+// Returns null when no user is signed in (EMPLOYEE role, unauthenticated).
+// Example: sarah.jones@handels.com → "Sarah"
+function _currentUserName() {
+  const user = window._auth && window._auth.currentUser;
+  if (!user || !user.email) return null;
+  const segment = user.email.split('@')[0].split(/[._\-]/)[0];
+  return segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase();
+}
+
+// Writes lastRunDate + lastRunBuckets + storeEvents to the store doc on run completion.
+// Called from closeSummary() only. Uses merge so it never clobbers production data.
+// storeEvents[] keeps the last 10 run entries so the store detail panel can show a timeline
+// without any extra Firestore reads — it's part of the store doc already loaded by getDocs.
+async function writeRunSummary() {
+  if (_totalBucketsMade <= 0) return;
+  if (!window._firebaseReady || !window._auth || !window._auth.currentUser) return;
+  try {
+    const userName = _currentUserName();
+    const newEntry = { type: 'run_completed', buckets: _totalBucketsMade, at: Date.now(),
+      ...(userName ? { by: userName } : {}) };
+    _storeEvents = [..._storeEvents, newEntry].slice(-10); // keep last 10 entries
+    await window._setDoc(getStoreDocRef(), {
+      lastRunDate:    todayStr(),
+      lastRunBuckets: _totalBucketsMade,
+      lastRunAt:      Date.now(),
+      storeEvents:    _storeEvents
+    }, { merge: true });
+  } catch (e) {
+    console.error('Run summary write error:', e);
+    // Non-critical — not surfaced to user
+  }
 }
 
 function showVariegateModal(flavorsInRun) {
@@ -2038,38 +2355,987 @@ function showVariegateModal(flavorsInRun) {
   document.getElementById('varOverlay').classList.add('open');
 }
 
-function showStorePicker() {
+function showOrgPicker() {
+  const input = document.getElementById('orgIdInput');
+  if (input) {
+    input.value = window.getCurrentOrgId();
+  }
+  document.getElementById('orgOverlay').classList.add('open');
+}
+
+function getRecentAnalyticsEvents(limit = 12) {
+  try {
+    const raw = localStorage.getItem('car_analytics_events');
+    const events = raw ? JSON.parse(raw) : [];
+    return Array.isArray(events) ? events.slice(0, limit) : [];
+  } catch (e) {
+    console.error('Read analytics events failed', e);
+    return [];
+  }
+}
+
+// ── MULTI-STORE OVERVIEW HELPERS ────────────────────────────────────────────
+
+// Returns today's date as YYYY-MM-DD (ISO, locale-stable via en-CA).
+function todayStr() {
+  return new Date().toLocaleDateString('en-CA');
+}
+
+// Store is "active today" if it was updated today OR a run was completed today.
+function storeIsActiveToday(store) {
+  const today = todayStr();
+  if (store.lastRunDate === today) return true;
+  if (store.updatedAt) return new Date(store.updatedAt).toLocaleDateString('en-CA') === today;
+  return false;
+}
+
+// Count flavors currently short (need to make > 0 batches).
+function storeShortagesCount(store) {
+  return (store.activeFlavors || []).filter(f => toMake(f) > 0).length;
+}
+
+// Buckets made today (only if lastRunDate matches today).
+function storeProductionToday(store) {
+  return store.lastRunDate === todayStr() ? (store.lastRunBuckets || 0) : 0;
+}
+
+// Human-readable relative time from a Unix timestamp.
+function relativeTime(ts) {
+  if (!ts) return 'Never';
+  const diff  = Date.now() - ts;
+  const mins  = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days  = Math.floor(diff / 86400000);
+  if (mins < 1)   return 'Just now';
+  if (mins < 60)  return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+// ── OPERATIONAL TREND INDICATORS ────────────────────────────────────────────
+// Returns a color string for a sync-age timestamp:
+//   < 1h  → muted blue  (#5a7a9a) — normal, no concern
+//   1–4h  → amber       (#f0a500) — stale, worth noticing
+//   > 4h  → red         (#ff8080) — alert, likely offline or disconnected
+//   null/undefined → muted blue (safe fallback)
+// Pure — no side effects. Used for colorizing sync timestamps in UI.
+function _syncAgeColor(ts) {
+  if (!ts) return '#5a7a9a';
+  const ageMs = Date.now() - ts;
+  if (ageMs > 4 * 60 * 60 * 1000) return '#ff8080'; // > 4h — alert
+  if (ageMs > 1 * 60 * 60 * 1000) return '#f0a500'; // 1–4h — warning
+  return '#5a7a9a'; // < 1h — normal
+}
+
+// Pure client-side calculation from storeEvents[] — zero Firestore reads/writes.
+// Requires ≥ 3 run_completed events to surface a signal; returns null otherwise.
+// Splits runs into two halves (older vs. recent) and compares average bucket counts.
+
+function calcStoreTrend(store) {
+  const runs = (store.storeEvents || []).filter(ev => ev.type === 'run_completed');
+  if (runs.length < 3) return null; // insufficient history for a reliable signal
+
+  // Split chronologically: runs are stored oldest-first (append order)
+  const half      = Math.floor(runs.length / 2);
+  const older     = runs.slice(0, half);
+  const recent    = runs.slice(half);
+
+  const avg = arr => arr.reduce((sum, ev) => sum + (ev.buckets || 0), 0) / arr.length;
+  const olderAvg  = avg(older);
+  const recentAvg = avg(recent);
+
+  // Edge case: if olderAvg is zero, any positive recent output is an improvement
+  if (olderAvg === 0) return recentAvg > 0 ? 'up' : null;
+
+  const ratio = recentAvg / olderAvg;
+  if (ratio >= 1.10) return 'up';     // ≥10% improvement
+  if (ratio <= 0.90) return 'down';   // ≥10% decline
+  return 'stable';
+}
+
+// Returns a compact inline trend badge element, or null if trend is null.
+function _renderTrendBadge(trend) {
+  if (!trend) return null;
+  const MAP = {
+    up:     { arrow: '↑', label: 'Trending up', color: '#22a05a', bg: 'rgba(34,160,90,0.12)',   border: '#1e4a30' },
+    down:   { arrow: '↓', label: 'Declining',   color: '#ff8080', bg: 'rgba(215,38,39,0.10)',   border: '#4a1a1a' },
+    stable: { arrow: '→', label: 'Stable',       color: '#8fa3be', bg: 'rgba(90,122,154,0.12)', border: '#2e4a70' },
+  };
+  const { arrow, label, color, bg, border } = MAP[trend] || MAP.stable;
+  const badge = document.createElement('span');
+  badge.title = label;
+  badge.style.cssText = `display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:5px;background:${bg};border:1px solid ${border};font-size:11px;font-family:'Arial Narrow',Arial,sans-serif;color:${color};white-space:nowrap;flex-shrink:0;`;
+  badge.innerHTML = `<span style="font-size:12px;line-height:1;font-weight:700;">${arrow}</span><span>${label}</span>`;
+  return badge;
+}
+
+// ── STORE DETAIL VIEW ────────────────────────────────────────────────────────
+// Inline accordion panel that expands below a clicked store card or alert row.
+// Only one panel open at a time. Zero additional Firestore reads — all data
+// comes from the loadOrgStores() result already held in memory.
+
+let _activeDetailAnchor = null; // currently expanded card/row
+
+function showStoreDetail(store, anchorEl) {
+  // Toggle: if this anchor is already open, collapse it
+  if (_activeDetailAnchor === anchorEl) {
+    _closeStoreDetail(anchorEl);
+    return;
+  }
+  // Close any previously open panel
+  if (_activeDetailAnchor) _closeStoreDetail(_activeDetailAnchor);
+
+  const panel = _buildStoreDetailPanel(store, anchorEl);
+  anchorEl.insertAdjacentElement('afterend', panel);
+  anchorEl.dataset.detailOpen = 'true';
+  // Rotate the card chevron if present
+  const chevron = anchorEl.querySelector('.store-card-chevron');
+  if (chevron) chevron.style.transform = 'rotate(90deg)';
+  _activeDetailAnchor = anchorEl;
+  // Scroll the panel into view so it's always visible, even when card is near the bottom
+  setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+}
+
+function _closeStoreDetail(anchorEl) {
+  const next = anchorEl.nextElementSibling;
+  if (next && next.dataset.storeDetailPanel) next.remove();
+  anchorEl.dataset.detailOpen = '';
+  const chevron = anchorEl.querySelector('.store-card-chevron');
+  if (chevron) chevron.style.transform = '';
+  _activeDetailAnchor = null;
+}
+
+// Returns a human-readable label for a storeEvents[] entry.
+// When ev.by is present (signed-in user completed the action), appends muted attribution.
+// Example: "Production run — 42 buckets made · by Sarah"
+// The by field is optional — backward-compatible with pre-attribution events.
+function _activityLabel(ev) {
+  const attr = ev.by
+    ? `<span style="color:#5a7a9a;font-size:11px;font-family:'Arial Narrow',Arial,sans-serif;"> · by ${ev.by}</span>`
+    : '';
+  if (ev.type === 'run_completed') {
+    const b = ev.buckets || 0;
+    return `Production run — ${b} bucket${b !== 1 ? 's' : ''} made${attr}`;
+  }
+  return (ev.type || 'event').replace(/_/g, ' ') + attr;
+}
+
+function _buildStoreDetailPanel(store, anchorEl) {
+  const isActive     = storeIsActiveToday(store);
+  const shortages    = storeShortagesCount(store);
+  const buckets      = storeProductionToday(store);
+  const flavors      = store.activeFlavors || [];
+  const flavorCount  = flavors.length;
+  const shortFlavors = flavors.filter(f => toMake(f) > 0);
+
+  // Panel connects visually to anchor by overlapping its bottom border (margin-top: -1px)
+  const panel = document.createElement('div');
+  panel.dataset.storeDetailPanel = 'true';
+  panel.style.cssText = 'border:1px solid #2e4a70;border-top:none;border-radius:0 0 10px 10px;background:#111a45;padding:14px 16px 16px;margin-top:-1px;margin-bottom:2px;';
+
+  // ── Header: store name + close button ──────────────────────────────────────
+  const header = document.createElement('div');
+  header.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;';
+
+  const titleBlock = document.createElement('div');
+  titleBlock.innerHTML = `<div style="font-size:15px;font-weight:700;color:#ffffff;">${store.label || store.id}</div><div style="font-size:10px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;margin-top:2px;letter-spacing:0.04em;">${store.id}</div>`;
+  // Trend badge below name — only shown when ≥3 run_completed events exist
+  const detailTrend = _renderTrendBadge(calcStoreTrend(store));
+  if (detailTrend) {
+    detailTrend.style.marginTop = '8px';
+    titleBlock.appendChild(detailTrend);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  closeBtn.style.cssText = 'background:none;border:none;color:#8fa3be;font-size:22px;line-height:1;cursor:pointer;padding:0;min-width:36px;min-height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:6px;';
+  closeBtn.title = 'Close';
+  closeBtn.onclick = (e) => { e.stopPropagation(); _closeStoreDetail(anchorEl); };
+
+  header.appendChild(titleBlock);
+  header.appendChild(closeBtn);
+  panel.appendChild(header);
+
+  // ── Status row ─────────────────────────────────────────────────────────────
+  const statusRow = document.createElement('div');
+  statusRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:7px;background:rgba(255,255,255,0.04);border:1px solid #1e2b58;margin-bottom:14px;';
+  const syncColor = _syncAgeColor(store.updatedAt);
+  statusRow.innerHTML = `<span style="font-size:8px;color:${isActive ? '#22a05a' : '#5a7a9a'};">●</span><span style="font-size:13px;color:${isActive ? '#c5d8f0' : '#8fa3be'};font-family:'Arial Narrow',Arial,sans-serif;">${isActive ? 'Active today' : 'No activity today'}</span><span style="font-size:11px;color:${syncColor};font-family:'Arial Narrow',Arial,sans-serif;margin-left:auto;">Last sync: ${relativeTime(store.updatedAt)}</span>`;
+  panel.appendChild(statusRow);
+
+  // ── Metrics row: production / flavors / shortages ───────────────────────────
+  const metricsRow = document.createElement('div');
+  metricsRow.style.cssText = 'display:flex;gap:1px;margin-bottom:14px;border-radius:8px;overflow:hidden;border:1px solid #1e2b58;';
+  [
+    { label: 'Made Today',     value: buckets      || '—', warn: false },
+    { label: 'Active Flavors', value: flavorCount  || '—', warn: false },
+    { label: 'Shortages',      value: shortages    || '—', warn: shortages > 0 },
+  ].forEach(({ label, value, warn }, i) => {
+    const cell = document.createElement('div');
+    cell.style.cssText = `flex:1;padding:10px 8px;text-align:center;background:#162053;${i > 0 ? 'border-left:1px solid #1e2b58;' : ''}`;
+    cell.innerHTML = `<div style="font-size:18px;font-weight:700;color:${warn ? '#ff8080' : '#ffffff'};">${value}</div><div style="font-size:10px;color:#98d4e3;font-family:'Arial Narrow',Arial,sans-serif;text-transform:uppercase;letter-spacing:0.04em;margin-top:4px;">${label}</div>`;
+    metricsRow.appendChild(cell);
+  });
+  panel.appendChild(metricsRow);
+
+  // ── Recent Activity feed ───────────────────────────────────────────────────
+  // Sourced from store.storeEvents[] (written by writeRunSummary on run completion).
+  // Falls back to a synthetic entry from lastRunAt/lastRunBuckets for stores that
+  // completed runs before storeEvents was introduced — so no data is lost.
+  {
+    const activitySection = document.createElement('div');
+    activitySection.style.cssText = 'margin-bottom:14px;';
+
+    const actHeading = document.createElement('div');
+    actHeading.style.cssText = 'font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.08em;font-family:\'Arial Narrow\',Arial,sans-serif;margin-bottom:6px;font-weight:700;';
+    actHeading.textContent = 'Recent Activity';
+    activitySection.appendChild(actHeading);
+
+    const rawEvents = store.storeEvents || [];
+    // Backward-compat: if no storeEvents yet but lastRunAt exists, synthesize one entry
+    const baseEvents = rawEvents.length === 0 && store.lastRunAt
+      ? [{ type: 'run_completed', buckets: store.lastRunBuckets || 0, at: store.lastRunAt }]
+      : rawEvents;
+    const displayEvents = [...baseEvents].reverse().slice(0, 5); // newest first, max 5
+
+    if (!displayEvents.length) {
+      const emptyAct = document.createElement('div');
+      emptyAct.style.cssText = 'font-size:12px;color:#5a7a9a;font-family:\'Arial Narrow\',Arial,sans-serif;padding:6px 0;';
+      emptyAct.textContent = 'No production runs recorded yet.';
+      activitySection.appendChild(emptyAct);
+    } else {
+      const actList = document.createElement('div');
+      actList.style.cssText = 'display:grid;gap:4px;';
+      displayEvents.forEach(ev => {
+        const item = document.createElement('div');
+        item.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 12px;border-radius:6px;background:#162053;border:1px solid #1e2b58;';
+        item.innerHTML = `<span style="font-size:8px;color:#98d4e3;flex-shrink:0;">●</span><span style="font-size:12px;color:#c5d8f0;flex:1;font-family:'Arial Narrow',Arial,sans-serif;">${_activityLabel(ev)}</span><span style="font-size:11px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;flex-shrink:0;white-space:nowrap;">${relativeTime(ev.at)}</span>`;
+        actList.appendChild(item);
+      });
+      // If there are more than 5, hint that more exist
+      if (baseEvents.length > 5) {
+        const more = document.createElement('div');
+        more.style.cssText = 'font-size:11px;color:#5a7a9a;font-family:\'Arial Narrow\',Arial,sans-serif;padding:4px 12px;';
+        more.textContent = `+ ${baseEvents.length - 5} older entries`;
+        actList.appendChild(more);
+      }
+      activitySection.appendChild(actList);
+    }
+    panel.appendChild(activitySection);
+  }
+
+  // ── Shortage detail list ────────────────────────────────────────────────────
+  if (shortFlavors.length) {
+    const shortSection = document.createElement('div');
+    shortSection.style.cssText = 'margin-bottom:14px;';
+
+    const shortHeading = document.createElement('div');
+    shortHeading.style.cssText = 'font-size:10px;color:#ff8080;text-transform:uppercase;letter-spacing:0.08em;font-family:\'Arial Narrow\',Arial,sans-serif;margin-bottom:6px;font-weight:700;';
+    shortHeading.textContent = `Flavors Short · ${shortFlavors.length}`;
+    shortSection.appendChild(shortHeading);
+
+    const shortList = document.createElement('div');
+    shortList.style.cssText = 'display:grid;gap:4px;';
+    shortFlavors.forEach(f => {
+      const needed = toMake(f);
+      const item = document.createElement('div');
+      item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-radius:6px;background:rgba(215,38,39,0.08);border:1px solid #4a1a1a;';
+      item.innerHTML = `<span style="font-size:13px;color:#ffffff;">${f.name || '—'}</span><div style="display:flex;align-items:center;gap:12px;">${f.type ? `<span style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;">${f.type}</span>` : ''}<span style="font-size:13px;font-weight:700;color:#ff8080;">−${needed} needed</span></div>`;
+      shortList.appendChild(item);
+    });
+    shortSection.appendChild(shortList);
+    panel.appendChild(shortSection);
+  }
+
+  // ── Active flavor roster, grouped by type ──────────────────────────────────
+  if (flavorCount > 0) {
+    const rosterSection = document.createElement('div');
+
+    const rosterHeading = document.createElement('div');
+    rosterHeading.style.cssText = 'font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.08em;font-family:\'Arial Narrow\',Arial,sans-serif;margin-bottom:6px;font-weight:700;';
+    rosterHeading.textContent = `Active Flavors · ${flavorCount}`;
+    rosterSection.appendChild(rosterHeading);
+
+    const byType = { regular: [], TD: [], WO: [] };
+    flavors.forEach(f => {
+      const t = (f.type || '').toUpperCase();
+      if (t === 'TD') byType.TD.push(f.name);
+      else if (t === 'WO') byType.WO.push(f.name);
+      else byType.regular.push(f.name);
+    });
+
+    [
+      { key: 'regular', label: 'Regular',   color: '#6ab0ff' },
+      { key: 'TD',      label: 'Take & Dip', color: '#ff7a7a' },
+      { key: 'WO',      label: 'Walk-Out',  color: '#a8d8f0' },
+    ].filter(({ key }) => byType[key].length).forEach(({ key, label, color }) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;';
+      row.innerHTML = `<span style="font-size:10px;color:${color};font-family:'Arial Narrow',Arial,sans-serif;font-weight:700;min-width:58px;padding-top:1px;flex-shrink:0;">${label}</span><span style="font-size:12px;color:#c5d8f0;font-family:'Arial Narrow',Arial,sans-serif;line-height:1.5;">${byType[key].join(', ')}</span>`;
+      rosterSection.appendChild(row);
+    });
+    panel.appendChild(rosterSection);
+  } else {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:12px;color:#5a7a9a;font-family:\'Arial Narrow\',Arial,sans-serif;';
+    empty.textContent = 'No active flavors configured for this store.';
+    panel.appendChild(empty);
+  }
+
+  return panel;
+}
+
+// ── NEEDS ATTENTION ─────────────────────────────────────────────────────────
+// Pure function — derives operational alerts from already-loaded store data.
+// No Firestore calls. Returns alerts sorted: urgent → warning → notice.
+function buildAttentionAlerts(stores) {
+  const alerts = [];
+  const STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+  stores.forEach(store => {
+    const hasActiveFlavors = (store.activeFlavors || []).length > 0;
+    const shortages = storeShortagesCount(store);
+    const isActive  = storeIsActiveToday(store);
+
+    // 1. Flavors short — most operationally urgent
+    if (shortages > 0) {
+      alerts.push({ level: 'urgent', storeLabel: store.label || store.id, storeId: store.id, store,
+        msg: `${shortages} flavor${shortages !== 1 ? 's' : ''} short` });
+    }
+
+    // 2. No activity today (store is set up but hasn't been touched)
+    if (!isActive && hasActiveFlavors) {
+      alerts.push({ level: 'warning', storeLabel: store.label || store.id, storeId: store.id, store,
+        msg: 'No production activity today' });
+    }
+
+    // 3. Stale data: active today but updatedAt > 4h (device went offline after run)
+    if (store.updatedAt && (Date.now() - store.updatedAt) > STALE_MS && isActive) {
+      alerts.push({ level: 'warning', storeLabel: store.label || store.id, storeId: store.id, store,
+        msg: `Data stale — last sync ${relativeTime(store.updatedAt)}` });
+    }
+  });
+
+  // 4. Low production heuristic — needs ≥2 active stores and meaningful average (>2)
+  const activeStores  = stores.filter(s => storeIsActiveToday(s));
+  const bucketCounts  = activeStores.map(s => storeProductionToday(s));
+  const bucketAvg     = bucketCounts.length ? bucketCounts.reduce((a, b) => a + b, 0) / bucketCounts.length : 0;
+  if (activeStores.length >= 2 && bucketAvg > 2) {
+    activeStores.forEach((store, i) => {
+      if (bucketCounts[i] < Math.floor(bucketAvg * 0.5)) {
+        alerts.push({ level: 'notice', storeLabel: store.label || store.id, storeId: store.id, store,
+          msg: `Low production: ${bucketCounts[i]} buckets (org avg ${Math.round(bucketAvg)})` });
+      }
+    });
+  }
+
+  const ORDER = { urgent: 0, warning: 1, notice: 2 };
+  return alerts.sort((a, b) => ORDER[a.level] - ORDER[b.level]);
+}
+
+// Renders the "Needs Attention" block into containerEl.
+// Shows an all-clear row if no alerts; otherwise a compact colored list.
+function renderNeedsAttention(containerEl, alerts) {
+  const STYLE = {
+    urgent:  { dot: '#ff6b6b', border: '#5a1a1a', bg: 'rgba(215,38,39,0.10)',   label: '#ff8080' },
+    warning: { dot: '#f0a500', border: '#4a3600', bg: 'rgba(240,165,0,0.10)',   label: '#f0c050' },
+    notice:  { dot: '#98d4e3', border: '#1e3a50', bg: 'rgba(152,212,227,0.08)', label: '#98d4e3' },
+  };
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'margin-bottom:20px;';
+
+  if (!alerts.length) {
+    // All-clear — compact positive signal, no heading needed
+    wrap.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:8px;border:1px solid #1e5c33;background:rgba(34,160,90,0.08);"><span style="font-size:8px;color:#22a05a;">●</span><span style="font-size:13px;color:#c5d8f0;font-family:'Arial Narrow',Arial,sans-serif;">All stores operational — no attention needed</span></div>`;
+    containerEl.appendChild(wrap);
+    return;
+  }
+
+  const heading = document.createElement('div');
+  heading.style.cssText = 'font-size:11px;color:#ff8080;text-transform:uppercase;letter-spacing:0.1em;font-family:\'Arial Narrow\',Arial,sans-serif;margin-bottom:10px;font-weight:700;';
+  heading.textContent = `Needs Attention · ${alerts.length} item${alerts.length !== 1 ? 's' : ''}`;
+  wrap.appendChild(heading);
+
+  const list = document.createElement('div');
+  list.style.cssText = 'display:grid;gap:6px;';
+
+  alerts.forEach(({ level, storeLabel, storeId, store, msg }) => {
+    const s = STYLE[level] || STYLE.notice;
+    const row = document.createElement('div');
+    row.style.cssText = `display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;border:1px solid ${s.border};background:${s.bg};cursor:pointer;`;
+    row.title = 'Tap to view store details';
+    row.innerHTML = `<span style="font-size:8px;color:${s.dot};flex-shrink:0;">●</span><div style="flex:1;min-width:0;"><span style="font-size:13px;font-weight:700;color:#ffffff;">${storeLabel}</span><span style="font-size:12px;color:${s.label};margin-left:8px;font-family:'Arial Narrow',Arial,sans-serif;">${msg}</span></div><span style="font-size:10px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;flex-shrink:0;">${storeId}</span>`;
+    if (store) row.onclick = () => showStoreDetail(store, row);
+    list.appendChild(row);
+  });
+
+  wrap.appendChild(list);
+  containerEl.appendChild(wrap);
+}
+
+// ── MULTI-STORE OVERVIEW ────────────────────────────────────────────────────
+// Fetches full store docs (includes activeFlavors) and renders an operational
+// summary for CORPORATE_ADMIN. Async — shows a loading state while fetching.
+// Also drives the "Needs Attention" section (same data, no extra reads).
+async function renderMultiStoreOverview(content) {
+  const section = document.createElement('div');
+  section.style.cssText = 'margin-top:20px;';
+
+  const loadingEl = document.createElement('div');
+  loadingEl.style.cssText = 'color:#8fa3be;font-size:13px;font-family:\'Arial Narrow\',Arial,sans-serif;padding:8px 0;';
+  loadingEl.textContent = 'Loading store data…';
+  section.appendChild(loadingEl);
+
+  content.appendChild(section);
+
+  // Load full store data (includes activeFlavors, updatedAt, lastRunDate, etc.)
+  let stores = [];
+  try {
+    stores = await loadOrgStores();
+  } catch (e) {
+    loadingEl.textContent = 'Could not load store data. Check your connection.';
+    return;
+  }
+  loadingEl.remove();
+
+  if (!stores.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'color:#8fa3be;font-size:13px;font-family:\'Arial Narrow\',Arial,sans-serif;';
+    empty.textContent = 'No stores found in this org.';
+    section.appendChild(empty);
+    return;
+  }
+
+  // ── Needs Attention ── (derived from same store data, no extra reads)
+  renderNeedsAttention(section, buildAttentionAlerts(stores));
+
+  // ── Store Overview heading ──
+  const overviewHeading = document.createElement('div');
+  overviewHeading.style.cssText = 'font-size:11px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.1em;font-family:\'Arial Narrow\',Arial,sans-serif;margin-bottom:12px;font-weight:700;';
+  overviewHeading.textContent = 'Store Overview';
+  section.appendChild(overviewHeading);
+
+  // ── Aggregate summary ──
+  const activeCount    = stores.filter(s => storeIsActiveToday(s)).length;
+  const totalShortages = stores.reduce((n, s) => n + storeShortagesCount(s), 0);
+  const totalBuckets   = stores.reduce((n, s) => n + storeProductionToday(s), 0);
+
+  // Summary chips
+  const chips = document.createElement('div');
+  chips.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;';
+  [
+    { label: 'Active Today',      value: `${activeCount} / ${stores.length}`, warn: false },
+    { label: 'Shortages',         value: totalShortages || '—',               warn: totalShortages > 0 },
+    { label: 'Buckets Made Today',value: totalBuckets   || '—',               warn: false },
+  ].forEach(({ label, value, warn }) => {
+    const chip = document.createElement('div');
+    chip.style.cssText = `flex:1;min-width:110px;padding:10px 14px;border-radius:10px;border:1px solid ${warn ? '#d72627' : '#2e4a70'};background:${warn ? 'rgba(215,38,39,0.12)' : '#162053'};`;
+    chip.innerHTML = `<div style="font-size:10px;color:#98d4e3;font-family:'Arial Narrow',Arial,sans-serif;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">${label}</div><div style="font-size:20px;font-weight:700;color:${warn ? '#ff8080' : '#ffffff'};">${value}</div>`;
+    chips.appendChild(chip);
+  });
+  section.appendChild(chips);
+
+  // ── Per-store cards ──
+  const storeGrid = document.createElement('div');
+  storeGrid.style.cssText = 'display:grid;gap:8px;';
+
+  stores.forEach(store => {
+    const isActive    = storeIsActiveToday(store);
+    const shortages   = storeShortagesCount(store);
+    const buckets     = storeProductionToday(store);
+    const flavorCount = (store.activeFlavors || []).length;
+    const lastActive  = relativeTime(store.updatedAt);
+
+    const card = document.createElement('div');
+    card.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 16px;border-radius:10px;border:1px solid ${isActive ? '#1e5c33' : '#2e4a70'};background:${isActive ? 'rgba(34,160,90,0.07)' : '#162053'};cursor:pointer;`;
+    card.title = 'Tap to view store details';
+    card.onclick = () => showStoreDetail(store, card);
+
+    // Left: name + status
+    const nameBlock = document.createElement('div');
+    nameBlock.style.cssText = 'flex:1;min-width:140px;';
+    const cardSyncColor = _syncAgeColor(store.updatedAt);
+    nameBlock.innerHTML = `<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:8px;color:${isActive ? '#22a05a' : '#5a7a9a'};">●</span><span style="font-size:14px;font-weight:700;color:#ffffff;">${store.label || store.id}</span><span style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;">${isActive ? 'Active' : 'Inactive'}</span></div><div style="font-size:11px;color:${cardSyncColor};margin-top:4px;font-family:'Arial Narrow',Arial,sans-serif;padding-left:16px;">last updated ${lastActive}</div>`;
+    card.appendChild(nameBlock);
+
+    // Right: metric pills + expand indicator
+    const metrics = document.createElement('div');
+    metrics.style.cssText = 'display:flex;gap:16px;flex-shrink:0;align-items:center;';
+    [
+      { label: 'Flavors',    value: flavorCount,           warn: false },
+      { label: 'Shortages',  value: shortages || '—',      warn: shortages > 0 },
+      { label: 'Made Today', value: buckets   || '—',      warn: false },
+    ].forEach(({ label, value, warn }) => {
+      const m = document.createElement('div');
+      m.style.cssText = 'text-align:center;min-width:44px;';
+      m.innerHTML = `<div style="font-size:16px;font-weight:700;color:${warn ? '#ff8080' : '#c5d8f0'};">${value}</div><div style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;text-transform:uppercase;letter-spacing:0.04em;">${label}</div>`;
+      metrics.appendChild(m);
+    });
+    // Trend badge — shown only when ≥3 run_completed events exist
+    const cardTrend = _renderTrendBadge(calcStoreTrend(store));
+    if (cardTrend) metrics.appendChild(cardTrend);
+    // Expand chevron
+    const chevron = document.createElement('span');
+    chevron.className = 'store-card-chevron';
+    chevron.style.cssText = 'font-size:16px;color:#5a7a9a;flex-shrink:0;padding-left:4px;transition:transform 0.15s;user-select:none;';
+    chevron.textContent = '›';
+    metrics.appendChild(chevron);
+    card.appendChild(metrics);
+
+    storeGrid.appendChild(card);
+  });
+  section.appendChild(storeGrid);
+}
+
+function renderDashboardCard(title, value, note) {
+  const card = document.createElement('div');
+  card.style.border = '1px solid #2e4a70';
+  card.style.borderRadius = '12px';
+  card.style.padding = '16px';
+  card.style.background = '#162053';
+  card.innerHTML = `<div style="color:#98d4e3;font-size:12px;margin-bottom:8px;">${title}</div><div style="font-size:18px;color:#ffffff;font-weight:700;">${value}</div>${note ? `<div style="margin-top:10px;color:#8fa3be;font-size:12px;">${note}</div>` : ''}`;
+  return card;
+}
+
+function renderAnalyticsSummary(content) {
+  const events = getRecentAnalyticsEvents(8);
+  const section = document.createElement('div');
+  section.style.display = 'grid';
+  section.style.gap = '12px';
+  section.style.marginTop = '16px';
+  section.appendChild(renderDashboardCard('Recent activity log', `${events.length} events`, 'Kept locally and synced when signed in.'));
+  if (!events.length) {
+    const note = document.createElement('div');
+    note.style.color = '#98d4e3';
+    note.style.fontSize = '13px';
+    note.textContent = 'No recent activity yet. Perform actions like switching orgs or selecting stores to populate analytics.';
+    section.appendChild(note);
+  } else {
+    const list = document.createElement('div');
+    list.style.display = 'grid';
+    list.style.gap = '10px';
+    events.forEach(ev => {
+      const entry = document.createElement('div');
+      entry.style.border = '1px solid #1e2b58';
+      entry.style.borderRadius = '10px';
+      entry.style.padding = '10px 12px';
+      entry.style.background = '#1a234f';
+      const when = new Date(ev.createdAt).toLocaleString();
+      entry.innerHTML = `<div style="font-size:13px;color:#98d4e3;margin-bottom:4px;">${ev.type.replace(/_/g, ' ')}</div><div style="font-size:15px;color:#ffffff;font-weight:600;">${ev.payload?.label || ev.payload?.orgId || ev.payload?.storeId || 'Event recorded'}</div><div style="color:#7ca0e8;font-size:11px;margin-top:8px;">${when}</div>`;
+      list.appendChild(entry);
+    });
+    section.appendChild(list);
+  }
+  content.appendChild(section);
+}
+
+function showCorporateDashboard() {
+  const overlay = document.getElementById('dashboardOverlay');
+  const content = document.getElementById('dashboardContent');
+  if (!overlay || !content) return;
+  const orgId = window.getCurrentOrgId();
+  const stores = window.getOrgStores();
+  const currentUser = window._auth && window._auth.currentUser;
+  const userEmail = currentUser?.email || 'Not signed in';
+  const userRole = window.getCurrentUserRole();
+
+  content.innerHTML = '';
+  const header = document.createElement('div');
+  header.style.display = 'grid';
+  header.style.gap = '10px';
+  header.innerHTML = `<div style="font-size:14px;color:#98d4e3;">Org ID: ${orgId}</div><div style="font-size:26px;color:#ffffff;font-weight:700;">Corporate Dashboard</div>`;
+  content.appendChild(header);
+
+  const stats = document.createElement('div');
+  stats.style.display = 'grid';
+  stats.style.gridTemplateColumns = 'repeat(auto-fit,minmax(180px,1fr))';
+  stats.style.gap = '12px';
+  stats.appendChild(renderDashboardCard('Stores in org', stores.length, 'Firestore-backed org store metadata'));
+  stats.appendChild(renderDashboardCard('Signed in user', userEmail, `Role: ${userRole.replace(/_/g, ' ')}`));
+  stats.appendChild(renderDashboardCard('Current store', window.getCurrentStoreId() || 'None selected', 'Select a store to continue work'));
+  content.appendChild(stats);
+
+  // Multi-store overview — async, appends itself with a loading state
+  renderMultiStoreOverview(content);
+
+  renderAnalyticsSummary(content);
+
+  // Add Store panel — CORPORATE_ADMIN only
+  if (userRole === window.ROLES.CORPORATE_ADMIN) {
+    renderAddStoreSection(content);
+  }
+
+  window.logOrgEvent('dashboard_opened', { orgId, storeCount: stores.length });
+  overlay.classList.add('open');
+}
+
+function closeCorporateDashboard() {
+  const overlay = document.getElementById('dashboardOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+async function selectOrg(orgId) {
+  const trimmed = String(orgId || '').trim();
+  if (!trimmed) return;
+  window.setOrgId(trimmed);
+  window.setStoreId(undefined);
+  window.setOrgStores([]);
+  document.getElementById('orgOverlay').classList.remove('open');
+  const sub = document.querySelector('.header-sub');
+  if (sub) sub.textContent = `Choose a store — ${trimmed}`;
+  await window.logOrgEvent('org_switched', { orgId: trimmed });
+  awaitLoadOrgMetaAndShowStorePicker();
+  if (window._auth && window._auth.currentUser) {
+    await loadCurrentUserRole();
+    updateRoleUIVisibility();
+    renderRoleAudit();
+  }
+}
+
+async function loadOrgStores() {
+  if (!window._firebaseReady || !window._getDocs) return [];
+  try {
+    const coll = window.getOrgStoresCollectionRef();
+    const snap = await window._getDocs(coll);
+    const stores = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    window.setOrgStores(stores);
+    return stores;
+  } catch (e) {
+    console.error('Org store load error:', e);
+    return [];
+  }
+}
+
+async function showStorePicker() {
   const list = document.getElementById('storeList');
   list.innerHTML = '';
-  STORES.forEach(store => {
-    const btn = document.createElement('button');
-    btn.className = 'store-btn';
-    btn.textContent = store.label;
-    btn.onclick = () => selectStore(store.id);
-    list.appendChild(btn);
-  });
+  // Open the overlay immediately so the user sees a response right away
   document.getElementById('storeOverlay').classList.add('open');
+
+  // Close button — only shown when a store is already loaded (picker opened from toolbar, not cold-start).
+  // Prevents operators from being stuck if the picker is opened accidentally.
+  const _existingClose = document.getElementById('storeOverlayClose');
+  if (_existingClose) _existingClose.remove();
+  if (window.getCurrentStoreId()) {
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'storeOverlayClose';
+    closeBtn.textContent = '× Not now';
+    closeBtn.title = 'Close store picker';
+    closeBtn.style.cssText = 'position:absolute;top:16px;right:16px;background:none;border:none;color:#8fa3be;font-size:14px;cursor:pointer;padding:8px 12px;border-radius:6px;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
+    closeBtn.onclick = () => { document.getElementById('storeOverlay').classList.remove('open'); };
+    document.getElementById('storeOverlay').appendChild(closeBtn);
+  }
+
+  let stores = window.getOrgStores();
+  if (!stores.length) {
+    // Show a loading indicator while Firestore resolves
+    const loadingEl = document.createElement('div');
+    loadingEl.style.cssText = 'text-align:center;color:#8fa3be;font-size:14px;font-family:\'Arial Narrow\',Arial,sans-serif;padding:20px 0;';
+    loadingEl.textContent = '⏳ Loading stores…';
+    list.appendChild(loadingEl);
+    stores = await loadOrgStores();
+    list.innerHTML = ''; // clear loading indicator
+  }
+
+  if (!stores.length) {
+    if (window._auth && window._auth.currentUser) {
+      showOrgSetupForm(list);
+    } else {
+      const p = document.createElement('p');
+      p.style.cssText = 'color:#98d4e3;font-size:13px;line-height:1.6;text-align:center;';
+      p.textContent = 'No stores found for this organization. Sign in to set up this organization.';
+      list.appendChild(p);
+    }
+  } else {
+    stores.forEach(store => {
+      const btn = document.createElement('button');
+      btn.className = 'store-btn';
+      btn.textContent = store.label || store.id;
+      btn.onclick = () => selectStore(store.id);
+      list.appendChild(btn);
+    });
+  }
+}
+
+// ── STORE FORM (shared helper) ──────────────────────────────────────────────
+// Builds a store name/ID form inside `containerEl`.
+// opts.submitLabel — button text (default '✓ Create Store')
+// opts.onSuccess(storeId, storeLabel) — called after createOrgAndStore() resolves
+// Returns { nameInput } so callers can auto-focus if needed.
+function renderStoreForm(containerEl, opts) {
+  const { submitLabel = '✓ Create Store', onSuccess } = opts || {};
+  const INPUT_STYLE = 'width:100%;padding:14px 12px;border-radius:10px;border:1.5px solid #98d4e3;background:#1e2870;color:#ffffff;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:14px;';
+
+  function toSlug(s) {
+    return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  }
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'width:100%;display:flex;flex-direction:column;gap:10px;';
+
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.placeholder = 'Store name (e.g. Boardman)';
+  nameInput.style.cssText = INPUT_STYLE;
+  wrap.appendChild(nameInput);
+
+  const idInput = document.createElement('input');
+  idInput.type = 'text';
+  idInput.placeholder = 'Store ID (e.g. boardman)';
+  idInput.style.cssText = INPUT_STYLE;
+  wrap.appendChild(idInput);
+
+  const hint = document.createElement('p');
+  hint.style.cssText = 'font-size:11px;color:#8fa3be;font-family:\'Arial Narrow\',Arial,sans-serif;margin-top:-4px;';
+  hint.textContent = 'Store ID: lowercase, numbers, hyphens only. Auto-filled from store name.';
+  wrap.appendChild(hint);
+
+  const errEl = document.createElement('div');
+  errEl.style.cssText = 'color:#d72627;font-size:12px;min-height:18px;font-family:\'Arial Narrow\',Arial,sans-serif;';
+  wrap.appendChild(errEl);
+
+  const submitBtn = document.createElement('button');
+  submitBtn.className = 'store-btn';
+  submitBtn.style.cssText = 'background:#d72627;border-color:#d72627;color:#ffffff;text-align:center;';
+  submitBtn.textContent = submitLabel;
+  wrap.appendChild(submitBtn);
+
+  nameInput.addEventListener('input', () => { idInput.value = toSlug(nameInput.value); });
+
+  submitBtn.addEventListener('click', async () => {
+    const storeLabel = nameInput.value.trim();
+    const storeId    = idInput.value.trim();
+    errEl.textContent = '';
+
+    if (!storeLabel) { errEl.textContent = 'Store name is required.'; return; }
+    if (!storeId)    { errEl.textContent = 'Store ID is required.'; return; }
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(storeId)) {
+      errEl.textContent = 'Store ID must start with a letter or number, and use only lowercase letters, numbers, and hyphens.';
+      return;
+    }
+    if (!navigator.onLine) { errEl.textContent = 'You must be online to create a store.'; return; }
+    if (!window._auth || !window._auth.currentUser) { errEl.textContent = 'You must be signed in.'; return; }
+
+    submitBtn.textContent = 'Creating…';
+    submitBtn.disabled = true;
+    try {
+      await createOrgAndStore(storeLabel, storeId);
+      if (onSuccess) onSuccess(storeId, storeLabel);
+    } catch (e) {
+      console.error('Store creation error:', e);
+      errEl.textContent = 'Error: ' + (e.message || e.code || 'Could not create store. Check your connection.');
+      submitBtn.textContent = submitLabel;
+      submitBtn.disabled = false;
+    }
+  });
+
+  containerEl.appendChild(wrap);
+  return { nameInput };
+}
+
+// ── ORG ONBOARDING ─────────────────────────────────────────────────────────
+// Renders an inline "create first store" form inside the store picker overlay.
+// Only shown when: org has no stores AND a manager is signed in.
+function showOrgSetupForm(listEl) {
+  const overlaySubtitle = document.querySelector('#storeOverlay > p');
+  if (overlaySubtitle) overlaySubtitle.textContent = 'Set up your organization to get started.';
+
+  const orgId = window.getCurrentOrgId();
+
+  const info = document.createElement('p');
+  info.style.cssText = 'font-size:13px;color:#98d4e3;line-height:1.5;text-align:center;font-family:\'Arial Narrow\',Arial,sans-serif;';
+  info.innerHTML = `No stores found for <strong style="color:#ffffff;">${orgId}</strong>.<br>Create your first store to get started.`;
+  listEl.appendChild(info);
+
+  const { nameInput } = renderStoreForm(listEl, {
+    onSuccess: (storeId) => selectStore(storeId)
+  });
+  setTimeout(() => nameInput.focus(), 100);
+}
+
+// ── ADD STORE (dashboard panel) ─────────────────────────────────────────────
+// Renders an "Add Another Store" section inside the corporate dashboard.
+// Only shown to CORPORATE_ADMIN. Reuses renderStoreForm() — no duplicate logic.
+function renderAddStoreSection(content) {
+  const section = document.createElement('div');
+  section.style.cssText = 'border-top:1px solid #2e4a70;margin-top:16px;padding-top:20px;display:grid;gap:12px;';
+
+  const heading = document.createElement('div');
+  heading.style.cssText = 'font-size:15px;color:#ffffff;font-weight:700;';
+  heading.textContent = 'Add Another Store';
+  section.appendChild(heading);
+
+  const subtext = document.createElement('p');
+  subtext.style.cssText = 'font-size:12px;color:#98d4e3;';
+  subtext.textContent = `Adding to org: ${window.getCurrentOrgId()}`;
+  section.appendChild(subtext);
+
+  const successEl = document.createElement('div');
+  successEl.style.cssText = 'display:none;color:#4caf50;font-size:13px;font-family:\'Arial Narrow\',Arial,sans-serif;';
+  section.appendChild(successEl);
+
+  const formWrap = document.createElement('div');
+  section.appendChild(formWrap);
+
+  content.appendChild(section);
+
+  renderStoreForm(formWrap, {
+    submitLabel: '+ Add Store',
+    onSuccess: (storeId, storeLabel) => {
+      // Show success banner, hide form, then re-render dashboard with updated store count
+      successEl.textContent = `✓ "${storeLabel}" added. Refreshing…`;
+      successEl.style.display = '';
+      formWrap.style.display = 'none';
+      setTimeout(() => showCorporateDashboard(), 1500);
+    }
+  });
+}
+
+async function createOrgAndStore(storeLabel, storeId) {
+  const orgId = window.getCurrentOrgId();
+  const user  = window._auth.currentUser;
+  const now   = Date.now();
+
+  // 1. Create org doc if it doesn't already exist (preserve any existing data)
+  const orgRef  = window.getOrgDocRef();
+  const orgSnap = await window._getDoc(orgRef);
+  if (!orgSnap.exists()) {
+    await window._setDoc(orgRef, { name: orgId, createdAt: now, createdBy: user.uid });
+  }
+
+  // 2. Create the first store document
+  const storeRef = window._doc(window._db, 'organizations', orgId, 'stores', storeId);
+  await window._setDoc(storeRef, { id: storeId, label: storeLabel, createdAt: now, createdBy: user.uid });
+
+  // 3. Assign the creator as CORPORATE_ADMIN for this org
+  const memberRef = window.getOrgMemberRef(user.uid);
+  await window._setDoc(memberRef, {
+    uid: user.uid, email: user.email || '', role: ROLES.CORPORATE_ADMIN,
+    stores: [storeId], createdAt: now
+  }, { merge: true });
+
+  // 4. Update local role state immediately so UI reflects CORPORATE_ADMIN
+  window._USER_ROLE = ROLES.CORPORATE_ADMIN;
+  localStorage.setItem('car_user_role', ROLES.CORPORATE_ADMIN);
+  updateUserRoleDisplay();
+  updateAuthButton();
+  updateRoleUIVisibility();
+
+  // 5. Add store to in-memory list so selectStore() can find it without a reload
+  window.setOrgStores([...window.getOrgStores(), { id: storeId, label: storeLabel }]);
+
+  // 6. Log the event
+  await window.logOrgEvent('org_initialized', { orgId, storeId, storeLabel });
+
+  // 7. Signal init() to show setup guidance after store loads
+  localStorage.setItem('car_just_created', '1');
+}
+
+async function awaitLoadOrgMetaAndShowStorePicker() {
+  await loadOrgMetadata();
+  await showStorePicker();
+}
+
+function findStoreById(id) {
+  if (!id) return null;
+  return window.getOrgStores().find(s => s.id === id);
 }
 
 function selectStore(id) {
-  localStorage.setItem(window._STORAGE_KEYS.storeId, id);
-  window._STORE_ID = id;
+  window.setStoreId(id);
   document.getElementById('storeOverlay').classList.remove('open');
-  const store = STORES.find(s => s.id === id);
+  const store = findStoreById(id);
   if (store) {
     const sub = document.querySelector('.header-sub');
     if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
+    window.logOrgEvent('store_selected', { storeId: id, label: store.label });
   }
   init();
 }
+
+function updateConnectivityStatus() {
+  if (navigator.onLine) {
+    if (_wasOffline) {
+      // Device just came back online — show reconnect confirmation before reverting
+      setSyncStatus('reconnected');
+    } else {
+      setSyncStatus('loaded');
+    }
+    _wasOffline = false;
+    window.flushAnalyticsEvents();
+  } else {
+    setSyncStatus('offline');
+    _wasOffline = true;
+  }
+}
+
+window.addEventListener('online', updateConnectivityStatus);
+window.addEventListener('offline', updateConnectivityStatus);
+
+// ── Run-active page-leave guard ──────────────────────────────────────────────
+// Warns operators before navigating away or refreshing during an active run.
+// Only fires when real bucket work is in progress (_totalBucketsMade > 0) to
+// avoid nagging on a fresh run. Browsers show their own generic warning text.
+// Note: iOS Safari suppresses this on pull-to-refresh — install as PWA to avoid.
+window.addEventListener('beforeunload', e => {
+  if (runMode && _totalBucketsMade > 0) {
+    e.preventDefault();
+    e.returnValue = ''; // Required for Chrome to show the dialog
+  }
+});
+
+// ── Escape key: dismiss store picker if a store is already loaded ─────────────
+// Prevents operators from being stuck in the picker when opened accidentally.
+// Does not fire during cold-start (no store yet) — picker must be completed then.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const overlay = document.getElementById('storeOverlay');
+  if (overlay && overlay.classList.contains('open') && window.getCurrentStoreId()) {
+    overlay.classList.remove('open');
+  }
+});
 
 // ── INIT ───────────────────────────────────────────────────────────────────
 async function init() {
   await loadAll();
   renderTable();
+
+  // Interrupted-run recovery: if a run was active when the page closed/refreshed,
+  // alert the operator so they know to verify their progress manually.
+  // car_run_state is written by calculateRun()/dismissRunRow() and cleared by doneRun()/resetDay().
+  const staleRun = localStorage.getItem('car_run_state');
+  if (staleRun) {
+    try {
+      const run = JSON.parse(staleRun);
+      const ageH = (Date.now() - (run.at || 0)) / 3600000;
+      if (ageH < 12) { // within the same shift — stale state from today's session
+        const made = run.made || 0;
+        setTimeout(() => showStatusMessage(
+          `⚠️ A run was interrupted — ${made > 0 ? made + ' bucket' + (made !== 1 ? 's' : '') + ' were made before closing.' : 'the app closed mid-run.'}`,
+          8000
+        ), 600);
+      }
+    } catch(e) { /* ignore malformed state */ }
+    localStorage.removeItem('car_run_state');
+  }
+
+  // Post-store-creation nudge: set by createOrgAndStore(), consumed once here.
+  // Delayed so the (empty) table is visible before the toast appears.
+  const justCreated = localStorage.getItem('car_just_created');
+  if (justCreated) {
+    localStorage.removeItem('car_just_created');
+    setTimeout(() => showStatusMessage("🎉 Store ready! Tap ☰ Edit Flavors to add today's flavors.", 8000), 800);
+  } else if (!staleRun) {
+    // iOS install hint — shown once after first store load for non-standalone iOS Safari users.
+    // Chrome for Android/desktop users are served by the toolbar Install App button.
+    // Suppressed when a stale-run warning is already showing to avoid stacking toasts.
+    setTimeout(_showInstallHint, 3000);
+  }
 }
 
 function bootstrap() {
+  updateConnectivityStatus();
   loadCabinetPref();
   updateUserRoleDisplay();
   initRoleUI();
@@ -2077,15 +3343,19 @@ function bootstrap() {
     loadOrgMetadata();
   }
   renderRoleAudit();
-  const savedId = localStorage.getItem(window._STORAGE_KEYS.storeId);
+  const savedId = window.getCurrentStoreId();
   if (savedId) {
-    window._STORE_ID = savedId;
-    const store = STORES.find(s => s.id === savedId);
-    if (store) {
-      const sub = document.querySelector('.header-sub');
-      if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
-    }
-    init();
+    window.setStoreId(savedId);
+    loadOrgStores().then(() => {
+      const store = findStoreById(savedId);
+      if (store) {
+        const sub = document.querySelector('.header-sub');
+        if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
+      }
+      init();
+    }).catch(() => {
+      init();
+    });
   } else {
     showStorePicker();
   }
@@ -2104,6 +3374,90 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', waitForFirebaseAndBootstrap);
 } else {
   waitForFirebaseAndBootstrap();
+}
+
+// ── Service Worker registration ──────────────────────────────────────────────
+// Registers sw.js at root scope so it controls the full app.
+// Detects when a new SW version installs and shows a refresh prompt.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(reg => {
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      newWorker.addEventListener('statechange', () => {
+        // New SW installed while a previous one controlled the page — show refresh nudge.
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          showStatusMessage('✨ App updated — refresh for the latest version', 6000);
+        }
+      });
+    });
+  }).catch(err => {
+    console.warn('[SW] Registration failed:', err);
+  });
+}
+
+// ── PWA install prompt ───────────────────────────────────────────────────────
+// Captures the browser's beforeinstallprompt event so we can trigger it on demand.
+// Shows an "Install App" toolbar button only when the browser offers installation.
+// Note: iOS Safari does not support beforeinstallprompt — iOS users add via Share sheet.
+let _pwaInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();                          // Suppress auto-prompt
+  _pwaInstallPrompt = e;
+  const btn = document.getElementById('pwaInstallBtn');
+  if (btn) btn.style.display = '';             // Show install button in toolbar
+});
+
+window.addEventListener('appinstalled', () => {
+  _pwaInstallPrompt = null;
+  const btn = document.getElementById('pwaInstallBtn');
+  if (btn) btn.style.display = 'none';
+});
+
+// ── iOS install hint ─────────────────────────────────────────────────────────
+// iOS Safari does not fire beforeinstallprompt, so we can't surface the native
+// install dialog automatically. This shows a one-time dismissable banner telling
+// iOS users how to add the app to their home screen via the Share sheet.
+// Shown 3s after init() — only for non-standalone iOS Safari; auto-dismisses in 15s.
+function _showInstallHint() {
+  if (localStorage.getItem('car_install_hint_dismissed')) return;
+  if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return;
+  if (window.navigator.standalone) return; // iOS standalone already
+
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
+  if (!isIOS) return; // Chrome/Android users get the toolbar Install App button instead
+
+  const banner = document.createElement('div');
+  banner.id = 'iosInstallBanner';
+  banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:420px;background:#1a2f52;border:1.5px solid #4a7ab5;border-radius:10px;padding:14px 16px;z-index:150;display:flex;align-items:flex-start;gap:12px;box-shadow:0 6px 28px rgba(0,0,0,0.55);';
+  banner.innerHTML = `
+    <span style="font-size:22px;flex-shrink:0;line-height:1.3;">📲</span>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:13px;font-weight:700;color:#ffffff;margin-bottom:5px;">Install for quick daily access</div>
+      <div style="font-size:12px;color:#c5d8f0;font-family:'Arial Narrow',Arial,sans-serif;line-height:1.55;">
+        Tap the <strong style="color:#ffffff;">Share ⬆</strong> button in Safari, then <strong style="color:#ffffff;">"Add to Home Screen"</strong> to install. No App Store required.
+      </div>
+    </div>
+    <button onclick="_dismissInstallHint()" style="background:none;border:none;color:#8fa3be;font-size:24px;cursor:pointer;padding:0;min-width:32px;line-height:1;flex-shrink:0;margin-top:-4px;-webkit-tap-highlight-color:transparent;" title="Dismiss">×</button>
+  `;
+  document.body.appendChild(banner);
+  setTimeout(_dismissInstallHint, 15000); // auto-dismiss after 15s
+}
+
+function _dismissInstallHint() {
+  localStorage.setItem('car_install_hint_dismissed', '1');
+  const b = document.getElementById('iosInstallBanner');
+  if (b) b.remove();
+}
+
+function triggerPwaInstall() {
+  if (!_pwaInstallPrompt) return;
+  _pwaInstallPrompt.prompt();
+  _pwaInstallPrompt.userChoice.then(() => {
+    _pwaInstallPrompt = null;
+    const btn = document.getElementById('pwaInstallBtn');
+    if (btn) btn.style.display = 'none';
+  });
 }
 </script>
 </body>
