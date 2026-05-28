@@ -989,6 +989,7 @@ async function signInManager() {
 
 async function signOutUser() {
   if (!window._auth) return;
+  if (_unsubscribeSnapshot) { _unsubscribeSnapshot(); _unsubscribeSnapshot = null; }
   try {
     await window._signOut(window._auth);
     await window.logOrgEvent('signed_out', {});
