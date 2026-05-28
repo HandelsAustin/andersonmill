@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Organizational metadata and store data.
+    match /organizations/{orgId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+      function isOrgMember() {
+        return isSignedIn() && exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
+      }
+      function memberRole() {
+        return get(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)).data.role;
+      }
+      function isStoreManager() {
+        return isOrgMember() && (memberRole() == 'STORE_MANAGER' || memberRole() == 'CORPORATE_ADMIN');
+      }
+      function isCorporateAdmin() {
+        return isOrgMember() && memberRole() == 'CORPORATE_ADMIN';
+      }
+
+      // Org metadata
+      allow read: if isOrgMember();
+      allow create: if isSignedIn() && isOrgMember();
+      allow update, delete: if isCorporateAdmin();
+
+      // Stores under org
+      match /stores/{storeId} {
+        allow read: if isOrgMember();
+        allow create, update, delete: if isStoreManager();
+      }
+
+      // Members collection - protect membership records
+      match /members/{memberId} {
+        // A user may read their own member doc; managers may read members
+        allow get: if isSignedIn() && (request.auth.uid == memberId || isStoreManager());
+        allow list: if isStoreManager();
+        // A user may create their own member doc (on sign-up). Managers can create/update other members.
+        allow create: if isSignedIn() && (request.auth.uid == memberId || isStoreManager());
+        allow update: if isSignedIn() && (request.auth.uid == memberId || isStoreManager());
+        // Only corporate admins may delete members
+        allow delete: if isCorporateAdmin();
+      }
+    }
+
+    // Analytics events should be scoped by org and store.
+    match /analytics_events/{eventId} {
+      allow read: if request.auth != null && exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)/members/$(request.auth.uid));
+      allow create: if request.auth != null && exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)/members/$(request.auth.uid));
+      allow update, delete: if false;
+    }
+  }
+}

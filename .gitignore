@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# macOS metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Debug logs
+*.log
+firestore-debug.log
+firebase-debug.log
+
+# Backup files
+*.bak
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment / secrets (if ever added)
+.env
+.env.local
+.env.*.local

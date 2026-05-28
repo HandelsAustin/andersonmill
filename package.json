@@ -1,0 +1,27 @@
+{
+  "name": "count-and-run",
+  "version": "1.0.0",
+  "description": "Production counting tool for ice cream production with multi-tenant SaaS architecture",
+  "main": "index.html",
+  "scripts": {
+    "test": "bash run-rules-tests.sh",
+    "test:rules": "node tests/firestore-rules-test.js",
+    "test:rules:auto": "bash run-rules-tests.sh"
+  },
+  "keywords": [
+    "firebase",
+    "firestore",
+    "saas",
+    "ice-cream",
+    "production"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "firebase-admin": "^12.0.0",
+    "@firebase/rules-unit-testing": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
