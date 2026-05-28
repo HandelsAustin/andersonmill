@@ -7,6 +7,33 @@ v0.1
 
 ## Recent Changes
 
+### Identity-First Auth & Entry Screen (2026-05-28)
+Restructured the app launch flow so identity is established before store context — production floor optimized, zero ceremony.
+
+- **Added:** Entry screen (`#entryOverlay`) — shown when no auth session and no employee session exists. Two large touch targets: "Continue as Employee" (primary, green, 76px height) and "Manager Sign In" (secondary, outline). Branded with app name, no forms, no complexity.
+- **Added:** `enterEmployeeMode()` — sets `sessionStorage('car_employee_session')`, assigns `ROLES.EMPLOYEE` automatically, hides entry screen, proceeds to store picker/welcome-back. Session clears when browser closes (correct behavior for shared tablets).
+- **Added:** `showEntryScreen()` / `hideEntryScreen()` — entry overlay control.
+- **Added:** Welcome-back state in `showStorePicker()` — if a last-used store is saved, shows "Welcome back · [Store Name]" with a large "Continue →" button and a "Switch Store" escape. One tap to resume daily workflow. `showStorePicker(true)` skips it for explicit switching.
+- **Added:** `_renderWelcomeBack(list, savedId, savedLabel)` — builds welcome-back UI into the store picker overlay.
+- **Added:** Store label persistence — `selectStore()` now saves `car_store_label` to localStorage so welcome-back shows the name even without a Firestore read (works in employee/offline mode).
+- **Changed:** `bootstrap()` — now checks auth/employee session first; shows entry screen and returns early if neither is established. Removed `initRoleUI()` and `renderRoleAudit()` calls.
+- **Changed:** `signInManager()` — detects if entry screen was open before sign-in; after success, hides entry screen, clears employee session flag, and proceeds to store picker. Handles both new account and existing account paths.
+- **Changed:** `updateUserRoleDisplay()` — now context-aware: "Signed in · Store Manager / Corporate Admin / Employee" for authenticated users, "Employee mode" for session-only employees, empty for entry screen state.
+- **Changed:** `updateRoleUIVisibility()` — simplified; only manages Dashboard button visibility (no roleSelect).
+- **Removed:** `#roleSelect` dropdown from header HTML — roles are never chosen manually.
+- **Removed:** `initRoleUI()` function — no role selector to initialize.
+- **Removed:** `logRoleChange()` function — role changes no longer happen client-side.
+- **Removed:** `renderRoleAudit()` function and all call sites — audit panel already removed from HTML in prior pass.
+- **Preserved:** PIN emergency override (`requireManager()`), manager sign-in modal, all production workflows, offline behavior, Firestore sync, PWA functionality, store/org data structures.
+
+**New flow:**
+```
+App launch → onAuthStateChanged → bootstrap()
+  Returning manager (Firebase token) → load role → welcome-back / store picker → workflow
+  Employee session (sessionStorage) → welcome-back / store picker → workflow (limited perms)
+  No session → Entry screen → "Continue as Employee" or "Manager Sign In" → ...above
+```
+
 ### Vercel Deployment Prep (2026-05-28)
 Deployment-safe configuration for production hosting on Vercel with Firebase Auth, Firestore, service workers, and PWA installability all functioning correctly.
 

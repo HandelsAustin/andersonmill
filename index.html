@@ -288,6 +288,21 @@
     .pin-error { color:#d72627; font-size:12px; margin-top:8px; min-height:18px; font-family:'Arial Narrow',Arial,sans-serif; }
     .pin-manager-btn { font-size:11px; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; padding:5px 10px; border-radius:6px; border:1px solid #98d4e3; background:#2c3691; color:#98d4e3; cursor:pointer; margin-left:8px; }
     .pin-manager-btn.unlocked { border-color:#98d4e3; color:#ffffff; background:#2c3691; }
+
+    /* Entry screen */
+    .entry-overlay { display:none; position:fixed; inset:0; background:#2c3691; z-index:900; flex-direction:column; align-items:center; justify-content:center; padding:32px 24px; }
+    .entry-overlay.open { display:flex; }
+    .entry-brand { text-align:center; margin-bottom:52px; }
+    .entry-brand h1 { font-family:'Raiders','Impact',sans-serif; font-size:34px; color:#ffffff; text-transform:uppercase; letter-spacing:0.06em; }
+    .entry-brand h1 span { color:#d72627; }
+    .entry-brand p { font-size:11px; color:#98d4e3; font-family:'Arial Narrow',Arial,sans-serif; margin-top:8px; letter-spacing:0.1em; text-transform:uppercase; }
+    .entry-actions { width:100%; max-width:380px; display:flex; flex-direction:column; gap:12px; }
+    .entry-btn-employee { width:100%; min-height:76px; padding:20px 24px; background:#0f4a2a; border:1.5px solid #98d4e3; border-radius:12px; color:#ffffff; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; font-size:19px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; transition:background 0.1s; }
+    .entry-btn-employee:hover { background:#165e35; }
+    .entry-btn-employee:active { opacity:0.75; }
+    .entry-btn-manager { width:100%; min-height:52px; padding:14px 24px; background:transparent; border:1.5px solid rgba(152,212,227,0.35); border-radius:10px; color:#98d4e3; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; transition:border-color 0.15s,color 0.15s; }
+    .entry-btn-manager:hover { border-color:#98d4e3; color:#ffffff; }
+    .entry-btn-manager:active { opacity:0.75; }
   </style>
   <script src="./appHelpers.js" defer></script>
 </head>
@@ -304,10 +319,6 @@
       <button class="btn" onclick="showOrgPicker()" title="Switch organization">Org</button>
       <button class="btn btn-primary" id="dashboardBtn" style="display:none;" onclick="showCorporateDashboard()">Dashboard</button>
       <button class="btn btn-green" id="authBtn" onclick="openAuthModal()">Sign In</button>
-      <select id="roleSelect" style="display:none;margin-left:8px;padding:6px 8px;border-radius:6px;background:#2c3691;color:#98d4e3;border:1px solid #98d4e3;">
-        <option value="">Role</option>
-      </select>
-
       <div id="printDropdown" style="position:relative;">
         <button class="btn" onclick="togglePrintMenu(event)">&#128438; Print</button>
         <div id="printMenu" style="display:none;position:absolute;top:110%;right:0;background:#1a2744;border:1.5px solid #2e4a70;border-radius:8px;overflow:hidden;z-index:200;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
@@ -450,6 +461,18 @@
       <button class="btn" onclick="closeCorporateDashboard()">Close</button>
     </div>
     <div id="dashboardContent" style="display:grid;gap:16px;overflow-y:auto;flex:1;min-height:0;"></div>
+  </div>
+</div>
+
+<!-- Entry Screen -->
+<div id="entryOverlay" class="entry-overlay">
+  <div class="entry-brand">
+    <h1>Count <span>&amp;</span> Run</h1>
+    <p>Handel's Homemade Ice Cream</p>
+  </div>
+  <div class="entry-actions">
+    <button class="entry-btn-employee" onclick="enterEmployeeMode()">Continue as Employee</button>
+    <button class="entry-btn-manager" onclick="openAuthModal()">Manager Sign In</button>
   </div>
 </div>
 
@@ -787,7 +810,15 @@ function userCanManage() {
 function updateUserRoleDisplay() {
   const el = document.getElementById('userRoleStatus');
   if (!el) return;
-  el.textContent = `Role: ${window._USER_ROLE.replace('_', ' ')}`;
+  if (window._auth && window._auth.currentUser) {
+    const label = window._USER_ROLE === ROLES.CORPORATE_ADMIN ? 'Corporate Admin' :
+                  window._USER_ROLE === ROLES.STORE_MANAGER ? 'Store Manager' : 'Employee';
+    el.textContent = `Signed in · ${label}`;
+  } else if (sessionStorage.getItem('car_employee_session')) {
+    el.textContent = 'Employee mode';
+  } else {
+    el.textContent = '';
+  }
 }
 
 async function loadCurrentUserRole(forceCreate = false) {
@@ -815,7 +846,6 @@ async function loadCurrentUserRole(forceCreate = false) {
     updateUserRoleDisplay();
     updateAuthButton();
     updateRoleUIVisibility();
-    renderRoleAudit();
   } catch (e) {
     console.error('Load user role error:', e);
   }
@@ -849,64 +879,6 @@ function updateAuthButton() {
   btn.textContent = window._auth && window._auth.currentUser ? 'Sign Out' : 'Sign In';
 }
 
-function initRoleUI() {
-  const sel = document.getElementById('roleSelect');
-  if (!sel) return;
-  // populate roles from ROLES constant
-  sel.innerHTML = '<option value="">Role</option>';
-  for (const k in ROLES) {
-    const opt = document.createElement('option');
-    opt.value = ROLES[k];
-    opt.textContent = ROLES[k].replace('_', ' ');
-    sel.appendChild(opt);
-  }
-  sel.addEventListener('change', async (e) => {
-    const v = e.target.value;
-    if (!v) return;
-    if (window._auth && window._auth.currentUser) {
-      await setCurrentUserRole(v);
-      logRoleChange(v, 'auth');
-      showStatusMessage('Role updated to ' + v.replace('_',' '));
-    } else {
-      // local-only role change when not signed in
-      window._USER_ROLE = v;
-      localStorage.setItem('car_user_role', window._USER_ROLE);
-      updateUserRoleDisplay();
-      logRoleChange(v, 'local');
-      showStatusMessage('Local role set to ' + v.replace('_',' '));
-    }
-    sel.value = '';
-  });
-  setTimeout(updateRoleUIVisibility, 0);
-}
-
-function logRoleChange(role, source) {
-  try {
-    const key = 'car_role_audit';
-    const raw = localStorage.getItem(key);
-    const arr = raw ? JSON.parse(raw) : [];
-    arr.unshift({ role, source, at: Date.now() });
-    // keep recent 12 entries
-    localStorage.setItem(key, JSON.stringify(arr.slice(0,12)));
-    renderRoleAudit();
-  } catch (e) {
-    console.error('Role audit log error', e);
-  }
-}
-
-function renderRoleAudit() {
-  const panel = document.getElementById('roleAudit');
-  const listEl = document.getElementById('roleAuditList');
-  if (!panel || !listEl) return;
-  const raw = localStorage.getItem('car_role_audit');
-  const arr = raw ? JSON.parse(raw) : [];
-  if (!arr.length) { panel.style.display = 'none'; listEl.innerHTML = ''; return; }
-  panel.style.display = 'block';
-  listEl.innerHTML = arr.slice(0,8).map(it => {
-    const t = new Date(it.at).toLocaleString();
-    return `<div style="padding:4px 0;border-bottom:1px solid #eee;"><strong style="color:#2c3691">${it.role.replace('_',' ')}</strong> <span style="color:#666;font-size:11px">(${it.source})</span><div style="color:#666;font-size:11px">${t}</div></div>`;
-  }).join('');
-}
 
 function showStatusMessage(msg, timeout=2200) {
   let el = document.getElementById('statusToast');
@@ -931,12 +903,7 @@ function showStatusMessage(msg, timeout=2200) {
 
 
 function updateRoleUIVisibility() {
-  const sel = document.getElementById('roleSelect');
   const dashboardBtn = document.getElementById('dashboardBtn');
-  if (sel) {
-    const show = !window._auth || !window._auth.currentUser || userHasRole(ROLES.CORPORATE_ADMIN);
-    sel.style.display = show ? 'inline-block' : 'none';
-  }
   if (dashboardBtn) {
     dashboardBtn.style.display = userHasRole(ROLES.CORPORATE_ADMIN) ? 'inline-flex' : 'none';
   }
@@ -967,20 +934,40 @@ async function signInManager() {
     return;
   }
   try {
+    const fromEntry = document.getElementById('entryOverlay')?.classList.contains('open');
     await window._signInWithEmailAndPassword(window._auth, email, password);
     await loadCurrentUserRole(true);
     await window.logOrgEvent('signed_in', { email });
     closeAuthModal();
+    if (fromEntry) {
+      hideEntryScreen();
+      sessionStorage.removeItem('car_employee_session');
+      updateConnectivityStatus();
+      loadCabinetPref();
+      if (window._firebaseReady) loadOrgMetadata();
+      await loadOrgStores().catch(() => {});
+      showStorePicker();
+    }
   } catch (e) {
     if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') {
       const create = confirm('No account found. Create a new manager account?');
       if (!create) return;
       try {
+        const fromEntry2 = document.getElementById('entryOverlay')?.classList.contains('open');
         await window._createUserWithEmailAndPassword(window._auth, email, password);
         await window._signInWithEmailAndPassword(window._auth, email, password);
         await loadCurrentUserRole(true);
         await window.logOrgEvent('account_created', { email });
         closeAuthModal();
+        if (fromEntry2) {
+          hideEntryScreen();
+          sessionStorage.removeItem('car_employee_session');
+          updateConnectivityStatus();
+          loadCabinetPref();
+          if (window._firebaseReady) loadOrgMetadata();
+          await loadOrgStores().catch(() => {});
+          showStorePicker();
+        }
       } catch (createErr) {
         errEl.textContent = createErr.message || 'Unable to create account.';
         console.error(createErr);
@@ -3003,7 +2990,6 @@ async function selectOrg(orgId) {
   if (window._auth && window._auth.currentUser) {
     await loadCurrentUserRole();
     updateRoleUIVisibility();
-    renderRoleAudit();
   }
 }
 
@@ -3021,17 +3007,23 @@ async function loadOrgStores() {
   }
 }
 
-async function showStorePicker() {
+async function showStorePicker(skipWelcomeBack = false) {
   const list = document.getElementById('storeList');
   list.innerHTML = '';
-  // Open the overlay immediately so the user sees a response right away
   document.getElementById('storeOverlay').classList.add('open');
 
-  // Close button — only shown when a store is already loaded (picker opened from toolbar, not cold-start).
-  // Prevents operators from being stuck if the picker is opened accidentally.
+  // Welcome-back: if returning to a known store, confirm before showing full list
+  const savedId = window.getCurrentStoreId();
+  const savedLabel = localStorage.getItem('car_store_label') || savedId;
+  if (!skipWelcomeBack && savedId && savedLabel) {
+    _renderWelcomeBack(list, savedId, savedLabel);
+    return;
+  }
+
+  // Close button — only shown when a store is already loaded mid-session
   const _existingClose = document.getElementById('storeOverlayClose');
   if (_existingClose) _existingClose.remove();
-  if (window.getCurrentStoreId()) {
+  if (savedId) {
     const closeBtn = document.createElement('button');
     closeBtn.id = 'storeOverlayClose';
     closeBtn.textContent = '× Not now';
@@ -3043,13 +3035,12 @@ async function showStorePicker() {
 
   let stores = window.getOrgStores();
   if (!stores.length) {
-    // Show a loading indicator while Firestore resolves
     const loadingEl = document.createElement('div');
     loadingEl.style.cssText = 'text-align:center;color:#8fa3be;font-size:14px;font-family:\'Arial Narrow\',Arial,sans-serif;padding:20px 0;';
     loadingEl.textContent = '⏳ Loading stores…';
     list.appendChild(loadingEl);
     stores = await loadOrgStores();
-    list.innerHTML = ''; // clear loading indicator
+    list.innerHTML = '';
   }
 
   if (!stores.length) {
@@ -3058,7 +3049,7 @@ async function showStorePicker() {
     } else {
       const p = document.createElement('p');
       p.style.cssText = 'color:#98d4e3;font-size:13px;line-height:1.6;text-align:center;';
-      p.textContent = 'No stores found for this organization. Sign in to set up this organization.';
+      p.textContent = 'No stores available. Ask a manager to sign in and set up this device.';
       list.appendChild(p);
     }
   } else {
@@ -3070,6 +3061,37 @@ async function showStorePicker() {
       list.appendChild(btn);
     });
   }
+}
+
+function _renderWelcomeBack(list, savedId, savedLabel) {
+  list.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'text-align:center;padding:8px 0;';
+
+  const greeting = document.createElement('div');
+  greeting.style.cssText = 'font-size:11px;color:#98d4e3;font-family:"Arial Narrow",Arial,sans-serif;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;';
+  greeting.textContent = 'Welcome back';
+  wrap.appendChild(greeting);
+
+  const storeName = document.createElement('div');
+  storeName.style.cssText = 'font-size:24px;font-weight:700;color:#ffffff;margin-bottom:28px;font-family:"Tw Cen MT","Century Gothic",Arial,sans-serif;';
+  storeName.textContent = savedLabel;
+  wrap.appendChild(storeName);
+
+  const continueBtn = document.createElement('button');
+  continueBtn.className = 'store-btn';
+  continueBtn.style.cssText = 'text-align:center;background:#0f4a2a;border-color:#98d4e3;font-size:17px;padding:20px 24px;letter-spacing:0.04em;';
+  continueBtn.textContent = 'Continue →';
+  continueBtn.onclick = () => selectStore(savedId);
+  wrap.appendChild(continueBtn);
+
+  const switchBtn = document.createElement('button');
+  switchBtn.style.cssText = 'margin-top:14px;display:block;width:100%;padding:12px;background:transparent;border:none;color:#8fa3be;font-family:"Arial Narrow",Arial,sans-serif;font-size:13px;cursor:pointer;touch-action:manipulation;letter-spacing:0.04em;';
+  switchBtn.textContent = 'Switch Store';
+  switchBtn.onclick = () => showStorePicker(true);
+  wrap.appendChild(switchBtn);
+
+  list.appendChild(wrap);
 }
 
 // ── STORE FORM (shared helper) ──────────────────────────────────────────────
@@ -3261,6 +3283,7 @@ function selectStore(id) {
   document.getElementById('storeOverlay').classList.remove('open');
   const store = findStoreById(id);
   if (store) {
+    localStorage.setItem('car_store_label', store.label);
     const sub = document.querySelector('.header-sub');
     if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
     window.logOrgEvent('store_selected', { storeId: id, label: store.label });
@@ -3348,15 +3371,42 @@ async function init() {
   }
 }
 
+// ── ENTRY SCREEN ────────────────────────────────────────────────────────────
+function showEntryScreen() {
+  document.getElementById('entryOverlay').classList.add('open');
+}
+
+function hideEntryScreen() {
+  document.getElementById('entryOverlay').classList.remove('open');
+}
+
+function enterEmployeeMode() {
+  sessionStorage.setItem('car_employee_session', '1');
+  window._USER_ROLE = ROLES.EMPLOYEE;
+  localStorage.setItem('car_user_role', ROLES.EMPLOYEE);
+  hideEntryScreen();
+  updateUserRoleDisplay();
+  updateRoleUIVisibility();
+  updateConnectivityStatus();
+  loadCabinetPref();
+  if (window._firebaseReady) loadOrgMetadata();
+  showStorePicker();
+}
+
 function bootstrap() {
+  // Identity gate: if no auth session and no employee session, show entry screen
+  if (!(window._auth && window._auth.currentUser) && !sessionStorage.getItem('car_employee_session')) {
+    showEntryScreen();
+    return;
+  }
+
   updateConnectivityStatus();
   loadCabinetPref();
   updateUserRoleDisplay();
-  initRoleUI();
+  updateRoleUIVisibility();
   if (window._firebaseReady) {
     loadOrgMetadata();
   }
-  renderRoleAudit();
   const savedId = window.getCurrentStoreId();
   if (savedId) {
     window.setStoreId(savedId);

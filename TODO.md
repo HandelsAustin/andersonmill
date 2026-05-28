@@ -4,6 +4,14 @@
 - Per-org Firestore security rules (scope reads/writes to org members)
 - Improve offline reliability
 
+## Auth & Session (completed this pass)
+- ✅ Entry screen: "Continue as Employee" / "Manager Sign In" — identity before store context
+- ✅ Employee mode: sessionStorage-scoped, auto-clears on browser close
+- ✅ Welcome-back: saved store shown with one-tap Continue on return visits
+- ✅ Role loading: automatic from Firestore after sign-in, never manually selected
+- ✅ Role selector: removed entirely from UI
+- ✅ Store label cached to localStorage for offline welcome-back display
+
 ## Deployment (one-time post-Vercel steps)
 - [ ] Add Vercel URL to Firebase Console → Authentication → Authorized domains
 - [ ] Test sign-in on live URL before inviting store staff
