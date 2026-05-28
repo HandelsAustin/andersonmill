@@ -7,6 +7,22 @@ v0.1
 
 ## Recent Changes
 
+### Vercel Deployment Prep (2026-05-28)
+Deployment-safe configuration for production hosting on Vercel with Firebase Auth, Firestore, service workers, and PWA installability all functioning correctly.
+
+- **Created:** `vercel.json` — explicit static deployment configuration. Sets `buildCommand: ""` and `outputDirectory: "."` so Vercel skips the Node.js build phase and does not install `firebase-admin` / test dependencies on every deploy. Defines HTTP response headers for all served paths.
+- **Fixed:** `sw.js` served with `Cache-Control: no-store` — critical for service worker update detection. Without this, browsers may serve a stale `sw.js` from their HTTP cache and never install updated versions of the app. Includes `Service-Worker-Allowed: /` to explicitly confirm root-scope registration.
+- **Fixed:** App shell files (`index.html`, `manifest.json`, `appHelpers.js`, `config.js`) served with `Cache-Control: public, max-age=0, must-revalidate` — forces revalidation on every load so SW cache-version bumps and code changes propagate immediately.
+- **Added:** Security headers applied to all routes: `X-Frame-Options: DENY` (clickjacking protection), `X-Content-Type-Options: nosniff` (MIME sniffing protection), `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy: camera=(), microphone=(), geolocation=()`.
+- **Added:** Icon assets (`/icons/*`) served with `Cache-Control: public, max-age=86400` — 1-day cache appropriate for static assets that rarely change.
+- **Fixed:** `appHelpers.js` — removed duplicate `const DEFAULT_ORG_ID` declaration that caused a `SyntaxError` crashing the entire file. All three usages replaced with `window.DEFAULT_ORG_ID || 'handels'`, which reads from the value set by the module script. Resolved cascading `window.flushAnalyticsEvents is not a function` error.
+- **Added:** `<meta name="mobile-web-app-capable" content="yes">` — standard (non-vendor-prefixed) PWA meta tag for Android Chrome. Resolves browser deprecation warning about the Apple-prefixed tag. Both tags are now present for maximum compatibility.
+
+**Post-deploy checklist (manual steps after Vercel assigns a URL):**
+1. Firebase Console → Authentication → Settings → Authorized domains → add the Vercel URL
+2. Test sign-in flow on the live URL before inviting store staff
+3. Verify service worker registers successfully (DevTools → Application → Service Workers)
+
 ### Pilot Readiness Hardening Pass (2026-05-27)
 Operational edge case fixes and safety improvements before real-world daily store usage begins.
 

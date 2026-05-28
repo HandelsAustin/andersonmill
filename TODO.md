@@ -4,6 +4,12 @@
 - Per-org Firestore security rules (scope reads/writes to org members)
 - Improve offline reliability
 
+## Deployment (one-time post-Vercel steps)
+- [ ] Add Vercel URL to Firebase Console → Authentication → Authorized domains
+- [ ] Test sign-in on live URL before inviting store staff
+- [ ] Verify SW registers in DevTools → Application → Service Workers
+- [ ] Add `icons/icon-192.png` + `icons/icon-512.png` to `manifest.json` for full Android Chrome install prompt (SVG-only works for iOS; PNG required for Android)
+
 ## Done (this session)
 - ✅ Pilot readiness hardening pass
   - `resetDay()` now clears `runDismissed`, `_totalBucketsMade`, `car_run_state` — prevents stale run state corrupting next run
