@@ -959,7 +959,7 @@ async function signInManager() {
   }
   try {
     await window._signInWithEmailAndPassword(window._auth, email, password);
-    await loadCurrentUserRole();
+    await loadCurrentUserRole(true);
     await window.logOrgEvent('signed_in', { email });
     closeAuthModal();
   } catch (e) {
