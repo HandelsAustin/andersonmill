@@ -3,11 +3,10 @@ const STORAGE_KEYS = window._STORAGE_KEYS || {
   storeId: 'car_store_id',
   backup: 'car_backup'
 };
-const DEFAULT_ORG_ID = window.DEFAULT_ORG_ID || 'handels';
 const DEFAULT_USER_ROLE = (window.ROLES && window.ROLES.EMPLOYEE) || 'EMPLOYEE';
 
 window.APP_STATE = window.APP_STATE || {
-  orgId: localStorage.getItem(STORAGE_KEYS.orgId) || DEFAULT_ORG_ID,
+  orgId: localStorage.getItem(STORAGE_KEYS.orgId) || window.DEFAULT_ORG_ID || 'handels',
   storeId: localStorage.getItem(STORAGE_KEYS.storeId) || undefined,
   userRole: localStorage.getItem('car_user_role') || DEFAULT_USER_ROLE,
   userUid: null,
@@ -15,7 +14,7 @@ window.APP_STATE = window.APP_STATE || {
 };
 
 window.setOrgId = function(orgId) {
-  window.APP_STATE.orgId = orgId || DEFAULT_ORG_ID;
+  window.APP_STATE.orgId = orgId || window.DEFAULT_ORG_ID || 'handels';
   window._ORG_ID = window.APP_STATE.orgId;
   localStorage.setItem(STORAGE_KEYS.orgId, window.APP_STATE.orgId);
 };
@@ -42,7 +41,7 @@ window.setSignedInUser = function(user) {
 };
 
 window.getCurrentOrgId = function() {
-  return window.APP_STATE.orgId || DEFAULT_ORG_ID;
+  return window.APP_STATE.orgId || window.DEFAULT_ORG_ID || 'handels';
 };
 
 window.getCurrentStoreId = function() {
