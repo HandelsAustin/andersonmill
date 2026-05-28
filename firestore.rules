@@ -41,6 +41,13 @@ service cloud.firestore {
         // Only corporate admins may delete members
         allow delete: if isCorporateAdmin();
       }
+
+      // Org-scoped analytics event log — written by logOrgEvent() on sign-in, store selection, etc.
+      match /events/{eventId} {
+        allow create: if isStoreManager();
+        allow read: if isStoreManager();
+        allow update, delete: if false;
+      }
     }
 
     // Analytics events should be scoped by org and store.
