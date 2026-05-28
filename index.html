@@ -52,6 +52,10 @@
       if (user) {
         await loadCurrentUserRole();
         updateAuthButton();
+        // Reload store data if bootstrap ran before auth was restored
+        if (window.init && window.getCurrentStoreId && window.getCurrentStoreId()) {
+          window.init();
+        }
       } else {
         window._USER_ROLE = localStorage.getItem('car_user_role') || ROLES.EMPLOYEE;
         updateUserRoleDisplay();
