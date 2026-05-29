@@ -317,13 +317,7 @@
     <div class="header-right">
       <button class="btn btn-primary" id="dashboardBtn" style="display:none;" onclick="showCorporateDashboard()">Dashboard</button>
       <button class="btn btn-green" id="authBtn" onclick="openAuthModal()">Sign In</button>
-      <div id="printDropdown" style="position:relative;">
-        <button class="btn" onclick="togglePrintMenu(event)">&#128438; Print</button>
-        <div id="printMenu" style="display:none;position:absolute;top:110%;right:0;background:#1a2744;border:1.5px solid #2e4a70;border-radius:8px;overflow:hidden;z-index:200;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
-          <button onclick="printRun();closePrintMenu();" style="display:block;width:100%;text-align:left;padding:12px 16px;background:none;border:none;border-bottom:1px solid #2e4a70;color:#c5d8f0;font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif;font-size:13px;cursor:pointer;">&#128438; Print Batch Run</button>
-          <button onclick="printInventory();closePrintMenu();" style="display:block;width:100%;text-align:left;padding:12px 16px;background:none;border:none;color:#c5d8f0;font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif;font-size:13px;cursor:pointer;">&#128203; Print Current Inventory</button>
-        </div>
-      </div>
+      <button class="btn" id="pwaInstallBtn" onclick="triggerPwaInstall()" style="display:none" title="Install this app on your device for offline use">&#11015; Install App</button>
     </div>
   </div>
   <div class="app-body">
@@ -331,10 +325,16 @@
       <button class="btn" id="editFlavorsBtn" onclick="requireManager(openAddModal)">&#9776; Edit Flavors</button>
       <button class="btn btn-red" onclick="resetDay()">&#8635; Reset</button>
       <button class="btn btn-green" onclick="calculateRun()">&#9654; Calculate Run</button>
+      <div id="printDropdown" style="position:relative;">
+        <button class="btn" onclick="togglePrintMenu(event)">&#128438; Print</button>
+        <div id="printMenu" style="display:none;position:absolute;top:110%;right:0;background:#1a2744;border:1.5px solid #2e4a70;border-radius:8px;overflow:hidden;z-index:200;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+          <button onclick="printRun();closePrintMenu();" style="display:block;width:100%;text-align:left;padding:12px 16px;background:none;border:none;border-bottom:1px solid #2e4a70;color:#c5d8f0;font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif;font-size:13px;cursor:pointer;">&#128438; Print Batch Run</button>
+          <button onclick="printInventory();closePrintMenu();" style="display:block;width:100%;text-align:left;padding:12px 16px;background:none;border:none;color:#c5d8f0;font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif;font-size:13px;cursor:pointer;">&#128203; Print Current Inventory</button>
+        </div>
+      </div>
       <div id="printBtn" style="display:none;position:relative;">
         <button class="btn" onclick="togglePrintMenu(event)">&#128438; Print</button>
       </div>
-      <button class="btn" id="pwaInstallBtn" onclick="triggerPwaInstall()" style="display:none" title="Install this app on your device for offline use">&#11015; Install App</button>
     </div>
 
     <div class="legend">
