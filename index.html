@@ -1177,35 +1177,68 @@ function buildRow(f, runIndex, runTotal) {
   tr.appendChild(tdType);
 
   if (runMode) {
-    // Run mode: checkboxes (one per bucket needed) + Skip button
+    // Run mode: completed rows stay visible, muted; incomplete rows show checkboxes + skip
+    const doneCount   = runDismissed.filter(d => d.name === f.name).length;
+    const isFullyDone = doneCount >= tm;
+
+    if (isFullyDone) {
+      tr.style.opacity    = '0.5';
+      tr.style.borderLeft = '3px solid #22a05a';
+      sp.style.textDecoration = 'line-through';
+    }
+
     const tdBoxes = document.createElement('td');
     tdBoxes.style.cssText = 'text-align:center;';
-    const boxWrap = document.createElement('div');
-    boxWrap.style.cssText = 'display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;';
-    for (let i = 1; i <= tm; i++) {
-      const alreadyDone = runDismissed.find(d => d.name === f.name && d.index === i);
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = !!alreadyDone;
-      cb.disabled = !!alreadyDone;
-      cb.style.cssText = 'width:36px;height:36px;cursor:pointer;accent-color:#22a05a;';
-      cb.addEventListener('change', () => {
-        if (!cb.checked) return;
-        cb.disabled = true;
-        dismissRunRow(f.name, i, 'made');
-      });
-      boxWrap.appendChild(cb);
+
+    if (isFullyDone) {
+      const wasSkipped  = runDismissed.some(d => d.name === f.name && d.action === 'skip');
+      const madeCount   = runDismissed.filter(d => d.name === f.name && d.action === 'made').length;
+      const completedWrap = document.createElement('div');
+      completedWrap.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;';
+      const statusLabel = document.createElement('span');
+      statusLabel.textContent = wasSkipped ? '— Skipped' : `✓ ${madeCount} made`;
+      statusLabel.style.cssText = wasSkipped
+        ? 'font-size:12px;color:#8fa3be;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;'
+        : 'font-size:12px;color:#22a05a;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;font-weight:600;';
+      completedWrap.appendChild(statusLabel);
+      const undoBtn = document.createElement('button');
+      undoBtn.textContent = 'Undo';
+      undoBtn.style.cssText = 'background:none;border:1px solid #4a6a8a;color:#8fa3be;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:11px;font-weight:700;padding:5px 10px;border-radius:5px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;touch-action:manipulation;-webkit-tap-highlight-color:transparent;min-height:36px;';
+      undoBtn.onclick = () => undoRunRow(f.name);
+      completedWrap.appendChild(undoBtn);
+      tdBoxes.appendChild(completedWrap);
+    } else {
+      const boxWrap = document.createElement('div');
+      boxWrap.style.cssText = 'display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;';
+      for (let i = 1; i <= tm; i++) {
+        const alreadyDone = runDismissed.find(d => d.name === f.name && d.index === i);
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!alreadyDone;
+        cb.disabled = !!alreadyDone;
+        cb.style.cssText = 'width:36px;height:36px;cursor:pointer;accent-color:#22a05a;';
+        if (!alreadyDone) {
+          cb.addEventListener('change', () => {
+            if (!cb.checked) return;
+            cb.disabled = true;
+            dismissRunRow(f.name, i, 'made');
+          });
+        }
+        boxWrap.appendChild(cb);
+      }
+      tdBoxes.appendChild(boxWrap);
     }
-    tdBoxes.appendChild(boxWrap);
     tr.appendChild(tdBoxes);
 
     const tdActions = document.createElement('td');
     tdActions.style.cssText = 'text-align:right;white-space:nowrap;';
-    const skipBtn = document.createElement('button');
-    skipBtn.textContent = 'Skip';
-    skipBtn.style.cssText = 'background:#d72627;border:1.5px solid #d72627;color:#ffffff;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:44px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-transform:uppercase;letter-spacing:0.04em;';
-    skipBtn.onclick = () => dismissRunRow(f.name, null, 'skip');
-    tdActions.appendChild(skipBtn);
+    if (!isFullyDone) {
+      const skipBtn = document.createElement('button');
+      skipBtn.textContent = 'Skip';
+      skipBtn.style.cssText = 'background:#d72627;border:1.5px solid #d72627;color:#ffffff;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:44px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-transform:uppercase;letter-spacing:0.04em;';
+      skipBtn.onclick = () => dismissRunRow(f.name, null, 'skip');
+      tdActions.appendChild(skipBtn);
+    }
     tr.appendChild(tdActions);
   } else {
     // Normal mode: dropdowns + To Make
@@ -1395,12 +1428,7 @@ function renderTable() {
     return;
   }
   if (runMode) {
-    sorted.forEach(f => {
-      const tm = toMake(f);
-      const doneCount = runDismissed.filter(d => d.name === f.name).length;
-      if (doneCount >= tm) return;
-      tbody.appendChild(buildRow(f, null, tm));
-    });
+    sorted.forEach(f => tbody.appendChild(buildRow(f, null, null)));
   } else {
     sorted.forEach(f => tbody.appendChild(buildRow(f)));
   }
@@ -1429,7 +1457,7 @@ let _totalBucketsMade = 0;
 
 function dismissRunRow(name, index, action) {
   if (action === 'made') {
-    runDismissed.push({ name, index });
+    runDismissed.push({ name, index, action: 'made' });
     _totalBucketsMade++;
     const idx = activeFlavors.findIndex(f => f.name === name);
     if (idx >= 0) {
@@ -1440,7 +1468,7 @@ function dismissRunRow(name, index, action) {
     const tm = flavorIdx >= 0 ? toMake(activeFlavors[flavorIdx]) : 0;
     const doneCount = runDismissed.filter(d => d.name === name).length;
     if (doneCount >= tm) {
-      renderTable();
+      renderTable(); // transition row to muted/completed state
       checkRunComplete();
     }
   } else if (action === 'skip') {
@@ -1448,16 +1476,30 @@ function dismissRunRow(name, index, action) {
     const tm = idx >= 0 ? toMake(activeFlavors[idx]) : 0;
     for (let i = 1; i <= tm; i++) {
       if (!runDismissed.find(d => d.name === name && d.index === i)) {
-        runDismissed.push({ name, index: i });
+        runDismissed.push({ name, index: i, action: 'skip' });
       }
     }
     renderTable();
     checkRunComplete();
   }
-  // Persist run progress so init() can detect an interrupted run on next load
   if (runMode) {
     try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now() })); } catch(e) {}
   }
+}
+
+function undoRunRow(name) {
+  const entries = runDismissed.filter(d => d.name === name);
+  if (!entries.length) return;
+  const madeCount = entries.filter(d => d.action === 'made').length;
+  runDismissed = runDismissed.filter(d => d.name !== name);
+  _totalBucketsMade = Math.max(0, _totalBucketsMade - madeCount);
+  const idx = activeFlavors.findIndex(f => f.name === name);
+  if (idx >= 0 && madeCount > 0) {
+    activeFlavors[idx].made = Math.max(0, (activeFlavors[idx].made || 0) - madeCount);
+    saveAll();
+  }
+  try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now() })); } catch(e) {}
+  renderTable();
 }
 
 function calculateRun() {
