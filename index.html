@@ -424,6 +424,11 @@
   </div>
 </div>
 
+<!-- Run Preparation Overlay -->
+<div id="runPrepOverlay" class="var-overlay">
+  <div class="var-box" style="max-width:460px;" id="runPrepBox"></div>
+</div>
+
 <!-- Variegate Modal -->
 <div id="varOverlay" class="var-overlay">
   <div class="var-box">
@@ -707,6 +712,8 @@ let _resetUndoTimer = null;
 let _doneRunPending = false; // double-tap guard: first tap of Done mid-run shows warning
 let _doneRunTimer   = null;
 let _runDurationMs  = 0;    // duration of last completed run in ms (captured at summary time)
+let _cateringItems     = []; // [{name, buckets}] — user-added catering entries; persist across recalculations
+let _cateringDismissed = []; // [{name, index, action}] — completed/skipped catering buckets; cleared on run end
 
 // ── CATEGORY SORT ──────────────────────────────────────────────────────────
 // Converts a category string to a numeric-sortable value.
@@ -1195,8 +1202,10 @@ function buildRow(f, runIndex, runTotal) {
 
   if (runMode) {
     // Run mode: completed rows stay visible, muted; incomplete rows show checkboxes + skip
-    const doneCount   = runDismissed.filter(d => d.name === f.name).length;
-    const isFullyDone = doneCount >= tm;
+    const doneCount      = runDismissed.filter(d => d.name === f.name).length;
+    const cateringTotal  = _cateringItems.filter(c => c.name === f.name).reduce((s, c) => s + c.buckets, 0);
+    const cateringDone   = _cateringDismissed.filter(d => d.name === f.name).length;
+    const isFullyDone    = doneCount >= tm && cateringDone >= cateringTotal;
 
     if (isFullyDone) {
       tr.style.opacity    = '0.5';
@@ -1208,16 +1217,26 @@ function buildRow(f, runIndex, runTotal) {
     tdBoxes.style.cssText = 'text-align:center;';
 
     if (isFullyDone) {
-      const wasSkipped  = runDismissed.some(d => d.name === f.name && d.action === 'skip');
-      const madeCount   = runDismissed.filter(d => d.name === f.name && d.action === 'made').length;
+      const wasSkipped    = runDismissed.some(d => d.name === f.name && d.action === 'skip');
+      const wasSkippedCat = _cateringDismissed.some(d => d.name === f.name && d.action === 'skip');
+      const madeCount     = runDismissed.filter(d => d.name === f.name && d.action === 'made').length;
+      const catMadeCount  = _cateringDismissed.filter(d => d.name === f.name && d.action === 'made').length;
       const completedWrap = document.createElement('div');
-      completedWrap.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;';
-      const statusLabel = document.createElement('span');
-      statusLabel.textContent = wasSkipped ? '— Skipped' : `✓ ${madeCount} made`;
-      statusLabel.style.cssText = wasSkipped
-        ? 'font-size:12px;color:#8fa3be;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;'
-        : 'font-size:12px;color:#22a05a;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;font-weight:600;';
-      completedWrap.appendChild(statusLabel);
+      completedWrap.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;';
+      if (tm > 0) {
+        const statusLabel = document.createElement('span');
+        statusLabel.textContent = wasSkipped ? '— Skipped' : `✓ ${madeCount} made`;
+        statusLabel.style.cssText = wasSkipped
+          ? 'font-size:12px;color:#8fa3be;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;'
+          : 'font-size:12px;color:#22a05a;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;font-weight:600;';
+        completedWrap.appendChild(statusLabel);
+      }
+      if (cateringTotal > 0) {
+        const catLabel = document.createElement('span');
+        catLabel.textContent = wasSkippedCat ? '— Catering skipped' : `🍨 ${catMadeCount} catering`;
+        catLabel.style.cssText = 'font-size:12px;color:#f0a500;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;font-weight:600;';
+        completedWrap.appendChild(catLabel);
+      }
       const undoBtn = document.createElement('button');
       undoBtn.textContent = 'Undo';
       undoBtn.style.cssText = 'background:none;border:1px solid #4a6a8a;color:#8fa3be;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:11px;font-weight:700;padding:5px 10px;border-radius:5px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;touch-action:manipulation;-webkit-tap-highlight-color:transparent;min-height:36px;';
@@ -1226,7 +1245,8 @@ function buildRow(f, runIndex, runTotal) {
       tdBoxes.appendChild(completedWrap);
     } else {
       const boxWrap = document.createElement('div');
-      boxWrap.style.cssText = 'display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;';
+      boxWrap.style.cssText = 'display:flex;gap:8px;justify-content:center;align-items:flex-end;flex-wrap:wrap;';
+      // Daily production checkboxes
       for (let i = 1; i <= tm; i++) {
         const alreadyDone = runDismissed.find(d => d.name === f.name && d.index === i);
         const cb = document.createElement('input');
@@ -1242,6 +1262,39 @@ function buildRow(f, runIndex, runTotal) {
           });
         }
         boxWrap.appendChild(cb);
+      }
+      // Catering checkboxes — visually distinct with 🍨 badge + amber accent
+      if (cateringTotal > 0) {
+        if (tm > 0) {
+          const sep = document.createElement('div');
+          sep.style.cssText = 'width:1px;height:30px;background:#3a4a70;flex-shrink:0;align-self:center;margin:0 2px;';
+          boxWrap.appendChild(sep);
+        }
+        for (let i = 1; i <= cateringTotal; i++) {
+          const alreadyDone = _cateringDismissed.find(d => d.name === f.name && d.index === i);
+          const cbWrap = document.createElement('div');
+          cbWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;';
+          const badge = document.createElement('span');
+          badge.textContent = '🍨';
+          badge.style.cssText = 'font-size:11px;line-height:1;';
+          badge.title = 'Catering bucket';
+          cbWrap.appendChild(badge);
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = !!alreadyDone;
+          cb.disabled = !!alreadyDone;
+          cb.style.cssText = 'width:36px;height:36px;cursor:pointer;accent-color:#f0a500;';
+          cb.title = 'Catering bucket';
+          if (!alreadyDone) {
+            cb.addEventListener('change', () => {
+              if (!cb.checked) return;
+              cb.disabled = true;
+              _dismissCateringRow(f.name, i, 'made');
+            });
+          }
+          cbWrap.appendChild(cb);
+          boxWrap.appendChild(cbWrap);
+        }
       }
       tdBoxes.appendChild(boxWrap);
     }
@@ -1418,7 +1471,18 @@ function renderTable() {
     thActions.style.display = 'none';
   }
 
-  const list = runMode ? activeFlavors.filter(f => toMake(f) > 0) : activeFlavors;
+  // In run mode: include daily production flavors + catering-only flavors
+  let list;
+  if (runMode) {
+    const dailyFlavors    = activeFlavors.filter(f => toMake(f) > 0);
+    const dailyNames      = new Set(dailyFlavors.map(f => f.name));
+    const cateringOnly    = activeFlavors.filter(f =>
+      !dailyNames.has(f.name) && _cateringItems.some(c => c.name === f.name)
+    );
+    list = [...dailyFlavors, ...cateringOnly];
+  } else {
+    list = activeFlavors;
+  }
   const sorted = getSorted(list);
   if (!sorted.length) {
     if (runMode) {
@@ -1496,52 +1560,197 @@ function dismissRunRow(name, index, action) {
         runDismissed.push({ name, index: i, action: 'skip' });
       }
     }
+    // Skip catering for this flavor too — "Skip" means skip everything for the flavor
+    const cateringTotal = _cateringItems.filter(c => c.name === name).reduce((s, c) => s + c.buckets, 0);
+    for (let i = 1; i <= cateringTotal; i++) {
+      if (!_cateringDismissed.find(d => d.name === name && d.index === i)) {
+        _cateringDismissed.push({ name, index: i, action: 'skip' });
+      }
+    }
     renderTable();
     checkRunComplete();
   }
   if (runMode) {
-    try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now() })); } catch(e) {}
+    try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems })); } catch(e) {}
   }
 }
 
 function undoRunRow(name) {
-  const entries = runDismissed.filter(d => d.name === name);
-  if (!entries.length) return;
+  const entries    = runDismissed.filter(d => d.name === name);
+  const catEntries = _cateringDismissed.filter(d => d.name === name);
+  if (!entries.length && !catEntries.length) return;
   const madeCount = entries.filter(d => d.action === 'made').length;
-  runDismissed = runDismissed.filter(d => d.name !== name);
-  _totalBucketsMade = Math.max(0, _totalBucketsMade - madeCount);
+  runDismissed        = runDismissed.filter(d => d.name !== name);
+  _cateringDismissed  = _cateringDismissed.filter(d => d.name !== name);
+  _totalBucketsMade   = Math.max(0, _totalBucketsMade - madeCount);
   const idx = activeFlavors.findIndex(f => f.name === name);
   if (idx >= 0 && madeCount > 0) {
     activeFlavors[idx].made = Math.max(0, (activeFlavors[idx].made || 0) - madeCount);
     saveAll();
   }
-  try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now() })); } catch(e) {}
+  try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems })); } catch(e) {}
   renderTable();
 }
 
 function calculateRun() {
   const needed = activeFlavors.filter(f => toMake(f) > 0);
-
-  // Guard: if everything is fully stocked, skip run mode and inform the user
-  if (!needed.length) {
-    showStatusMessage('✓ All flavors fully stocked — nothing to make today.', 3500);
+  if (!needed.length && !_cateringItems.length) {
+    showStatusMessage('✓ All flavors fully stocked — no production needed.', 3500);
     return;
   }
+  showRunPrepOverlay(needed);
+}
 
+// ── RUN PREPARATION ─────────────────────────────────────────────────────────
+function showRunPrepOverlay(needed) {
+  const box = document.getElementById('runPrepBox');
+  if (!box) return;
+  _renderRunPrepContent(box, needed);
+  document.getElementById('runPrepOverlay').classList.add('open');
+}
+
+function closeRunPrepOverlay() {
+  document.getElementById('runPrepOverlay').classList.remove('open');
+}
+
+function _renderRunPrepContent(container, dailyNeeded) {
+  container.innerHTML = '';
+  const dailyTotal    = dailyNeeded.reduce((s, f) => s + toMake(f), 0);
+  const cateringTotal = _cateringItems.reduce((s, c) => s + c.buckets, 0);
+
+  // Title
+  const title = document.createElement('h2');
+  title.style.cssText = 'font-family:\'Raiders\',\'Impact\',sans-serif;font-size:18px;color:#ffffff;margin-bottom:14px;text-transform:uppercase;letter-spacing:0.04em;';
+  title.textContent = "Today's Run";
+  container.appendChild(title);
+
+  // Summary chips
+  const summary = document.createElement('div');
+  summary.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;';
+  [
+    { label: 'Daily Production', value: dailyTotal + ' bucket' + (dailyTotal !== 1 ? 's' : ''), color: '#ffffff' },
+    { label: 'Catering', value: cateringTotal + ' bucket' + (cateringTotal !== 1 ? 's' : ''), color: cateringTotal > 0 ? '#f0a500' : '#5a7a9a' },
+  ].forEach(({ label, value, color }) => {
+    const chip = document.createElement('div');
+    chip.style.cssText = 'background:#162053;border:1px solid #2e4a70;border-radius:8px;padding:12px 10px;text-align:center;';
+    chip.innerHTML = `<div style="font-size:18px;font-weight:700;color:${color};line-height:1;">${value}</div><div style="font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.08em;font-family:'Arial Narrow',Arial,sans-serif;margin-top:4px;">${label}</div>`;
+    summary.appendChild(chip);
+  });
+  container.appendChild(summary);
+
+  // Existing catering entries
+  if (_cateringItems.length) {
+    const cList = document.createElement('div');
+    cList.style.cssText = 'margin-bottom:12px;display:grid;gap:5px;';
+    _cateringItems.forEach((c, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(240,165,0,0.07);border:1px solid rgba(240,165,0,0.3);border-radius:7px;';
+      row.innerHTML = `<span style="font-size:10px;color:#f0a500;font-weight:700;font-family:'Arial Narrow',Arial,sans-serif;letter-spacing:0.06em;flex-shrink:0;">🍨 CATERING</span><span style="flex:1;font-size:13px;color:#ffffff;padding:0 4px;">${c.name}</span><span style="font-size:13px;font-weight:700;color:#f0a500;white-space:nowrap;">${c.buckets} bkt${c.buckets !== 1 ? 's' : ''}</span><button onclick="removeCateringEntry(${i})" style="background:none;border:none;color:#8fa3be;font-size:18px;cursor:pointer;padding:2px 6px;line-height:1;touch-action:manipulation;min-width:28px;min-height:28px;" title="Remove">×</button>`;
+      cList.appendChild(row);
+    });
+    container.appendChild(cList);
+  }
+
+  // Add catering form
+  const addSection = document.createElement('div');
+  addSection.style.cssText = 'border:1px dashed rgba(240,165,0,0.3);border-radius:8px;padding:12px;margin-bottom:14px;';
+  const addLabel = document.createElement('div');
+  addLabel.style.cssText = 'font-size:10px;color:#f0a500;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;font-weight:700;font-family:\'Arial Narrow\',Arial,sans-serif;';
+  addLabel.textContent = 'Add Catering Buckets';
+  addSection.appendChild(addLabel);
+  const addRow = document.createElement('div');
+  addRow.style.cssText = 'display:flex;gap:8px;align-items:center;';
+
+  const flavorSel = document.createElement('select');
+  flavorSel.id = 'cateringFlavorSelect';
+  flavorSel.style.cssText = 'flex:1;padding:8px 4px;font-size:13px;border:1px solid #98d4e3;border-radius:6px;background:#2c3691;color:#ffffff;min-height:40px;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;';
+  const defOpt = document.createElement('option');
+  defOpt.value = ''; defOpt.textContent = 'Select flavor…'; defOpt.disabled = true; defOpt.selected = true;
+  flavorSel.appendChild(defOpt);
+  getSorted([...activeFlavors]).forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.name; opt.textContent = f.name;
+    flavorSel.appendChild(opt);
+  });
+  addRow.appendChild(flavorSel);
+
+  const qtyInput = document.createElement('input');
+  qtyInput.id = 'cateringQtyInput';
+  qtyInput.type = 'number'; qtyInput.min = '1'; qtyInput.max = '20'; qtyInput.value = '1';
+  qtyInput.style.cssText = 'width:56px;padding:8px 4px;font-size:14px;font-weight:700;border:1px solid #98d4e3;border-radius:6px;background:#2c3691;color:#ffffff;text-align:center;min-height:40px;';
+  addRow.appendChild(qtyInput);
+
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ Add';
+  addBtn.style.cssText = 'padding:8px 12px;font-size:12px;font-weight:700;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;background:rgba(240,165,0,0.12);border:1.5px solid #f0a500;border-radius:6px;color:#f0a500;cursor:pointer;text-transform:uppercase;letter-spacing:0.06em;white-space:nowrap;touch-action:manipulation;min-height:40px;';
+  addBtn.onclick = () => {
+    const name = document.getElementById('cateringFlavorSelect')?.value;
+    const qty  = Math.max(1, Math.min(20, parseInt(document.getElementById('cateringQtyInput')?.value) || 1));
+    if (!name) return;
+    addCateringEntry(name, qty);
+  };
+  addRow.appendChild(addBtn);
+  addSection.appendChild(addRow);
+  container.appendChild(addSection);
+
+  // Action buttons
+  const total = dailyTotal + cateringTotal;
+  const startBtn = document.createElement('button');
+  startBtn.className = 'btn btn-green';
+  startBtn.style.cssText = 'width:100%;justify-content:center;font-size:14px;padding:14px;min-height:48px;margin-bottom:8px;';
+  startBtn.textContent = `Start Production Run — ${total} bucket${total !== 1 ? 's' : ''}`;
+  startBtn.onclick = () => _startProductionRun(dailyNeeded);
+  container.appendChild(startBtn);
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn';
+  cancelBtn.style.cssText = 'width:100%;justify-content:center;font-size:13px;border-color:#2e4a70;color:#8fa3be;';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.onclick = () => closeRunPrepOverlay();
+  container.appendChild(cancelBtn);
+}
+
+function addCateringEntry(name, buckets) {
+  _cateringItems.push({ name, buckets });
+  _renderRunPrepContent(document.getElementById('runPrepBox'), activeFlavors.filter(f => toMake(f) > 0));
+}
+
+function removeCateringEntry(index) {
+  _cateringItems.splice(index, 1);
+  _renderRunPrepContent(document.getElementById('runPrepBox'), activeFlavors.filter(f => toMake(f) > 0));
+}
+
+function _startProductionRun(dailyNeeded) {
+  closeRunPrepOverlay();
   runMode = true;
-  // Persist run start so init() can detect an interrupted run if the page is force-closed
-  try { localStorage.setItem('car_run_state', JSON.stringify({ made: 0, at: Date.now() })); } catch(e) {}
-  const total = needed.reduce((s, f) => s + toMake(f), 0);
+  try { localStorage.setItem('car_run_state', JSON.stringify({ made: 0, at: Date.now(), catering: _cateringItems })); } catch(e) {}
 
-  // Two-line banner: prominent bucket count + secondary flavor count
-  const bannerMsg = document.getElementById('runBannerMsg');
+  const dailyTotal    = dailyNeeded.reduce((s, f) => s + toMake(f), 0);
+  const cateringTotal = _cateringItems.reduce((s, c) => s + c.buckets, 0);
+  const total         = dailyTotal + cateringTotal;
+  const bannerMsg     = document.getElementById('runBannerMsg');
   bannerMsg.innerHTML =
     `<span style="font-size:18px;font-weight:700;color:#ffffff;line-height:1.2;">${total} bucket${total !== 1 ? 's' : ''}</span>` +
-    `<span style="font-size:11px;color:#98d4e3;display:block;margin-top:2px;font-family:'Arial Narrow',Arial,sans-serif;">${needed.length} flavor${needed.length !== 1 ? 's' : ''} · category order</span>`;
+    `<span style="font-size:11px;color:#98d4e3;display:block;margin-top:2px;font-family:'Arial Narrow',Arial,sans-serif;">${dailyNeeded.length} flavor${dailyNeeded.length !== 1 ? 's' : ''} · category order${cateringTotal > 0 ? ' · ' + cateringTotal + ' catering' : ''}</span>`;
 
   document.getElementById('runBanner').style.display = 'flex';
   renderTable();
-  showVariegateModal(needed);
+  showVariegateModal(dailyNeeded);
+}
+
+function _dismissCateringRow(name, index, action) {
+  if (action === 'made') {
+    _cateringDismissed.push({ name, index, action: 'made' });
+    const cateringTotal = _cateringItems.filter(c => c.name === name).reduce((s, c) => s + c.buckets, 0);
+    const cateringDone  = _cateringDismissed.filter(d => d.name === name).length;
+    if (cateringDone >= cateringTotal) {
+      renderTable();
+      checkRunComplete();
+    }
+  }
+  if (runMode) {
+    try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems })); } catch(e) {}
+  }
 }
 
 function togglePrintMenu(e) {
@@ -1673,7 +1882,9 @@ function doneRun() {
   stopRunTimer();
   runMode = false;
   runDismissed = [];
-  localStorage.removeItem('car_run_state'); // Clear interrupted-run recovery flag
+  _cateringDismissed = [];
+  _cateringItems = [];
+  localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
   renderTable();
 }
@@ -1703,7 +1914,9 @@ function clearRunView() {
   stopRunTimer();
   runMode = false;
   runDismissed = [];
-  localStorage.removeItem('car_run_state'); // Clear interrupted-run recovery flag
+  _cateringDismissed = [];
+  _cateringItems = [];
+  localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
   renderTable();
 }
@@ -1722,6 +1935,8 @@ function resetDay() {
   runMode = false;
   // Clear stale run state — prevents dismissed entries carrying over to the next run
   runDismissed = [];
+  _cateringDismissed = [];
+  _cateringItems = [];
   _totalBucketsMade = 0;
   localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
@@ -2277,12 +2492,19 @@ function stopRunTimer() {
 
 function checkRunComplete() {
   if (!runMode) return;
-  const remaining = activeFlavors.filter(f => {
-    const tm = toMake(f);
+  // Check daily production
+  const dailyIncomplete = activeFlavors.some(f => {
+    const tm   = toMake(f);
     const done = runDismissed.filter(d => d.name === f.name).length;
     return tm > 0 && done < tm;
   });
-  if (remaining.length === 0) showRunSummary();
+  // Check catering (aggregate totals per flavor)
+  const cateringByFlavor = {};
+  _cateringItems.forEach(c => { cateringByFlavor[c.name] = (cateringByFlavor[c.name] || 0) + c.buckets; });
+  const cateringIncomplete = Object.entries(cateringByFlavor).some(([name, total]) =>
+    _cateringDismissed.filter(d => d.name === name).length < total
+  );
+  if (!dailyIncomplete && !cateringIncomplete) showRunSummary();
 }
 
 function showRunSummary() {
@@ -2308,6 +2530,21 @@ function showRunSummary() {
   primaryRow.appendChild(primaryL);
   primaryRow.appendChild(primaryV);
   body.appendChild(primaryRow);
+
+  // Catering row (if any)
+  const cateringMadeSummary = _cateringDismissed.filter(d => d.action === 'made').length;
+  if (cateringMadeSummary > 0) {
+    const catRow = document.createElement('tr');
+    const catL   = document.createElement('td');
+    catL.style.cssText = 'padding:10px 8px;font-size:13px;color:#f0a500;font-weight:700;';
+    catL.textContent = '🍨 Catering Buckets Made';
+    const catV   = document.createElement('td');
+    catV.style.cssText = 'text-align:right;font-size:16px;font-weight:700;color:#f0a500;';
+    catV.textContent = cateringMadeSummary;
+    catRow.appendChild(catL);
+    catRow.appendChild(catV);
+    body.appendChild(catRow);
+  }
 
   // ── Secondary metrics — smaller, muted ────────────────────────────────────
   [
@@ -2350,12 +2587,18 @@ function _currentUserName() {
 // storeEvents[] keeps the last 10 run entries so the store detail panel can show a timeline
 // without any extra Firestore reads — it's part of the store doc already loaded by getDocs.
 async function writeRunSummary() {
-  if (_totalBucketsMade <= 0) return;
+  const cateringMadeCount = _cateringDismissed.filter(d => d.action === 'made').length;
+  if (_totalBucketsMade <= 0 && cateringMadeCount === 0) return;
   if (!window._firebaseReady || !window._auth || !window._auth.currentUser) return;
-  // Capture per-flavor counts from runDismissed now — doneRun() will clear it after this returns
+  // Capture per-flavor daily counts from runDismissed (before doneRun clears it)
   const flavors = {};
   runDismissed.filter(d => d.action === 'made').forEach(d => {
     flavors[d.name] = (flavors[d.name] || 0) + 1;
+  });
+  // Catering flavor counts
+  const cateringFlavors = {};
+  _cateringDismissed.filter(d => d.action === 'made').forEach(d => {
+    cateringFlavors[d.name] = (cateringFlavors[d.name] || 0) + 1;
   });
   try {
     const userName = _currentUserName();
@@ -2363,7 +2606,8 @@ async function writeRunSummary() {
       type: 'run_completed', buckets: _totalBucketsMade, at: Date.now(),
       ...(userName ? { by: userName } : {}),
       ...(Object.keys(flavors).length ? { flavors } : {}),
-      ...(_runDurationMs > 0 ? { durationMs: _runDurationMs } : {})
+      ...(_runDurationMs > 0 ? { durationMs: _runDurationMs } : {}),
+      ...(cateringMadeCount > 0 ? { cateringBuckets: cateringMadeCount, cateringFlavors } : {})
     };
     _storeEvents = [..._storeEvents, newEntry].slice(-10);
     await window._setDoc(getStoreDocRef(), {
@@ -3575,6 +3819,8 @@ async function init() {
       const ageH = (Date.now() - (run.at || 0)) / 3600000;
       if (ageH < 12) { // within the same shift — stale state from today's session
         const made = run.made || 0;
+        // Restore catering items so they survive page refresh
+        if (run.catering && Array.isArray(run.catering)) _cateringItems = run.catering;
         setTimeout(() => showStatusMessage(
           `⚠️ A run was interrupted — ${made > 0 ? made + ' bucket' + (made !== 1 ? 's' : '') + ' were made before closing.' : 'the app closed mid-run.'}`,
           8000

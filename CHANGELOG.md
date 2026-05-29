@@ -7,6 +7,29 @@ v0.1
 
 ## Recent Changes
 
+### Catering Production Support (2026-05-29)
+Integrates catering bucket tracking into the existing production run workflow — operationally distinct but visually and structurally unified with regular production.
+
+- **Added:** Run Preparation overlay (`#runPrepOverlay`) — shown when user taps Calculate Run instead of starting immediately. Shows daily bucket count, existing catering entries, inline flavor selector + qty input, and Start / Cancel buttons. Lightweight, fast, minimal clicks.
+- **Added:** `showRunPrepOverlay()`, `closeRunPrepOverlay()`, `_renderRunPrepContent()` — builds the prep overlay dynamically each time, preserving existing catering state.
+- **Added:** `addCateringEntry(name, buckets)` / `removeCateringEntry(index)` — modify `_cateringItems` in-place and re-render the prep overlay.
+- **Added:** `_startProductionRun(dailyNeeded)` — the actual run start (previously inline in `calculateRun`). Sets `runMode = true`, writes `car_run_state` with catering, shows banner + table + variegate modal.
+- **Added:** `_dismissCateringRow(name, index, action)` — tracks catering checkbox completions in `_cateringDismissed`; fires `checkRunComplete()` when a flavor's catering is fully done.
+- **Added:** State variables `_cateringItems` (persists across recalculations) and `_cateringDismissed` (cleared on run end).
+- **Changed:** `calculateRun()` — now opens prep overlay instead of starting directly. Guard updated: shows message only when both daily AND catering are empty.
+- **Changed:** `buildRow()` run mode — catering checkboxes appear after daily checkboxes in the same flavor row, separated by a thin vertical line. Each catering checkbox has a 🍨 emoji badge above it and amber `accent-color`. `isFullyDone` now requires both daily and catering completion.
+- **Changed:** `renderTable()` run mode — now includes catering-only flavors (active flavors with `toMake()=0` that have catering entries) so they appear in the run.
+- **Changed:** `dismissRunRow()` skip action — also skips catering for the same flavor (single Skip button skips everything for a flavor).
+- **Changed:** `undoRunRow()` — clears both `runDismissed` and `_cateringDismissed` entries for the flavor.
+- **Changed:** `checkRunComplete()` — checks both daily and catering completion before showing run summary.
+- **Changed:** `doneRun()`, `clearRunView()`, `resetDay()` — clear both `_cateringDismissed` and `_cateringItems`.
+- **Changed:** `showRunSummary()` — adds a 🍨 Catering Buckets Made row to the summary table when catering was completed.
+- **Changed:** `writeRunSummary()` — includes optional `cateringBuckets: N` and `cateringFlavors: {name: count}` in the `run_completed` storeEvents entry. Guard updated to allow write when catering-only run.
+- **Changed:** `init()` interrupted-run recovery — restores `_cateringItems` from `car_run_state.catering` so catering entries survive page refresh.
+- **Changed:** `car_run_state` writes — now include `catering: _cateringItems` for persistence.
+- **Firestore cost:** Zero additional reads. Catering adds ~50–200 bytes to existing storeEvents write when catering present.
+- **Analytics:** `cateringBuckets` and `cateringFlavors` fields in storeEvents entries enable future catering demand analysis without new infrastructure.
+
 ### Manager Dashboard (2026-05-28)
 Store-level operational dashboard for signed-in Store Managers. Zero additional Firestore reads — all data from in-memory `activeFlavors`, `_storeEvents`, and `_storeDoc`.
 

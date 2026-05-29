@@ -5,6 +5,19 @@
 - Improve offline reliability
 - Add `icons/icon-192.png` + `icons/icon-512.png` for full Android Chrome install prompt
 
+## Catering Production (completed this pass)
+- ✅ Run Preparation overlay before production starts
+- ✅ Inline catering entry: flavor selector + bucket qty + Add/Remove
+- ✅ `_cateringItems` persists across recalculations; cleared on run complete
+- ✅ Catering checkboxes in run rows: 🍨 badge + amber accent, after daily
+- ✅ `isFullyDone` requires both daily + catering completion
+- ✅ Skip button skips daily AND catering for a flavor
+- ✅ Undo clears both daily and catering dismissals
+- ✅ Catering-only flavors appear in run when active flavors have toMake=0
+- ✅ Run summary shows catering bucket count separately
+- ✅ storeEvents records cateringBuckets + cateringFlavors per run
+- ✅ Interrupted-run recovery restores catering items from car_run_state
+
 ## Manager Dashboard (completed this pass)
 - ✅ `openDashboard()` routes by role: CORPORATE_ADMIN → corporate, STORE_MANAGER → manager
 - ✅ Dashboard button visible for both CORPORATE_ADMIN and STORE_MANAGER
