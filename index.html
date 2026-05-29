@@ -276,7 +276,7 @@
     .cabinet-badge { display:inline-block; font-size:10px; font-weight:700; background:#2c3691; border:1px solid #98d4e3; color:#98d4e3; border-radius:4px; padding:1px 5px; margin-left:6px; vertical-align:middle; font-family:'Arial Narrow',Arial,sans-serif; }
 
     /* Manager PIN modal */
-    .pin-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:600; align-items:center; justify-content:center; padding:24px; }
+    .pin-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:950; align-items:center; justify-content:center; padding:24px; }
     .pin-overlay.open { display:flex; }
     .pin-box { background:#1e2870; border:1.5px solid #98d4e3; border-radius:14px; padding:28px 24px; width:100%; max-width:320px; text-align:center; }
     .pin-box h2 { font-family:'Raiders','Impact',sans-serif; font-size:17px; color:#ffffff; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em; }
@@ -932,17 +932,16 @@ async function signInManager() {
     return;
   }
   try {
-    const fromEntry = document.getElementById('entryOverlay')?.classList.contains('open');
     await window._signInWithEmailAndPassword(window._auth, email, password);
     await loadCurrentUserRole(true);
     await window.logOrgEvent('signed_in', { email });
     closeAuthModal();
-    if (fromEntry) {
-      hideEntryScreen();
-      sessionStorage.removeItem('car_employee_session');
-      updateConnectivityStatus();
-      loadCabinetPref();
-      if (window._firebaseReady) loadOrgMetadata();
+    hideEntryScreen();
+    sessionStorage.removeItem('car_employee_session');
+    updateConnectivityStatus();
+    loadCabinetPref();
+    if (window._firebaseReady) loadOrgMetadata();
+    if (!window.getCurrentStoreId()) {
       await loadOrgStores().catch(() => {});
       showStorePicker();
     }
@@ -951,18 +950,17 @@ async function signInManager() {
       const create = confirm('No account found. Create a new manager account?');
       if (!create) return;
       try {
-        const fromEntry2 = document.getElementById('entryOverlay')?.classList.contains('open');
         await window._createUserWithEmailAndPassword(window._auth, email, password);
         await window._signInWithEmailAndPassword(window._auth, email, password);
         await loadCurrentUserRole(true);
         await window.logOrgEvent('account_created', { email });
         closeAuthModal();
-        if (fromEntry2) {
-          hideEntryScreen();
-          sessionStorage.removeItem('car_employee_session');
-          updateConnectivityStatus();
-          loadCabinetPref();
-          if (window._firebaseReady) loadOrgMetadata();
+        hideEntryScreen();
+        sessionStorage.removeItem('car_employee_session');
+        updateConnectivityStatus();
+        loadCabinetPref();
+        if (window._firebaseReady) loadOrgMetadata();
+        if (!window.getCurrentStoreId()) {
           await loadOrgStores().catch(() => {});
           showStorePicker();
         }
