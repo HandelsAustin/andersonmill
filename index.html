@@ -922,7 +922,9 @@ function updateRoleUIVisibility() {
 }
 
 function _updateHeaderSub() {
-  const storeLabel = localStorage.getItem('car_store_label') || (window.getCurrentStoreId && window.getCurrentStoreId());
+  const raw = localStorage.getItem('car_store_label') || (window.getCurrentStoreId && window.getCurrentStoreId());
+  // Guard against the literal string "undefined" being stored from a prior session
+  const storeLabel = (raw && raw !== 'undefined') ? raw : null;
   if (!storeLabel) return;
   const sub = document.querySelector('.header-sub');
   if (!sub) return;
@@ -3883,6 +3885,11 @@ function bootstrap() {
   if (!(window._auth && window._auth.currentUser) && !sessionStorage.getItem('car_employee_session')) {
     showEntryScreen();
     return;
+  }
+
+  // Self-heal: clear corrupted car_store_label (stored as the literal string "undefined")
+  if (localStorage.getItem('car_store_label') === 'undefined') {
+    localStorage.removeItem('car_store_label');
   }
 
   updateConnectivityStatus();
