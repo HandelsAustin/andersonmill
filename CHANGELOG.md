@@ -7,6 +7,19 @@ v0.1
 
 ## Recent Changes
 
+### Corporate Dashboard Improvements (2026-05-28)
+Cleaner, more informative dashboard for corporate users. Removes operational noise, adds flavor analytics, and fixes display issues.
+
+- **Fixed:** Email display — long email addresses no longer overflow the dashboard card. `renderDashboardCard` now uses `word-break:break-word;overflow-wrap:anywhere`. Email is rendered in the info bar at 11px with natural wrap.
+- **Fixed:** Current store display — dashboard "Current Store" card now shows the human-readable store label (`store.label`) from `localStorage('car_store_label')` or `getOrgStores()`, falling back to the slug only if no label is available. Previously showed raw Firestore document IDs.
+- **Fixed:** Org ID display — "handels" replaced with "Handel's Homemade Ice Cream" everywhere user-facing. `loadOrgMetadata()` now caches `window._orgName = meta.name`. New `_getOrgDisplayName()` helper used in `showOrgSetupForm`, `renderAddStoreSection`, and the dashboard info bar.
+- **Removed:** "Needs Attention" section — `buildAttentionAlerts()` and `renderNeedsAttention()` removed entirely. Reduces operational noise during pilot usage.
+- **Removed:** "Recent Activity Log" section — `renderAnalyticsSummary()` and `getRecentAnalyticsEvents()` removed. Underlying event tracking architecture (`storeEvents`, attribution, `logOrgEvent`) is preserved.
+- **Added:** "Top Flavors — Last 30 Days" section — shows the top 3 flavors by total buckets made across all stores, drawn from `storeEvents[].flavors` data. Begins accumulating from the next completed run. Zero additional Firestore reads (uses `loadOrgStores()` result already in memory).
+- **Changed:** `writeRunSummary()` — now captures per-flavor made counts from `runDismissed` at the moment `closeSummary()` fires (before `doneRun()` clears the array). Adds `flavors: {flavorName: count}` to each new `run_completed` storeEvents entry. Same Firestore write — no cost increase.
+- **Changed:** Dashboard layout — replaced redundant inner "Corporate Dashboard" heading + "Org ID: handels" with a slim info bar showing org name, email, and role pill. Stats section reduced to 2 cards (Locations, Current Store) in a clean 2-column grid.
+- **Changed:** `renderDashboardCard()` — updated to use consistent 10px uppercase title, 15px value with overflow protection, 11px muted note. Cleaner visual hierarchy.
+
 ### Identity-First Auth & Entry Screen (2026-05-28)
 Restructured the app launch flow so identity is established before store context — production floor optimized, zero ceremony.
 

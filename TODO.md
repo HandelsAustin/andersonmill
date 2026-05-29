@@ -3,6 +3,17 @@
 ## High Priority
 - Per-org Firestore security rules (scope reads/writes to org members)
 - Improve offline reliability
+- Add `icons/icon-192.png` + `icons/icon-512.png` for full Android Chrome install prompt
+
+## Corporate Dashboard (completed this pass)
+- ✅ Email display: `word-break:break-word` prevents overflow; email moved to info bar
+- ✅ Current store: shows `store.label` (human-readable), not raw slug ID
+- ✅ Org labels: "handels" → "Handel's Homemade Ice Cream" via `_getOrgDisplayName()` + `window._orgName`
+- ✅ Removed "Needs Attention" section (`buildAttentionAlerts`, `renderNeedsAttention`)
+- ✅ Removed "Recent Activity Log" section (`renderAnalyticsSummary`, `getRecentAnalyticsEvents`)
+- ✅ Added "Top Flavors — Last 30 Days" — top 3 flavors by bucket count from storeEvents
+- ✅ `writeRunSummary()` now captures `flavors: {name: count}` per run for analytics
+- ✅ Dashboard layout: info bar (org name + email + role pill) replaces redundant heading
 
 ## Auth & Session (completed this pass)
 - ✅ Entry screen: "Continue as Employee" / "Manager Sign In" — identity before store context

@@ -788,10 +788,15 @@ async function loadOrgMetadata() {
     const meta = snap.data();
     if (meta?.name) {
       document.title = `${meta.name} — Count & Run`;
+      window._orgName = meta.name;
     }
   } catch (e) {
     console.error('Org metadata load error:', e);
   }
+}
+
+function _getOrgDisplayName() {
+  return window._orgName || (window.DEFAULT_ORG_META && window.DEFAULT_ORG_META.name) || window.getCurrentOrgId();
 }
 
 function userHasRole(role) {
@@ -2331,11 +2336,19 @@ function _currentUserName() {
 async function writeRunSummary() {
   if (_totalBucketsMade <= 0) return;
   if (!window._firebaseReady || !window._auth || !window._auth.currentUser) return;
+  // Capture per-flavor counts from runDismissed now — doneRun() will clear it after this returns
+  const flavors = {};
+  runDismissed.filter(d => d.action === 'made').forEach(d => {
+    flavors[d.name] = (flavors[d.name] || 0) + 1;
+  });
   try {
     const userName = _currentUserName();
-    const newEntry = { type: 'run_completed', buckets: _totalBucketsMade, at: Date.now(),
-      ...(userName ? { by: userName } : {}) };
-    _storeEvents = [..._storeEvents, newEntry].slice(-10); // keep last 10 entries
+    const newEntry = {
+      type: 'run_completed', buckets: _totalBucketsMade, at: Date.now(),
+      ...(userName ? { by: userName } : {}),
+      ...(Object.keys(flavors).length ? { flavors } : {})
+    };
+    _storeEvents = [..._storeEvents, newEntry].slice(-10);
     await window._setDoc(getStoreDocRef(), {
       lastRunDate:    todayStr(),
       lastRunBuckets: _totalBucketsMade,
@@ -2344,7 +2357,6 @@ async function writeRunSummary() {
     }, { merge: true });
   } catch (e) {
     console.error('Run summary write error:', e);
-    // Non-critical — not surfaced to user
   }
 }
 
@@ -2390,16 +2402,6 @@ function showOrgPicker() {
   document.getElementById('orgOverlay').classList.add('open');
 }
 
-function getRecentAnalyticsEvents(limit = 12) {
-  try {
-    const raw = localStorage.getItem('car_analytics_events');
-    const events = raw ? JSON.parse(raw) : [];
-    return Array.isArray(events) ? events.slice(0, limit) : [];
-  } catch (e) {
-    console.error('Read analytics events failed', e);
-    return [];
-  }
-}
 
 // ── MULTI-STORE OVERVIEW HELPERS ────────────────────────────────────────────
 
@@ -2712,95 +2714,6 @@ function _buildStoreDetailPanel(store, anchorEl) {
   return panel;
 }
 
-// ── NEEDS ATTENTION ─────────────────────────────────────────────────────────
-// Pure function — derives operational alerts from already-loaded store data.
-// No Firestore calls. Returns alerts sorted: urgent → warning → notice.
-function buildAttentionAlerts(stores) {
-  const alerts = [];
-  const STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
-
-  stores.forEach(store => {
-    const hasActiveFlavors = (store.activeFlavors || []).length > 0;
-    const shortages = storeShortagesCount(store);
-    const isActive  = storeIsActiveToday(store);
-
-    // 1. Flavors short — most operationally urgent
-    if (shortages > 0) {
-      alerts.push({ level: 'urgent', storeLabel: store.label || store.id, storeId: store.id, store,
-        msg: `${shortages} flavor${shortages !== 1 ? 's' : ''} short` });
-    }
-
-    // 2. No activity today (store is set up but hasn't been touched)
-    if (!isActive && hasActiveFlavors) {
-      alerts.push({ level: 'warning', storeLabel: store.label || store.id, storeId: store.id, store,
-        msg: 'No production activity today' });
-    }
-
-    // 3. Stale data: active today but updatedAt > 4h (device went offline after run)
-    if (store.updatedAt && (Date.now() - store.updatedAt) > STALE_MS && isActive) {
-      alerts.push({ level: 'warning', storeLabel: store.label || store.id, storeId: store.id, store,
-        msg: `Data stale — last sync ${relativeTime(store.updatedAt)}` });
-    }
-  });
-
-  // 4. Low production heuristic — needs ≥2 active stores and meaningful average (>2)
-  const activeStores  = stores.filter(s => storeIsActiveToday(s));
-  const bucketCounts  = activeStores.map(s => storeProductionToday(s));
-  const bucketAvg     = bucketCounts.length ? bucketCounts.reduce((a, b) => a + b, 0) / bucketCounts.length : 0;
-  if (activeStores.length >= 2 && bucketAvg > 2) {
-    activeStores.forEach((store, i) => {
-      if (bucketCounts[i] < Math.floor(bucketAvg * 0.5)) {
-        alerts.push({ level: 'notice', storeLabel: store.label || store.id, storeId: store.id, store,
-          msg: `Low production: ${bucketCounts[i]} buckets (org avg ${Math.round(bucketAvg)})` });
-      }
-    });
-  }
-
-  const ORDER = { urgent: 0, warning: 1, notice: 2 };
-  return alerts.sort((a, b) => ORDER[a.level] - ORDER[b.level]);
-}
-
-// Renders the "Needs Attention" block into containerEl.
-// Shows an all-clear row if no alerts; otherwise a compact colored list.
-function renderNeedsAttention(containerEl, alerts) {
-  const STYLE = {
-    urgent:  { dot: '#ff6b6b', border: '#5a1a1a', bg: 'rgba(215,38,39,0.10)',   label: '#ff8080' },
-    warning: { dot: '#f0a500', border: '#4a3600', bg: 'rgba(240,165,0,0.10)',   label: '#f0c050' },
-    notice:  { dot: '#98d4e3', border: '#1e3a50', bg: 'rgba(152,212,227,0.08)', label: '#98d4e3' },
-  };
-
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'margin-bottom:20px;';
-
-  if (!alerts.length) {
-    // All-clear — compact positive signal, no heading needed
-    wrap.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:8px;border:1px solid #1e5c33;background:rgba(34,160,90,0.08);"><span style="font-size:8px;color:#22a05a;">●</span><span style="font-size:13px;color:#c5d8f0;font-family:'Arial Narrow',Arial,sans-serif;">All stores operational — no attention needed</span></div>`;
-    containerEl.appendChild(wrap);
-    return;
-  }
-
-  const heading = document.createElement('div');
-  heading.style.cssText = 'font-size:11px;color:#ff8080;text-transform:uppercase;letter-spacing:0.1em;font-family:\'Arial Narrow\',Arial,sans-serif;margin-bottom:10px;font-weight:700;';
-  heading.textContent = `Needs Attention · ${alerts.length} item${alerts.length !== 1 ? 's' : ''}`;
-  wrap.appendChild(heading);
-
-  const list = document.createElement('div');
-  list.style.cssText = 'display:grid;gap:6px;';
-
-  alerts.forEach(({ level, storeLabel, storeId, store, msg }) => {
-    const s = STYLE[level] || STYLE.notice;
-    const row = document.createElement('div');
-    row.style.cssText = `display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;border:1px solid ${s.border};background:${s.bg};cursor:pointer;`;
-    row.title = 'Tap to view store details';
-    row.innerHTML = `<span style="font-size:8px;color:${s.dot};flex-shrink:0;">●</span><div style="flex:1;min-width:0;"><span style="font-size:13px;font-weight:700;color:#ffffff;">${storeLabel}</span><span style="font-size:12px;color:${s.label};margin-left:8px;font-family:'Arial Narrow',Arial,sans-serif;">${msg}</span></div><span style="font-size:10px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;flex-shrink:0;">${storeId}</span>`;
-    if (store) row.onclick = () => showStoreDetail(store, row);
-    list.appendChild(row);
-  });
-
-  wrap.appendChild(list);
-  containerEl.appendChild(wrap);
-}
-
 // ── MULTI-STORE OVERVIEW ────────────────────────────────────────────────────
 // Fetches full store docs (includes activeFlavors) and renders an operational
 // summary for CORPORATE_ADMIN. Async — shows a loading state while fetching.
@@ -2833,9 +2746,6 @@ async function renderMultiStoreOverview(content) {
     section.appendChild(empty);
     return;
   }
-
-  // ── Needs Attention ── (derived from same store data, no extra reads)
-  renderNeedsAttention(section, buildAttentionAlerts(stores));
 
   // ── Store Overview heading ──
   const overviewHeading = document.createElement('div');
@@ -2913,47 +2823,62 @@ async function renderMultiStoreOverview(content) {
     storeGrid.appendChild(card);
   });
   section.appendChild(storeGrid);
+
+  // ── Top Flavors — uses flavor data from storeEvents entries
+  renderTopFlavors(content, stores);
 }
 
 function renderDashboardCard(title, value, note) {
   const card = document.createElement('div');
-  card.style.border = '1px solid #2e4a70';
-  card.style.borderRadius = '12px';
-  card.style.padding = '16px';
-  card.style.background = '#162053';
-  card.innerHTML = `<div style="color:#98d4e3;font-size:12px;margin-bottom:8px;">${title}</div><div style="font-size:18px;color:#ffffff;font-weight:700;">${value}</div>${note ? `<div style="margin-top:10px;color:#8fa3be;font-size:12px;">${note}</div>` : ''}`;
+  card.style.cssText = 'border:1px solid #2e4a70;border-radius:10px;padding:14px;background:#162053;';
+  card.innerHTML = `<div style="font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.08em;font-family:'Arial Narrow',Arial,sans-serif;margin-bottom:6px;">${title}</div><div style="font-size:15px;color:#ffffff;font-weight:700;word-break:break-word;overflow-wrap:anywhere;">${value}</div>${note ? `<div style="margin-top:6px;color:#8fa3be;font-size:11px;font-family:'Arial Narrow',Arial,sans-serif;">${note}</div>` : ''}`;
   return card;
 }
 
-function renderAnalyticsSummary(content) {
-  const events = getRecentAnalyticsEvents(8);
-  const section = document.createElement('div');
-  section.style.display = 'grid';
-  section.style.gap = '12px';
-  section.style.marginTop = '16px';
-  section.appendChild(renderDashboardCard('Recent activity log', `${events.length} events`, 'Kept locally and synced when signed in.'));
-  if (!events.length) {
-    const note = document.createElement('div');
-    note.style.color = '#98d4e3';
-    note.style.fontSize = '13px';
-    note.textContent = 'No recent activity yet. Perform actions like switching orgs or selecting stores to populate analytics.';
-    section.appendChild(note);
-  } else {
-    const list = document.createElement('div');
-    list.style.display = 'grid';
-    list.style.gap = '10px';
-    events.forEach(ev => {
-      const entry = document.createElement('div');
-      entry.style.border = '1px solid #1e2b58';
-      entry.style.borderRadius = '10px';
-      entry.style.padding = '10px 12px';
-      entry.style.background = '#1a234f';
-      const when = new Date(ev.createdAt).toLocaleString();
-      entry.innerHTML = `<div style="font-size:13px;color:#98d4e3;margin-bottom:4px;">${ev.type.replace(/_/g, ' ')}</div><div style="font-size:15px;color:#ffffff;font-weight:600;">${ev.payload?.label || ev.payload?.orgId || ev.payload?.storeId || 'Event recorded'}</div><div style="color:#7ca0e8;font-size:11px;margin-top:8px;">${when}</div>`;
-      list.appendChild(entry);
+function renderTopFlavors(content, stores) {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const totals = {};
+  let hasData = false;
+
+  stores.forEach(store => {
+    (store.storeEvents || []).forEach(ev => {
+      if (ev.type !== 'run_completed' || !ev.flavors) return;
+      if (ev.at < cutoff) return;
+      hasData = true;
+      Object.entries(ev.flavors).forEach(([name, count]) => {
+        totals[name] = (totals[name] || 0) + count;
+      });
     });
-    section.appendChild(list);
+  });
+
+  const section = document.createElement('div');
+  section.style.cssText = 'border-top:1px solid #2e4a70;margin-top:16px;padding-top:16px;';
+
+  const heading = document.createElement('div');
+  heading.style.cssText = 'font-size:11px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.1em;font-family:\'Arial Narrow\',Arial,sans-serif;margin-bottom:10px;font-weight:700;';
+  heading.textContent = 'Top Flavors — Last 30 Days';
+  section.appendChild(heading);
+
+  if (!hasData) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:12px;color:#5a7a9a;font-family:\'Arial Narrow\',Arial,sans-serif;padding:4px 0;';
+    empty.textContent = 'Flavor tracking begins with the next completed run.';
+    section.appendChild(empty);
+    content.appendChild(section);
+    return;
   }
+
+  const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const medals = ['🥇', '🥈', '🥉'];
+  const list = document.createElement('div');
+  list.style.cssText = 'display:grid;gap:6px;';
+  sorted.forEach(([name, count], i) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;background:#162053;border:1px solid #2e4a70;';
+    row.innerHTML = `<span style="font-size:16px;flex-shrink:0;">${medals[i]}</span><span style="flex:1;font-size:13px;color:#ffffff;font-weight:600;">${name}</span><span style="font-size:12px;color:#98d4e3;font-family:'Arial Narrow',Arial,sans-serif;white-space:nowrap;">${count} bucket${count !== 1 ? 's' : ''}</span>`;
+    list.appendChild(row);
+  });
+  section.appendChild(list);
   content.appendChild(section);
 }
 
@@ -2961,32 +2886,40 @@ function showCorporateDashboard() {
   const overlay = document.getElementById('dashboardOverlay');
   const content = document.getElementById('dashboardContent');
   if (!overlay || !content) return;
-  const orgId = window.getCurrentOrgId();
-  const stores = window.getOrgStores();
+  const orgId    = window.getCurrentOrgId();
+  const stores   = window.getOrgStores();
   const currentUser = window._auth && window._auth.currentUser;
-  const userEmail = currentUser?.email || 'Not signed in';
-  const userRole = window.getCurrentUserRole();
+  const userEmail   = currentUser?.email || 'Not signed in';
+  const userRole    = window.getCurrentUserRole();
+  const orgName     = _getOrgDisplayName();
+
+  const currentStoreId    = window.getCurrentStoreId();
+  const currentStoreLabel = localStorage.getItem('car_store_label') ||
+    stores.find(s => s.id === currentStoreId)?.label || currentStoreId || 'None selected';
 
   content.innerHTML = '';
-  const header = document.createElement('div');
-  header.style.display = 'grid';
-  header.style.gap = '10px';
-  header.innerHTML = `<div style="font-size:14px;color:#98d4e3;">Org ID: ${orgId}</div><div style="font-size:26px;color:#ffffff;font-weight:700;">Corporate Dashboard</div>`;
-  content.appendChild(header);
 
+  // Slim info bar: org name + signed-in user + role pill
+  const infoBar = document.createElement('div');
+  infoBar.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid #2e4a70;border-radius:8px;margin-bottom:14px;';
+  infoBar.innerHTML = `
+    <div style="min-width:0;flex:1;">
+      <div style="font-size:12px;font-weight:700;color:#ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${orgName}</div>
+      <div style="font-size:11px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;margin-top:2px;overflow-wrap:anywhere;word-break:break-word;">${userEmail}</div>
+    </div>
+    <span style="font-size:10px;padding:3px 9px;border-radius:10px;background:#2c3691;border:1px solid #98d4e3;color:#98d4e3;font-family:'Arial Narrow',Arial,sans-serif;text-transform:uppercase;letter-spacing:0.06em;white-space:nowrap;flex-shrink:0;">${userRole.replace(/_/g, ' ')}</span>
+  `;
+  content.appendChild(infoBar);
+
+  // Quick stats: store count + current store
   const stats = document.createElement('div');
-  stats.style.display = 'grid';
-  stats.style.gridTemplateColumns = 'repeat(auto-fit,minmax(180px,1fr))';
-  stats.style.gap = '12px';
-  stats.appendChild(renderDashboardCard('Stores in org', stores.length, 'Firestore-backed org store metadata'));
-  stats.appendChild(renderDashboardCard('Signed in user', userEmail, `Role: ${userRole.replace(/_/g, ' ')}`));
-  stats.appendChild(renderDashboardCard('Current store', window.getCurrentStoreId() || 'None selected', 'Select a store to continue work'));
+  stats.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:10px;';
+  stats.appendChild(renderDashboardCard('Locations', `${stores.length}`, null));
+  stats.appendChild(renderDashboardCard('Current Store', currentStoreLabel, null));
   content.appendChild(stats);
 
-  // Multi-store overview — async, appends itself with a loading state
+  // Multi-store overview — async, loads store data and appends top flavors
   renderMultiStoreOverview(content);
-
-  renderAnalyticsSummary(content);
 
   // Add Store panel — CORPORATE_ADMIN only
   if (userRole === window.ROLES.CORPORATE_ADMIN) {
@@ -3216,7 +3149,7 @@ function showOrgSetupForm(listEl) {
 
   const info = document.createElement('p');
   info.style.cssText = 'font-size:13px;color:#98d4e3;line-height:1.5;text-align:center;font-family:\'Arial Narrow\',Arial,sans-serif;';
-  info.innerHTML = `No stores found for <strong style="color:#ffffff;">${orgId}</strong>.<br>Create your first store to get started.`;
+  info.innerHTML = `No stores found for <strong style="color:#ffffff;">${_getOrgDisplayName()}</strong>.<br>Create your first store to get started.`;
   listEl.appendChild(info);
 
   const { nameInput } = renderStoreForm(listEl, {
@@ -3239,7 +3172,7 @@ function renderAddStoreSection(content) {
 
   const subtext = document.createElement('p');
   subtext.style.cssText = 'font-size:12px;color:#98d4e3;';
-  subtext.textContent = `Adding to org: ${window.getCurrentOrgId()}`;
+  subtext.textContent = `Adding to: ${_getOrgDisplayName()}`;
   section.appendChild(subtext);
 
   const successEl = document.createElement('div');
