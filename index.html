@@ -1812,20 +1812,12 @@ function lockManager() {
 }
 
 function requireManager(callback) {
-  // Signed-in Firebase users get manager access automatically
   if (window._auth && window._auth.currentUser) {
     _managerUnlocked = true;
     callback();
     return;
   }
-  if (userCanManage()) { callback(); return; }
-  if (_managerUnlocked) { callback(); return; }
-  const stored = localStorage.getItem('car_manager_pin');
-  if (!stored) {
-    openPinModal('set', callback);
-  } else {
-    openPinModal('enter', callback);
-  }
+  showStatusMessage('Sign in as Manager to access this feature.', 2500);
 }
 
 // ── CABINET SORT ───────────────────────────────────────────
