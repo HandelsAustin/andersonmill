@@ -5,6 +5,20 @@
 - Improve offline reliability
 - Add `icons/icon-192.png` + `icons/icon-512.png` for full Android Chrome install prompt
 
+## Manager Dashboard (completed this pass)
+- ✅ `openDashboard()` routes by role: CORPORATE_ADMIN → corporate, STORE_MANAGER → manager
+- ✅ Dashboard button visible for both CORPORATE_ADMIN and STORE_MANAGER
+- ✅ Today's Production hero: Buckets Made / Flavors / Avg Bkts/Hr (3-column grid)
+- ✅ Inventory Health: Stocked / Low / Critical color-coded chips
+- ✅ Current Shortages: sorted, tappable → opens Edit Flavors
+- ✅ Production Trend · 7 Days: text-only ↑/↓/→ + percentage
+- ✅ Top Flavors — Last 30 Days: top 3 from storeEvents[].flavors
+- ✅ Bottom Flavors — Last 30 Days: bottom 3 distinct from top 3
+- ✅ Store Status: online/offline, last sync, last production
+- ✅ `writeRunSummary()` now writes `durationMs` for Avg Bkts/Hr
+- ✅ `applyData()` caches raw store data in `_storeDoc` for fallbacks
+- Note: avg bph and flavor analytics only for runs after this deploy
+
 ## Corporate Dashboard (completed this pass)
 - ✅ Email display: `word-break:break-word` prevents overflow; email moved to info bar
 - ✅ Current store: shows `store.label` (human-readable), not raw slug ID

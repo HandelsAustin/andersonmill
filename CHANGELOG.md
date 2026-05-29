@@ -7,6 +7,29 @@ v0.1
 
 ## Recent Changes
 
+### Manager Dashboard (2026-05-28)
+Store-level operational dashboard for signed-in Store Managers. Zero additional Firestore reads — all data from in-memory `activeFlavors`, `_storeEvents`, and `_storeDoc`.
+
+- **Added:** `#managerDashboardOverlay` HTML overlay — 480px max-width, scrollable content area, consistent with app visual language
+- **Added:** `openDashboard()` — routes Dashboard button by role: CORPORATE_ADMIN → corporate dashboard, STORE_MANAGER → manager dashboard
+- **Added:** `showManagerDashboard()` — builds 7 sections from in-memory data:
+  1. **Today's Production** (hero): Buckets Made, Flavors Produced, Avg Buckets/Hr (3-column metric grid)
+  2. **Inventory Health**: Stocked / Low (1 needed) / Critical (2+) color-coded chip grid
+  3. **Current Shortages**: sorted by most needed first; tapping a shortage row opens Edit Flavors
+  4. **Production Trend · 7 Days**: compares recent 7-day vs prior 7-day bucket totals; text-only ↑/↓/→ with percentage
+  5. **Top Flavors — Last 30 Days**: top 3 with medal icons (🥇🥈🥉), only from runs with flavor data
+  6. **Bottom Flavors — Last 30 Days**: bottom 3 distinct from top 3 (shown only when ≥4 flavors tracked)
+  7. **Store Status**: online/offline indicator, last sync time, last production time
+- **Added:** `closeManagerDashboard()` — closes overlay, restores scroll
+- **Added:** `_renderMgrSection(title, noTopBorder)` — shared section builder (heading + optional divider)
+- **Changed:** `updateRoleUIVisibility()` — Dashboard button now shown for STORE_MANAGER in addition to CORPORATE_ADMIN
+- **Changed:** `showRunSummary()` — captures `_runDurationMs = totalMs` at run completion for writeRunSummary
+- **Changed:** `writeRunSummary()` — adds `durationMs` field to `run_completed` storeEvents entries; used for Avg Bkts/Hr calculation
+- **Changed:** `applyData()` — stores raw `data` in `_storeDoc` for fallback access to `lastRunDate`/`lastRunBuckets`/`lastRunAt`
+- **Added:** State variables `_storeDoc`, `_runDurationMs`
+- **Analytics data sources:** Avg Bkts/Hr uses `storeEvents[].durationMs` (new); Top/Bottom Flavors use `storeEvents[].flavors` (prev deploy); Trend uses `storeEvents[].buckets` + `at` timestamps; Shortages use live `activeFlavors`
+- **Retroactive:** Trend/flavor analytics only for runs after respective deploys; bucket counts retroactive via `_storeDoc.lastRunDate` fallback
+
 ### Corporate Dashboard Improvements (2026-05-28)
 Cleaner, more informative dashboard for corporate users. Removes operational noise, adds flavor analytics, and fixes display issues.
 

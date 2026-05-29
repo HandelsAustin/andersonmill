@@ -315,7 +315,7 @@
       <div id="syncStatus" style="font-size:12px;margin-top:4px;color:#8fa3be;padding-left:0;border-left:2px solid transparent;transition:border-color 0.2s;">⏳ Connecting...</div>
     </div>
     <div class="header-right">
-      <button class="btn btn-primary" id="dashboardBtn" style="display:none;" onclick="showCorporateDashboard()">Dashboard</button>
+      <button class="btn btn-primary" id="dashboardBtn" style="display:none;" onclick="openDashboard()">Dashboard</button>
       <button class="btn btn-green" id="authBtn" onclick="openAuthModal()">Sign In</button>
       <button class="btn" id="pwaInstallBtn" onclick="triggerPwaInstall()" style="display:none" title="Install this app on your device for offline use">&#11015; Install App</button>
     </div>
@@ -456,6 +456,17 @@
       <button class="btn" onclick="closeCorporateDashboard()">Close</button>
     </div>
     <div id="dashboardContent" style="display:grid;gap:16px;overflow-y:auto;flex:1;min-height:0;"></div>
+  </div>
+</div>
+
+<!-- Manager Dashboard Overlay -->
+<div id="managerDashboardOverlay" class="store-overlay">
+  <div style="max-width:480px;width:100%;background:#1e2870;border:1.5px solid #98d4e3;border-radius:14px;padding:24px;display:flex;flex-direction:column;max-height:calc(100vh - 48px);overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-bottom:16px;">
+      <h2 style="font-family:'Raiders','Impact',sans-serif;font-size:20px;color:#ffffff;margin:0;text-transform:uppercase;letter-spacing:0.04em;">Manager Dashboard</h2>
+      <button class="btn" onclick="closeManagerDashboard()">Close</button>
+    </div>
+    <div id="managerDashboardContent" style="overflow-y:auto;flex:1;min-height:0;padding-right:2px;"></div>
   </div>
 </div>
 
@@ -688,12 +699,14 @@ let roster = [];        // full list (MASTER_ROSTER + any user-added)
 let activeFlavors = []; // flavors on today's list
 let runMode = false;
 let _storeEvents = [];  // recent activity log for current store (max 10, from storeEvents field)
+let _storeDoc    = null; // raw store doc data from last Firestore load (for manager dashboard fallbacks)
 let _lastSyncAt  = null; // timestamp of last successful cloud sync (saved or loaded)
 let _wasOffline  = false; // tracks previous connectivity state for reconnect detection
 let _resetSnapshot  = null; // activeFlavors snapshot before resetDay() — enables 5s undo
 let _resetUndoTimer = null;
 let _doneRunPending = false; // double-tap guard: first tap of Done mid-run shows warning
 let _doneRunTimer   = null;
+let _runDurationMs  = 0;    // duration of last completed run in ms (captured at summary time)
 
 // ── CATEGORY SORT ──────────────────────────────────────────────────────────
 // Converts a category string to a numeric-sortable value.
@@ -895,7 +908,8 @@ function showStatusMessage(msg, timeout=2200) {
 function updateRoleUIVisibility() {
   const dashboardBtn = document.getElementById('dashboardBtn');
   if (dashboardBtn) {
-    dashboardBtn.style.display = userHasRole(ROLES.CORPORATE_ADMIN) ? 'inline-flex' : 'none';
+    const canDash = userHasRole(ROLES.CORPORATE_ADMIN) || userHasRole(ROLES.STORE_MANAGER);
+    dashboardBtn.style.display = canDash ? 'inline-flex' : 'none';
   }
   _updateHeaderSub();
 }
@@ -1011,6 +1025,7 @@ async function ensureOrgDoc() {
 // Store doc helper is provided by appHelpers.js
 
 function applyData(data) {
+  _storeDoc = data || null;
   const removed = data?.removedNames || [];
   const custom  = data?.customAdded  || [];
   roster = [
@@ -2273,6 +2288,7 @@ function checkRunComplete() {
 function showRunSummary() {
   stopRunTimer();
   const totalMs   = _runStartTime ? Date.now() - _runStartTime : 0;
+  _runDurationMs  = totalMs; // captured for writeRunSummary before doneRun() clears _runStartTime
   const totalMins = totalMs / 60000;
   const buckets   = _totalBucketsMade;
   const avgPerBucket = buckets > 0 ? fmtTime(totalMs / buckets) : '—';
@@ -2346,7 +2362,8 @@ async function writeRunSummary() {
     const newEntry = {
       type: 'run_completed', buckets: _totalBucketsMade, at: Date.now(),
       ...(userName ? { by: userName } : {}),
-      ...(Object.keys(flavors).length ? { flavors } : {})
+      ...(Object.keys(flavors).length ? { flavors } : {}),
+      ...(_runDurationMs > 0 ? { durationMs: _runDurationMs } : {})
     };
     _storeEvents = [..._storeEvents, newEntry].slice(-10);
     await window._setDoc(getStoreDocRef(), {
@@ -2933,6 +2950,248 @@ function showCorporateDashboard() {
 
 function closeCorporateDashboard() {
   const overlay = document.getElementById('dashboardOverlay');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// ── DASHBOARD ROUTING ────────────────────────────────────────────────────────
+function openDashboard() {
+  if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+    showCorporateDashboard();
+  } else if (userHasRole(ROLES.STORE_MANAGER)) {
+    showManagerDashboard();
+  }
+}
+
+// ── MANAGER DASHBOARD ────────────────────────────────────────────────────────
+function _renderMgrSection(title, noTopBorder) {
+  const section = document.createElement('div');
+  section.style.cssText = noTopBorder
+    ? 'margin-top:14px;'
+    : 'margin-top:16px;padding-top:16px;border-top:1px solid #2e4a70;';
+  if (title) {
+    const h = document.createElement('div');
+    h.style.cssText = 'font-size:11px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.1em;font-family:\'Arial Narrow\',Arial,sans-serif;margin-bottom:10px;font-weight:700;';
+    h.textContent = title;
+    section.appendChild(h);
+  }
+  return section;
+}
+
+function showManagerDashboard() {
+  const overlay = document.getElementById('managerDashboardOverlay');
+  const content = document.getElementById('managerDashboardContent');
+  if (!overlay || !content) return;
+
+  const storeLabel = localStorage.getItem('car_store_label') || window.getCurrentStoreId() || 'Store';
+  const today      = todayStr();
+  const now        = Date.now();
+
+  // Today's runs (from storeEvents)
+  const todayRuns = _storeEvents.filter(ev =>
+    ev.type === 'run_completed' &&
+    new Date(ev.at).toLocaleDateString('en-CA') === today
+  );
+  let bucketsToday = todayRuns.reduce((s, ev) => s + (ev.buckets || 0), 0);
+  if (!bucketsToday && _storeDoc?.lastRunDate === today) {
+    bucketsToday = _storeDoc.lastRunBuckets || 0; // fallback for pre-storeEvents stores
+  }
+
+  // Flavors produced today (only from runs with flavor breakdown)
+  const todayFlavorSet = new Set();
+  todayRuns.forEach(ev => { if (ev.flavors) Object.keys(ev.flavors).forEach(n => todayFlavorSet.add(n)); });
+  const flavorsToday = todayFlavorSet.size;
+
+  // Avg buckets per hour (today's runs that have durationMs)
+  const runsWithDur = todayRuns.filter(ev => ev.durationMs > 0);
+  let avgBph = null;
+  if (runsWithDur.length) {
+    const tb = runsWithDur.reduce((s, ev) => s + (ev.buckets || 0), 0);
+    const th = runsWithDur.reduce((s, ev) => s + ev.durationMs, 0) / 3600000;
+    avgBph = th > 0 ? roundToHalf(tb / th) : null;
+  }
+
+  // Last production activity
+  const lastRun   = [..._storeEvents].reverse().find(ev => ev.type === 'run_completed');
+  const lastRunAt = lastRun?.at || _storeDoc?.lastRunAt || null;
+
+  // Current shortages
+  const shortages  = activeFlavors.filter(f => toMake(f) > 0).sort((a, b) => toMake(b) - toMake(a));
+  const invTotal   = activeFlavors.length;
+  const invStocked = activeFlavors.filter(f => toMake(f) === 0).length;
+  const invLow     = activeFlavors.filter(f => toMake(f) === 1).length;
+  const invCrit    = activeFlavors.filter(f => toMake(f) >= 2).length;
+
+  // Flavor analytics — last 30 days from storeEvents entries with flavor data
+  const cutoff30 = now - 30 * 24 * 60 * 60 * 1000;
+  const flavorTotals = {};
+  _storeEvents.filter(ev => ev.type === 'run_completed' && ev.at >= cutoff30 && ev.flavors).forEach(ev => {
+    Object.entries(ev.flavors).forEach(([n, c]) => { flavorTotals[n] = (flavorTotals[n] || 0) + c; });
+  });
+  const flavorsSorted = Object.entries(flavorTotals).sort((a, b) => b[1] - a[1]);
+  const top3          = flavorsSorted.slice(0, 3);
+  const topNames      = new Set(top3.map(([n]) => n));
+  const bottom3       = flavorsSorted.length > 3
+    ? flavorsSorted.filter(([n]) => !topNames.has(n)).slice(-3).reverse()
+    : [];
+
+  // 7-day trend
+  const day7  = now - 7  * 24 * 60 * 60 * 1000;
+  const day14 = now - 14 * 24 * 60 * 60 * 1000;
+  const recent7 = _storeEvents.filter(ev => ev.type === 'run_completed' && ev.at >= day7);
+  const prev7   = _storeEvents.filter(ev => ev.type === 'run_completed' && ev.at >= day14 && ev.at < day7);
+  let trendPct = null, trendDir = 'flat';
+  if (recent7.length >= 1 && prev7.length >= 1) {
+    const rB = recent7.reduce((s, ev) => s + (ev.buckets || 0), 0);
+    const pB = prev7.reduce((s, ev) => s + (ev.buckets || 0), 0);
+    if (pB > 0) {
+      trendPct = Math.round(((rB - pB) / pB) * 100);
+      trendDir = trendPct > 0 ? 'up' : trendPct < 0 ? 'down' : 'flat';
+    }
+  }
+
+  content.innerHTML = '';
+
+  // ── Store header ──────────────────────────────────────────────────────────
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'margin-bottom:4px;';
+  hdr.innerHTML = `<div style="font-size:17px;font-weight:700;color:#ffffff;">${storeLabel}</div><div style="font-size:11px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;margin-top:3px;">${lastRunAt ? 'Last production ' + relativeTime(lastRunAt) : 'No production runs recorded yet'}</div>`;
+  content.appendChild(hdr);
+
+  // ── Today's Production ───────────────────────────────────────────────────
+  const prodSection = _renderMgrSection("Today’s Production", true);
+  const prodGrid = document.createElement('div');
+  prodGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;';
+  [
+    { label: 'Buckets Made', value: bucketsToday || '—' },
+    { label: 'Flavors',      value: flavorsToday  || '—' },
+    { label: 'Avg Bkts/Hr', value: avgBph !== null ? avgBph : '—' },
+  ].forEach(({ label, value }) => {
+    const cell = document.createElement('div');
+    cell.style.cssText = 'background:#162053;border:1px solid #2e4a70;border-radius:8px;padding:12px 6px;text-align:center;';
+    cell.innerHTML = `<div style="font-size:26px;font-weight:700;color:#ffffff;line-height:1;">${value}</div><div style="font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;margin-top:5px;">${label}</div>`;
+    prodGrid.appendChild(cell);
+  });
+  prodSection.appendChild(prodGrid);
+  content.appendChild(prodSection);
+
+  // ── Inventory Health ─────────────────────────────────────────────────────
+  if (invTotal > 0) {
+    const invSection = _renderMgrSection('Inventory Health');
+    const invGrid = document.createElement('div');
+    invGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;';
+    [
+      { label: 'Stocked',  value: invStocked, color: '#22a05a', border: '#1e4a30', bg: 'rgba(34,160,90,0.08)' },
+      { label: 'Low',      value: invLow,     color: '#f0a500', border: '#4a3600', bg: 'rgba(240,165,0,0.08)' },
+      { label: 'Critical', value: invCrit,    color: '#ff8080', border: '#5a1a1a', bg: 'rgba(215,38,39,0.08)' },
+    ].forEach(({ label, value, color, border, bg }) => {
+      const chip = document.createElement('div');
+      chip.style.cssText = `padding:12px 6px;border-radius:8px;border:1px solid ${border};background:${bg};text-align:center;`;
+      chip.innerHTML = `<div style="font-size:22px;font-weight:700;color:${color};line-height:1;">${value}</div><div style="font-size:10px;color:${color};opacity:0.85;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;margin-top:5px;">${label}</div>`;
+      invGrid.appendChild(chip);
+    });
+    invSection.appendChild(invGrid);
+    content.appendChild(invSection);
+  }
+
+  // ── Current Shortages ────────────────────────────────────────────────────
+  const shortSection = _renderMgrSection('Current Shortages' + (shortages.length ? ' · ' + shortages.length : ''));
+  if (!shortages.length) {
+    const ok = document.createElement('div');
+    ok.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:7px;border:1px solid #1e5c33;background:rgba(34,160,90,0.08);';
+    ok.innerHTML = `<span style="font-size:8px;color:#22a05a;">&#9679;</span><span style="font-size:13px;color:#c5d8f0;font-family:'Arial Narrow',Arial,sans-serif;">${invTotal > 0 ? 'All flavors fully stocked' : 'No flavors set up — tap Edit Flavors to begin'}</span>`;
+    shortSection.appendChild(ok);
+  } else {
+    const sl = document.createElement('div');
+    sl.style.cssText = 'display:grid;gap:5px;';
+    shortages.forEach(f => {
+      const needed = toMake(f);
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:7px;background:rgba(215,38,39,0.07);border:1px solid #4a1a1a;cursor:pointer;touch-action:manipulation;';
+      row.title = 'Tap to manage flavors';
+      row.innerHTML = `<span style="font-size:13px;color:#ffffff;font-weight:600;">${f.name}</span><span style="font-size:13px;font-weight:700;color:#ff8080;white-space:nowrap;">−${needed} needed</span>`;
+      row.onclick = () => { closeManagerDashboard(); requireManager(openAddModal); };
+      sl.appendChild(row);
+    });
+    shortSection.appendChild(sl);
+  }
+  content.appendChild(shortSection);
+
+  // ── 7-Day Trend ──────────────────────────────────────────────────────────
+  const trendSection = _renderMgrSection('Production Trend · 7 Days');
+  if (trendPct !== null) {
+    const TMAP = {
+      up:   { arrow: '↑', color: '#22a05a', pre: '+' },
+      down: { arrow: '↓', color: '#ff8080', pre: '' },
+      flat: { arrow: '→', color: '#8fa3be', pre: '' },
+    };
+    const t = TMAP[trendDir];
+    const tel = document.createElement('div');
+    tel.style.cssText = `display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:8px;background:#162053;border:1px solid #2e4a70;`;
+    tel.innerHTML = `<span style="font-size:28px;color:${t.color};font-weight:700;line-height:1;flex-shrink:0;">${t.arrow}</span><div><div style="font-size:17px;font-weight:700;color:${t.color};">${t.pre}${trendPct}% vs prior 7 days</div><div style="font-size:11px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;margin-top:2px;">Based on recent run history</div></div>`;
+    trendSection.appendChild(tel);
+  } else {
+    const noTrend = document.createElement('div');
+    noTrend.style.cssText = 'font-size:12px;color:#5a7a9a;font-family:\'Arial Narrow\',Arial,sans-serif;';
+    noTrend.textContent = 'Requires 2 weeks of run history.';
+    trendSection.appendChild(noTrend);
+  }
+  content.appendChild(trendSection);
+
+  // ── Top Flavors ───────────────────────────────────────────────────────────
+  const topSection = _renderMgrSection('Top Flavors — Last 30 Days');
+  if (!top3.length) {
+    const nfl = document.createElement('div');
+    nfl.style.cssText = 'font-size:12px;color:#5a7a9a;font-family:\'Arial Narrow\',Arial,sans-serif;';
+    nfl.textContent = 'Flavor tracking begins with the next completed run.';
+    topSection.appendChild(nfl);
+  } else {
+    const medals = ['🥇', '🥈', '🥉'];
+    top3.forEach(([name, count], i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:7px;background:#162053;border:1px solid #2e4a70;margin-bottom:5px;';
+      row.innerHTML = `<span style="font-size:16px;flex-shrink:0;">${medals[i]}</span><span style="flex:1;font-size:13px;color:#ffffff;font-weight:600;">${name}</span><span style="font-size:12px;color:#98d4e3;font-family:'Arial Narrow',Arial,sans-serif;white-space:nowrap;">${count} bucket${count !== 1 ? 's' : ''}</span>`;
+      topSection.appendChild(row);
+    });
+  }
+  content.appendChild(topSection);
+
+  // ── Bottom Flavors ────────────────────────────────────────────────────────
+  if (bottom3.length) {
+    const botSection = _renderMgrSection('Bottom Flavors — Last 30 Days');
+    bottom3.forEach(([name, count]) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:7px;background:#162053;border:1px solid #2e4a70;margin-bottom:5px;';
+      row.innerHTML = `<span style="font-size:16px;flex-shrink:0;">🔻</span><span style="flex:1;font-size:13px;color:#c5d8f0;">${name}</span><span style="font-size:12px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;white-space:nowrap;">${count} bucket${count !== 1 ? 's' : ''}</span>`;
+      botSection.appendChild(row);
+    });
+    content.appendChild(botSection);
+  }
+
+  // ── Store Status ──────────────────────────────────────────────────────────
+  const statusSection = _renderMgrSection('Store Status');
+  const isOnline = navigator.onLine;
+  const statusRows = [
+    { dot: isOnline ? '#22a05a' : '#f0a500', label: isOnline ? 'Online' : 'Offline — using local data', sub: _lastSyncAt ? 'Last sync ' + relativeTime(_lastSyncAt) : null },
+  ];
+  if (lastRunAt) statusRows.push({ dot: '#98d4e3', label: 'Last production ' + relativeTime(lastRunAt), sub: null });
+  const sList = document.createElement('div');
+  sList.style.cssText = 'display:grid;gap:5px;';
+  statusRows.forEach(({ dot, label, sub }) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-radius:7px;background:rgba(255,255,255,0.03);border:1px solid #2e4a70;';
+    row.innerHTML = `<span style="font-size:8px;color:${dot};flex-shrink:0;margin-top:4px;">&#9679;</span><div><div style="font-size:13px;color:#c5d8f0;font-family:'Arial Narrow',Arial,sans-serif;">${label}</div>${sub ? `<div style="font-size:11px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;margin-top:1px;">${sub}</div>` : ''}</div>`;
+    sList.appendChild(row);
+  });
+  statusSection.appendChild(sList);
+  content.appendChild(statusSection);
+
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeManagerDashboard() {
+  const overlay = document.getElementById('managerDashboardOverlay');
   if (overlay) overlay.classList.remove('open');
   document.body.style.overflow = '';
 }
