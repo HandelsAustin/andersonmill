@@ -3020,10 +3020,11 @@ async function showStorePicker(skipWelcomeBack = false) {
     return;
   }
 
-  // Close button — only shown when a store is already loaded mid-session
+  // Close button — shown whenever user has an active session (employee or signed-in)
   const _existingClose = document.getElementById('storeOverlayClose');
   if (_existingClose) _existingClose.remove();
-  if (savedId) {
+  const _hasSession = savedId || sessionStorage.getItem('car_employee_session') || (window._auth && window._auth.currentUser);
+  if (_hasSession) {
     const closeBtn = document.createElement('button');
     closeBtn.id = 'storeOverlayClose';
     closeBtn.textContent = '× Not now';
@@ -3048,9 +3049,15 @@ async function showStorePicker(skipWelcomeBack = false) {
       showOrgSetupForm(list);
     } else {
       const p = document.createElement('p');
-      p.style.cssText = 'color:#98d4e3;font-size:13px;line-height:1.6;text-align:center;';
-      p.textContent = 'No stores available. Ask a manager to sign in and set up this device.';
+      p.style.cssText = 'color:#98d4e3;font-size:13px;line-height:1.6;text-align:center;margin-bottom:20px;';
+      p.textContent = 'No stores found. A manager needs to sign in to set up this device.';
       list.appendChild(p);
+      const signInBtn = document.createElement('button');
+      signInBtn.className = 'store-btn';
+      signInBtn.style.cssText = 'text-align:center;background:#0f4a2a;border-color:#98d4e3;';
+      signInBtn.textContent = 'Manager Sign In';
+      signInBtn.onclick = () => openAuthModal();
+      list.appendChild(signInBtn);
     }
   } else {
     stores.forEach(store => {
