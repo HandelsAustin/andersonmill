@@ -806,17 +806,7 @@ function userCanManage() {
 }
 
 function updateUserRoleDisplay() {
-  const el = document.getElementById('userRoleStatus');
-  if (!el) return;
-  if (window._auth && window._auth.currentUser) {
-    const label = window._USER_ROLE === ROLES.CORPORATE_ADMIN ? 'Corporate Admin' :
-                  window._USER_ROLE === ROLES.STORE_MANAGER ? 'Store Manager' : 'Employee';
-    el.textContent = `Signed in · ${label}`;
-  } else if (sessionStorage.getItem('car_employee_session')) {
-    el.textContent = 'Employee mode';
-  } else {
-    el.textContent = '';
-  }
+  _updateHeaderSub();
 }
 
 async function loadCurrentUserRole(forceCreate = false) {
@@ -905,6 +895,20 @@ function updateRoleUIVisibility() {
   if (dashboardBtn) {
     dashboardBtn.style.display = userHasRole(ROLES.CORPORATE_ADMIN) ? 'inline-flex' : 'none';
   }
+  _updateHeaderSub();
+}
+
+function _updateHeaderSub() {
+  const storeLabel = localStorage.getItem('car_store_label') || (window.getCurrentStoreId && window.getCurrentStoreId());
+  if (!storeLabel) return;
+  const sub = document.querySelector('.header-sub');
+  if (!sub) return;
+  let roleTag = '';
+  if (window._auth && window._auth.currentUser) {
+    if (window._USER_ROLE === ROLES.CORPORATE_ADMIN) roleTag = ' · Corporate Admin';
+    else if (window._USER_ROLE === ROLES.STORE_MANAGER) roleTag = ' · Manager';
+  }
+  sub.textContent = storeLabel + roleTag + " — Handel's Homemade Ice Cream";
 }
 
 function openAuthModal() {
@@ -3278,11 +3282,11 @@ function selectStore(id) {
   document.getElementById('storeOverlay').classList.remove('open');
   const store = findStoreById(id);
   if (store) {
-    localStorage.setItem('car_store_label', store.label);
-    const sub = document.querySelector('.header-sub');
-    if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
-    window.logOrgEvent('store_selected', { storeId: id, label: store.label });
+    const displayName = store.label || store.id;
+    localStorage.setItem('car_store_label', displayName);
+    window.logOrgEvent('store_selected', { storeId: id, label: displayName });
   }
+  _updateHeaderSub();
   init();
 }
 
@@ -3407,12 +3411,13 @@ function bootstrap() {
     window.setStoreId(savedId);
     loadOrgStores().then(() => {
       const store = findStoreById(savedId);
-      if (store) {
-        const sub = document.querySelector('.header-sub');
-        if (sub) sub.textContent = store.label + " — Handel's Homemade Ice Cream";
+      if (store && !localStorage.getItem('car_store_label')) {
+        localStorage.setItem('car_store_label', store.label || store.id);
       }
+      _updateHeaderSub();
       init();
     }).catch(() => {
+      _updateHeaderSub();
       init();
     });
   } else {
