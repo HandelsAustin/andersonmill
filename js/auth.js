@@ -120,7 +120,9 @@ function openAuthModal() {
     signOutUser();
     return;
   }
-  document.getElementById('authError').textContent = '';
+  const errEl = document.getElementById('authError');
+  errEl.textContent = '';
+  errEl.style.color = '';
   document.getElementById('authEmail').value = '';
   document.getElementById('authPassword').value = '';
   document.getElementById('authOverlay').classList.add('open');
@@ -179,6 +181,41 @@ async function signInManager() {
     } else {
       errEl.textContent = e.message || 'Sign in failed.';
       console.error(e);
+    }
+  }
+}
+
+async function resetPassword() {
+  const email = document.getElementById('authEmail').value.trim();
+  const errEl = document.getElementById('authError');
+  errEl.style.color = '';
+  if (!email) {
+    errEl.style.color = '#d72627';
+    errEl.textContent = 'Enter your email above first, then tap "Forgot password?".';
+    return;
+  }
+  if (!window._firebaseReady || !window._auth) {
+    errEl.style.color = '#d72627';
+    errEl.textContent = 'You must be online to reset your password.';
+    return;
+  }
+  try {
+    await window._sendPasswordResetEmail(window._auth, email);
+    errEl.style.color = '#22a05a';
+    errEl.textContent = `✓ Password reset email sent to ${email}.`;
+  } catch (e) {
+    if (e.code === 'auth/invalid-email') {
+      errEl.style.color = '#d72627';
+      errEl.textContent = 'That email address looks invalid.';
+    } else if (e.code === 'auth/user-not-found') {
+      // Show the same success-style message either way so this can't be used
+      // to probe which emails have manager accounts.
+      errEl.style.color = '#22a05a';
+      errEl.textContent = `✓ If an account exists for ${email}, a reset email has been sent.`;
+    } else {
+      errEl.style.color = '#d72627';
+      errEl.textContent = e.message || 'Could not send reset email. Try again shortly.';
+      console.error('Password reset error:', e);
     }
   }
 }
