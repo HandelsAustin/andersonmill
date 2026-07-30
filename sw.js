@@ -5,7 +5,7 @@
  * To deploy a new app version that busts the old cache, bump CACHE_VERSION below.
  */
 
-const CACHE_VERSION = 'v8';
+const CACHE_VERSION = 'v9';
 const CACHE_NAME    = `count-and-run-${CACHE_VERSION}`;
 
 // App shell — precached on SW install; served from cache immediately on all subsequent loads.
@@ -16,6 +16,16 @@ const APP_SHELL = [
   '/config.js',
   '/manifest.json',
   '/icons/icon.svg',
+  '/js/auth.js',
+  '/js/roster.js',
+  '/js/production.js',
+  '/js/manager-lock.js',
+  '/js/store-org.js',
+  '/js/dashboard.js',
+  '/js/settings.js',
+  '/js/novelties.js',
+  '/js/inventory.js',
+  '/js/app-core.js',
 ];
 
 // Firebase CDN modules — cached on first network fetch, served from cache offline.
