@@ -1,6 +1,29 @@
 // Sync status, connectivity, init/bootstrap, entry screen, SW registration, PWA install.
 // Extracted from index.html — no logic changes.
 
+// ── Bottom tab navigation ────────────────────────────────────────────────────
+// Ice Cream Run / Novelties / Inventory / Store Settings. Inventory + Settings tabs
+// are hidden (via updateRoleUIVisibility() in auth.js) unless signed in as manager/admin.
+const TABS = {
+  Run:        { panel: 'tabPanelRun',        btn: 'tabBtnRun',        render: () => { renderTable(); _renderRunDatePicker(); } },
+  Novelties:  { panel: 'tabPanelNovelties',  btn: 'tabBtnNovelties',  render: () => renderNoveltiesPage() },
+  Inventory:  { panel: 'tabPanelInventory',  btn: 'tabBtnInventory',  render: () => renderInventoryPage() },
+  Settings:   { panel: 'tabPanelSettings',   btn: 'tabBtnSettings',   render: () => renderSettingsPage() },
+};
+
+function switchTab(name) {
+  const target = TABS[name];
+  if (!target) return;
+  Object.values(TABS).forEach(t => {
+    document.getElementById(t.panel)?.classList.remove('active');
+    document.getElementById(t.btn)?.classList.remove('active');
+  });
+  document.getElementById(target.panel)?.classList.add('active');
+  document.getElementById(target.btn)?.classList.add('active');
+  window.scrollTo(0, 0);
+  target.render();
+}
+
 function setSyncStatus(state) {
   const el = document.getElementById('syncStatus');
   if (!el) return;

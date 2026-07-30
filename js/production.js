@@ -293,6 +293,61 @@ function buildRow(f, runIndex, runTotal) {
   return tr;
 }
 
+// ── Date recall ──────────────────────────────────────────────────────────────
+// "Which day's Ice Cream Run am I looking at" control — defaults to today,
+// lets a manager pull up a past date's run and keep checking it off normally.
+function _renderRunDatePicker() {
+  const container = document.getElementById('runDatePicker');
+  if (!container) return;
+  const isToday = _workingRunDate === todayStr();
+  container.style.position = 'relative';
+  container.innerHTML = '';
+
+  const btn = document.createElement('button');
+  btn.className = 'btn';
+  btn.style.cssText = 'font-size:12px;padding:8px 12px;';
+  btn.textContent = `📅 ${isToday ? 'Today' : _workingRunDate} ▾`;
+  btn.onclick = e => { e.stopPropagation(); _toggleRunDateMenu(); };
+  container.appendChild(btn);
+
+  if (!isToday) {
+    const backBtn = document.createElement('button');
+    backBtn.className = 'btn';
+    backBtn.style.cssText = 'font-size:12px;padding:8px 12px;margin-left:6px;';
+    backBtn.textContent = '↩ Back to Today';
+    backBtn.onclick = () => loadRunForDate(todayStr());
+    container.appendChild(backBtn);
+  }
+
+  const menu = document.createElement('div');
+  menu.id = 'runDateMenu';
+  menu.style.cssText = 'display:none;position:absolute;top:110%;left:0;background:#1a2744;border:1.5px solid #2e4a70;border-radius:8px;overflow:hidden;z-index:200;min-width:200px;max-height:280px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.4);';
+  container.appendChild(menu);
+}
+
+async function _toggleRunDateMenu() {
+  const menu = document.getElementById('runDateMenu');
+  if (!menu) return;
+  if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+  menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">Loading…</div>';
+  menu.style.display = 'block';
+  setTimeout(() => document.addEventListener('click', () => { menu.style.display = 'none'; }, { once: true }), 0);
+
+  const dates = await listRecentRunDates();
+  menu.innerHTML = '';
+  if (!dates.length) {
+    menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">No saved runs yet.</div>';
+    return;
+  }
+  dates.forEach(d => {
+    const row = document.createElement('button');
+    row.style.cssText = 'display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid #2e4a70;color:#c5d8f0;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;cursor:pointer;';
+    row.textContent = d === todayStr() ? `${d} (Today)` : d;
+    row.onclick = () => { loadRunForDate(d); menu.style.display = 'none'; };
+    menu.appendChild(row);
+  });
+}
+
 function renderTable() {
   // Guard: don't interrupt an active tap-to-type holding edit.
   // applyData() already ran, so Firestore state is current — re-render deferred until commit.
@@ -781,7 +836,13 @@ function clearRunView() {
   renderTable();
 }
 
-function resetDay() {
+async function resetDay() {
+  // "Reset" always means "start today fresh" — if a past date is currently
+  // recalled, switch back to today first rather than resetting that history.
+  if (_workingRunDate !== todayStr()) {
+    await loadRunForDate(todayStr());
+  }
+
   // Commit any pending roster delete — two undoable actions can't coexist
   if (undoTimer) { clearTimeout(undoTimer); commitRosterDelete(); }
   // Commit any pending prior reset before starting a new one

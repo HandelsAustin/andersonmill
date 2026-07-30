@@ -80,6 +80,27 @@ window.getOrgStoresCollectionRef = function(orgId = window.getCurrentOrgId()) {
   return window._collection(window._db, 'organizations', orgId, 'stores');
 };
 
+// Date-recallable daily logs — one small doc per date, so a day's data can be pulled
+// back up and re-edited later without bloating the store doc itself.
+window.getStoreRunLogRef = function(date, orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._doc(window._db, 'organizations', orgId, 'stores', storeId, 'runs', date);
+};
+window.getStoreRunLogCollectionRef = function(orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'runs');
+};
+window.getStoreNoveltiesLogRef = function(date, orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._doc(window._db, 'organizations', orgId, 'stores', storeId, 'noveltiesLog', date);
+};
+window.getStoreNoveltiesLogCollectionRef = function(orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'noveltiesLog');
+};
+window.getStoreInventoryLogRef = function(date, orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._doc(window._db, 'organizations', orgId, 'stores', storeId, 'inventoryLog', date);
+};
+window.getStoreInventoryLogCollectionRef = function(orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'inventoryLog');
+};
+
 window.setOrgStores = function(stores) {
   window.APP_STATE.orgStores = Array.isArray(stores) ? stores : [];
 };

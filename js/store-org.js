@@ -3,6 +3,8 @@
 
 let _saving = false;
 let _unsubscribeSnapshot = null;
+let _unsubscribeRunSnapshot = null;
+let _workingRunDate = null; // which date's run is currently loaded/editable — defaults to today in loadAll()
 
 // NOTE: getOrgDocRef/getStoreDocRef/getOrgMemberRef are provided by appHelpers.js
 // (as window.getOrgDocRef etc.) and called bare throughout this file and others —
@@ -35,6 +37,11 @@ function _getOrgDisplayName() {
   return window._orgName || (window.DEFAULT_ORG_META && window.DEFAULT_ORG_META.name) || window.getCurrentOrgId();
 }
 
+// Roster/settings/novelties-catalog/inventory-catalog are persistent (store doc).
+// activeFlavors/cateringItems are date-specific and live in runs/{date} instead —
+// see _applyRunData()/loadRunForDate() below. applyData() re-derives category/type
+// on the already-loaded activeFlavors in case the roster changed (e.g. another
+// device edited it), but is not the source of activeFlavors itself.
 function applyData(data) {
   _storeDoc = data || null;
   const removed = data?.removedNames || [];
@@ -43,29 +50,38 @@ function applyData(data) {
     ...MASTER_ROSTER.filter(m => !removed.includes(m.name)),
     ...custom
   ];
-  activeFlavors = data?.activeFlavors || [];
-  activeFlavors = activeFlavors.map(f => {
+  activeFlavors = (activeFlavors || []).map(f => {
     const r = roster.find(x => x.name === f.name);
     return r ? { ...f, category: r.category, type: r.type } : f;
   }).filter(f => roster.find(x => x.name === f.name));
   _storeEvents = data?.storeEvents || [];
   _storeSettings = data?.settings || {};
   novelties = data?.novelties || [];
-  inventoryItems = data?.inventoryItems || [];
+  inventoryCatalog = data?.inventoryCatalog || [];
   _inventoryLastCountedAt = data?.inventoryLastCountedAt || null;
+}
+
+function _applyRunData(runData) {
+  const rd = runData || {};
+  activeFlavors = (rd.activeFlavors || []).map(f => {
+    const r = roster.find(x => x.name === f.name);
+    return r ? { ...f, category: r.category, type: r.type } : f;
+  }).filter(f => roster.find(x => x.name === f.name));
+  _cateringItems = rd.cateringItems || [];
 }
 
 async function saveAll() {
   const customAdded  = roster.filter(r => !MASTER_ROSTER.find(m => m.name === r.name));
   const removedNames = MASTER_ROSTER.filter(m => !roster.find(r => r.name === m.name)).map(m => m.name);
-  const payload = { customAdded, removedNames, activeFlavors, updatedAt: Date.now() };
-  localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify(payload));
+  const rosterPayload = { customAdded, removedNames, updatedAt: Date.now() };
+  const runPayload = { activeFlavors, cateringItems: _cateringItems, updatedAt: Date.now() };
+  localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify({ ...rosterPayload, ...runPayload }));
   if (!window._firebaseReady) { setSyncStatus('offline'); return; }
   setSyncStatus('saving');
   _saving = true;
   try {
-    const ref = getStoreDocRef();
-    await window._setDoc(ref, payload, { merge: true });
+    await window._setDoc(getStoreDocRef(), rosterPayload, { merge: true });
+    await window._setDoc(window.getStoreRunLogRef(_workingRunDate || todayStr()), runPayload, { merge: true });
     setSyncStatus('saved');
   } catch(e) {
     console.error('Firestore save error:', e);
@@ -77,7 +93,9 @@ async function saveAll() {
 
 async function loadAll() {
   if (_unsubscribeSnapshot) { _unsubscribeSnapshot(); _unsubscribeSnapshot = null; }
+  if (!_workingRunDate) _workingRunDate = todayStr();
   let data = null;
+  let backupParsed = null;
   if (window._firebaseReady) {
     await loadOrgMetadata();
     try {
@@ -93,18 +111,19 @@ async function loadAll() {
   if (!data) {
     try {
       const backup = localStorage.getItem(window._STORAGE_KEYS.backup);
-      if (backup) { data = JSON.parse(backup); }
+      if (backup) { backupParsed = JSON.parse(backup); data = backupParsed; }
       if (!window._firebaseReady) setSyncStatus('offline');
     } catch(e) {}
   }
   applyData(data);
+  await loadRunForDate(_workingRunDate, backupParsed);
   if (window._firebaseReady && window._onSnapshot) {
     try {
       const ref = getStoreDocRef();
       _unsubscribeSnapshot = window._onSnapshot(ref, snap => {
         if (_saving) return;
         applyData(snap.exists() ? snap.data() : null);
-        if (snap.exists()) localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify(snap.data()));
+        if (snap.exists()) localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify({ ...snap.data(), activeFlavors, cateringItems: _cateringItems }));
         setSyncStatus('loaded');
         renderTable();
       }, err => {
@@ -114,6 +133,54 @@ async function loadAll() {
     } catch(e) {
       console.error('Failed to start snapshot listener:', e);
     }
+  }
+}
+
+// Loads (and live-subscribes to) a specific date's Ice Cream Run — this is what
+// "recall a past day" switches to. offlineFallback is only used for *today* when
+// Firestore is unreachable (the local backup is a single most-recent-day cache,
+// not a full history, same limitation as before this feature existed).
+async function loadRunForDate(date, offlineFallback) {
+  _workingRunDate = date;
+  if (_unsubscribeRunSnapshot) { _unsubscribeRunSnapshot(); _unsubscribeRunSnapshot = null; }
+  let runData = null;
+  if (window._firebaseReady) {
+    try {
+      const snap = await window._getDoc(window.getStoreRunLogRef(date));
+      if (snap.exists()) runData = snap.data();
+    } catch (e) {
+      console.error('Run log load error:', e);
+    }
+  } else if (offlineFallback && date === todayStr()) {
+    runData = offlineFallback;
+  }
+  _applyRunData(runData);
+  renderTable();
+  if (typeof _renderRunDatePicker === 'function') _renderRunDatePicker();
+  if (window._firebaseReady && window._onSnapshot) {
+    try {
+      _unsubscribeRunSnapshot = window._onSnapshot(window.getStoreRunLogRef(date), snap => {
+        if (_saving) return;
+        _applyRunData(snap.exists() ? snap.data() : null);
+        renderTable();
+      }, err => console.error('Run snapshot listener error:', err));
+    } catch (e) {
+      console.error('Failed to start run snapshot listener:', e);
+    }
+  }
+}
+
+// Lists recent saved run dates (doc IDs are already YYYY-MM-DD, so ordering by
+// document id is a cheap, sortable "date list" with no extra fields needed).
+async function listRecentRunDates(max = 60) {
+  if (!window._firebaseReady || !window._getDocs || !window._query) return [];
+  try {
+    const q = window._query(window.getStoreRunLogCollectionRef(), window._orderBy('__name__', 'desc'), window._limit(max));
+    const snap = await window._getDocs(q);
+    return snap.docs.map(d => d.id);
+  } catch (e) {
+    console.error('List run dates error:', e);
+    return [];
   }
 }
 

@@ -1,9 +1,16 @@
-// Novelties: daily on-hand count + refill tracking for pre-packaged items
-// (ice cream sandwiches, Handel Pops, Hurricane toppings, waffle bowls/cones,
-// Cambros, chocolate bananas, sundae bases). Data lives at store.novelties —
-// merged onto the existing store doc, no new collection.
+// Novelties: daily make-checklist for pre-packaged items (ice cream sandwiches,
+// Handel Pops, Hurricane toppings, waffle bowls/cones, Cambros, chocolate bananas,
+// sundae bases) — same model as the Ice Cream Run: qty-to-make = par − on-hand,
+// check off as made, recallable/re-editable by date.
+//
+// Catalog (category, name, parLevel) is persistent — store.novelties, merged onto
+// the existing store doc. Each day's on-hand counts + made checkmarks live in their
+// own small doc, organizations/{orgId}/stores/{storeId}/noveltiesLog/{date}, so a
+// day can be pulled back up later without bloating the store doc.
 
-let novelties = []; // [{ category, name, onHand, parLevel }] — populated by applyData() in store-org.js
+let novelties = []; // catalog: [{ category, name, parLevel }] — populated by applyData() in store-org.js
+let _noveltiesLog = []; // working date's data: [{ category, name, onHand, done }]
+let _workingNoveltiesDate = null;
 
 const NOVELTY_CATALOG = [
   { category: 'Ice Cream Sandwiches',     items: ['Vanilla', 'Chocolate', 'Mint Chocolate Chip', 'Flavor of the Month'] },
@@ -20,36 +27,70 @@ const NOVELTY_DEFAULT_PAR = 5;
 function _seedNoveltiesIfEmpty() {
   if (novelties.length) return false;
   novelties = NOVELTY_CATALOG.flatMap(group =>
-    group.items.map(name => ({ category: group.category, name, onHand: 0, parLevel: NOVELTY_DEFAULT_PAR }))
+    group.items.map(name => ({ category: group.category, name, parLevel: NOVELTY_DEFAULT_PAR }))
   );
   return true;
 }
 
-async function saveNovelties() {
-  if (!window._firebaseReady) { showStatusMessage('Offline — novelties saved locally only', 3000); return; }
+async function saveNoveltiesCatalog() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — catalog saved locally only', 3000); return; }
   try {
     await window._setDoc(getStoreDocRef(), { novelties }, { merge: true });
   } catch (e) {
-    console.error('Novelties save error:', e);
-    showStatusMessage('⚠ Could not save novelties', 2500);
+    console.error('Novelties catalog save error:', e);
+    showStatusMessage('⚠ Could not save novelties catalog', 2500);
   }
 }
 
-function openNovelties() {
-  const overlay = document.getElementById('noveltiesOverlay');
-  if (!overlay) return;
-  const seeded = _seedNoveltiesIfEmpty();
+async function saveNoveltiesLog() {
+  if (!window._firebaseReady) { showStatusMessage("Offline — today's checklist saved locally only", 3000); return; }
+  try {
+    await window._setDoc(window.getStoreNoveltiesLogRef(_workingNoveltiesDate || todayStr()), { items: _noveltiesLog, updatedAt: Date.now() }, { merge: true });
+  } catch (e) {
+    console.error('Novelties log save error:', e);
+    showStatusMessage('⚠ Could not save checklist', 2500);
+  }
+}
+
+// Loads (and switches the working date to) a specific date's checklist — this is
+// what "recall a past day" does. No live snapshot listener here (unlike the Run):
+// Novelties counting is typically single-device/single-session, so load-on-demand
+// keeps this simpler.
+async function loadNoveltiesForDate(date) {
+  _workingNoveltiesDate = date;
+  let logData = null;
+  if (window._firebaseReady) {
+    try {
+      const snap = await window._getDoc(window.getStoreNoveltiesLogRef(date));
+      if (snap.exists()) logData = snap.data();
+    } catch (e) {
+      console.error('Novelties log load error:', e);
+    }
+  }
+  _noveltiesLog = logData?.items || [];
   renderNoveltiesPage();
-  if (seeded) saveNovelties();
-  overlay.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  if (typeof _applyNewPagesTheme === 'function') _applyNewPagesTheme((_storeSettings && _storeSettings.theme) || 'dark');
+}
+
+async function listRecentNoveltiesDates(max = 60) {
+  if (!window._firebaseReady || !window._getDocs || !window._query) return [];
+  try {
+    const q = window._query(window.getStoreNoveltiesLogCollectionRef(), window._orderBy('__name__', 'desc'), window._limit(max));
+    const snap = await window._getDocs(q);
+    return snap.docs.map(d => d.id);
+  } catch (e) {
+    console.error('List novelties dates error:', e);
+    return [];
+  }
+}
+
+// Novelties is now a bottom-tab panel rather than a popup overlay — these wrappers
+// stay in case anything still calls them directly.
+function openNovelties() {
+  switchTab('Novelties');
 }
 
 function closeNovelties() {
-  const overlay = document.getElementById('noveltiesOverlay');
-  if (overlay) overlay.classList.remove('open');
-  document.body.style.overflow = '';
+  switchTab('Run');
 }
 
 // Generic rapid-fire long-press stepper (same interaction as the production run's
@@ -82,27 +123,107 @@ function _attachStepper(btn, delta, getVal, setVal, onSettle) {
   btn.addEventListener('pointerleave', stop);
 }
 
+function _noveltyKey(item) {
+  return `${item.category}::${item.name}`;
+}
+
+// Finds (or lazily creates) this item's entry in the currently-loaded day's log.
+function _getLogEntry(item) {
+  const key = _noveltyKey(item);
+  let entry = _noveltiesLog.find(e => _noveltyKey(e) === key);
+  if (!entry) {
+    entry = { category: item.category, name: item.name, onHand: 0, done: false };
+    _noveltiesLog.push(entry);
+  }
+  return entry;
+}
+
+function _toMakeNovelty(item, entry) {
+  return Math.max(0, (item.parLevel || 0) - (entry.onHand || 0));
+}
+
 function _updateNoveltiesSummary() {
   const el = document.getElementById('noveltiesSummary');
   if (!el) return;
-  const critical = novelties.filter(n => n.parLevel > 0 && n.onHand <= 0).length;
-  const low      = novelties.filter(n => n.parLevel > 0 && n.onHand > 0 && n.onHand < n.parLevel).length;
-  el.textContent = critical || low
-    ? `${critical} need refill now · ${low} running low`
-    : 'Everything is stocked.';
+  const needMake = novelties.filter(item => {
+    const entry = _getLogEntry(item);
+    return !entry.done && _toMakeNovelty(item, entry) > 0;
+  }).length;
+  el.textContent = needMake > 0
+    ? `${needMake} item${needMake !== 1 ? 's' : ''} still need to be made today`
+    : 'All caught up for today.';
 }
 
-function _noveltyStatus(item) {
-  if (item.parLevel <= 0) return { label: null, color: null };
-  if (item.onHand <= 0) return { label: 'Refill now', color: '#ff8080' };
-  if (item.onHand < item.parLevel) return { label: 'Low', color: '#f0a500' };
-  return { label: 'Stocked', color: '#22a05a' };
+// ── Date recall ──────────────────────────────────────────────────────────────
+function _renderNoveltiesDatePicker() {
+  const container = document.getElementById('noveltiesDatePicker');
+  if (!container) return;
+  const isToday = _workingNoveltiesDate === todayStr();
+  container.style.position = 'relative';
+  container.innerHTML = '';
+
+  const btn = document.createElement('button');
+  btn.className = 'btn';
+  btn.style.cssText = 'font-size:12px;padding:8px 12px;';
+  btn.textContent = `📅 ${isToday ? 'Today' : _workingNoveltiesDate} ▾`;
+  btn.onclick = e => { e.stopPropagation(); _toggleNoveltiesDateMenu(); };
+  container.appendChild(btn);
+
+  if (!isToday) {
+    const backBtn = document.createElement('button');
+    backBtn.className = 'btn';
+    backBtn.style.cssText = 'font-size:12px;padding:8px 12px;margin-left:6px;';
+    backBtn.textContent = '↩ Back to Today';
+    backBtn.onclick = () => loadNoveltiesForDate(todayStr());
+    container.appendChild(backBtn);
+  }
+
+  const menu = document.createElement('div');
+  menu.id = 'noveltiesDateMenu';
+  menu.style.cssText = 'display:none;position:absolute;top:110%;left:0;background:#1a2744;border:1.5px solid #2e4a70;border-radius:8px;overflow:hidden;z-index:200;min-width:200px;max-height:280px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.4);';
+  container.appendChild(menu);
+}
+
+async function _toggleNoveltiesDateMenu() {
+  const menu = document.getElementById('noveltiesDateMenu');
+  if (!menu) return;
+  if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+  menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">Loading…</div>';
+  menu.style.display = 'block';
+  setTimeout(() => document.addEventListener('click', () => { menu.style.display = 'none'; }, { once: true }), 0);
+
+  const dates = await listRecentNoveltiesDates();
+  menu.innerHTML = '';
+  if (!dates.length) {
+    menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">No saved checklists yet.</div>';
+    return;
+  }
+  dates.forEach(d => {
+    const row = document.createElement('button');
+    row.style.cssText = 'display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid #2e4a70;color:#c5d8f0;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;cursor:pointer;';
+    row.textContent = d === todayStr() ? `${d} (Today)` : d;
+    row.onclick = () => { loadNoveltiesForDate(d); menu.style.display = 'none'; };
+    menu.appendChild(row);
+  });
 }
 
 function renderNoveltiesPage() {
   const content = document.getElementById('noveltiesContent');
   if (!content) return;
+  const seeded = _seedNoveltiesIfEmpty();
+  if (seeded) saveNoveltiesCatalog();
+  if (!_workingNoveltiesDate) {
+    loadNoveltiesForDate(todayStr()); // async — re-renders once the day's log loads
+    return;
+  }
+  if (typeof _applyNewPagesTheme === 'function') _applyNewPagesTheme((_storeSettings && _storeSettings.theme) || 'dark');
   content.innerHTML = '';
+
+  const dateBar = document.createElement('div');
+  dateBar.id = 'noveltiesDatePicker';
+  dateBar.style.marginBottom = '14px';
+  content.appendChild(dateBar);
+  _renderNoveltiesDatePicker();
 
   const summary = document.createElement('div');
   summary.id = 'noveltiesSummary';
@@ -115,28 +236,25 @@ function renderNoveltiesPage() {
     .filter((c, i, arr) => arr.indexOf(c) === i) // preserve catalog order; also covers any custom categories added later
     .concat(novelties.map(n => n.category).filter(c => !NOVELTY_CATALOG.some(g => g.category === c)))
     .forEach(category => {
-      const items = novelties
-        .map((n, idx) => ({ ...n, _idx: idx }))
-        .filter(n => n.category === category);
+      const items = novelties.filter(n => n.category === category);
       if (!items.length) return;
 
       const section = _settingsSection(category);
 
       items.forEach(item => {
+        const entry = _getLogEntry(item);
         const row = document.createElement('div');
         row.className = 'settings-card';
-        row.style.cssText += 'display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;flex-wrap:wrap;';
+        row.style.cssText += 'display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;flex-wrap:wrap;' + (entry.done ? 'opacity:0.55;' : '');
 
         const nameWrap = document.createElement('div');
         nameWrap.style.cssText = 'flex:1;min-width:120px;';
         const nameEl = document.createElement('div');
-        nameEl.style.cssText = 'font-size:13px;font-weight:600;';
+        nameEl.style.cssText = 'font-size:13px;font-weight:600;' + (entry.done ? 'text-decoration:line-through;' : '');
         nameEl.textContent = item.name;
         nameWrap.appendChild(nameEl);
-        const statusEl = document.createElement('div');
-        statusEl.className = 'novelty-status';
-        statusEl.style.cssText = 'font-size:11px;font-weight:700;margin-top:2px;';
-        nameWrap.appendChild(statusEl);
+        const makeEl = document.createElement('div');
+        nameWrap.appendChild(makeEl);
         row.appendChild(nameWrap);
 
         const stepperWrap = document.createElement('div');
@@ -147,7 +265,7 @@ function renderNoveltiesPage() {
         minusBtn.style.cssText = 'width:40px;height:40px;padding:0;font-size:18px;';
         const valEl = document.createElement('span');
         valEl.style.cssText = 'min-width:30px;text-align:center;font-size:15px;font-weight:700;';
-        valEl.textContent = item.onHand;
+        valEl.textContent = entry.onHand;
         const plusBtn = document.createElement('button');
         plusBtn.textContent = '+';
         plusBtn.className = 'btn';
@@ -155,24 +273,35 @@ function renderNoveltiesPage() {
         stepperWrap.append(minusBtn, valEl, plusBtn);
         row.appendChild(stepperWrap);
 
-        const rerenderRow = () => {
-          const s = _noveltyStatus(novelties[item._idx]);
-          statusEl.textContent = s.label || '';
-          statusEl.style.color = s.color || '';
+        const rerenderMake = () => {
+          const need = _toMakeNovelty(item, entry);
+          makeEl.textContent = need > 0 ? `Make ${need}` : 'At par';
+          makeEl.style.cssText = `font-size:11px;font-weight:700;margin-top:2px;color:${need > 0 ? '#f0a500' : '#22a05a'};`;
           _updateNoveltiesSummary();
         };
-        rerenderRow(); // set initial status text now that statusEl exists
+        rerenderMake();
 
         _attachStepper(minusBtn, -1,
-          () => novelties[item._idx].onHand,
-          v => { novelties[item._idx].onHand = v; valEl.textContent = v; rerenderRow(); },
-          () => saveNovelties());
+          () => entry.onHand,
+          v => { entry.onHand = v; valEl.textContent = v; rerenderMake(); },
+          () => saveNoveltiesLog());
         _attachStepper(plusBtn, +1,
-          () => novelties[item._idx].onHand,
-          v => { novelties[item._idx].onHand = v; valEl.textContent = v; rerenderRow(); },
-          () => saveNovelties());
+          () => entry.onHand,
+          v => { entry.onHand = v; valEl.textContent = v; rerenderMake(); },
+          () => saveNoveltiesLog());
 
-        // Par level + remove — manager-only actions
+        const doneBtn = document.createElement('button');
+        doneBtn.className = 'btn' + (entry.done ? ' btn-green' : '');
+        doneBtn.style.cssText = 'font-size:12px;padding:8px 12px;';
+        doneBtn.textContent = entry.done ? '✓ Made' : 'Mark Made';
+        doneBtn.onclick = () => {
+          entry.done = !entry.done;
+          saveNoveltiesLog();
+          renderNoveltiesPage();
+        };
+        row.appendChild(doneBtn);
+
+        // Par level + remove — manager-only catalog edits (not date-specific)
         const parWrap = document.createElement('div');
         parWrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
         const parLabel = document.createElement('span');
@@ -184,15 +313,15 @@ function renderNoveltiesPage() {
         parInput.style.cssText = 'width:56px;padding:6px;text-align:center;';
         parInput.value = item.parLevel;
         parInput.onchange = () => {
-          novelties[item._idx].parLevel = Math.max(0, parseInt(parInput.value) || 0);
-          rerenderRow();
-          saveNovelties();
+          item.parLevel = Math.max(0, parseInt(parInput.value) || 0);
+          rerenderMake();
+          saveNoveltiesCatalog();
         };
         const removeBtn = document.createElement('button');
         removeBtn.textContent = '🗑';
         removeBtn.title = 'Remove item';
         removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:6px;';
-        removeBtn.onclick = () => requireManager(() => _removeNovelty(item._idx));
+        removeBtn.onclick = () => requireManager(() => _removeNovelty(novelties.indexOf(item)));
         parWrap.append(parLabel, parInput, removeBtn);
         row.appendChild(parWrap);
 
@@ -211,8 +340,8 @@ function renderNoveltiesPage() {
       addBtn.onclick = () => requireManager(() => {
         const name = addInput.value.trim();
         if (!name) return;
-        novelties.push({ category, name, onHand: 0, parLevel: NOVELTY_DEFAULT_PAR });
-        saveNovelties();
+        novelties.push({ category, name, parLevel: NOVELTY_DEFAULT_PAR });
+        saveNoveltiesCatalog();
         renderNoveltiesPage();
       });
       addRow.append(addInput, addBtn);
@@ -226,11 +355,11 @@ function _removeNovelty(idx) {
   const removed = novelties[idx];
   const prevList = [...novelties];
   novelties = novelties.filter((_, i) => i !== idx);
-  saveNovelties();
+  saveNoveltiesCatalog();
   renderNoveltiesPage();
   showUndoToast(`"${removed.name}" removed.`, () => {
     novelties = prevList;
-    saveNovelties();
+    saveNoveltiesCatalog();
     renderNoveltiesPage();
   });
 }

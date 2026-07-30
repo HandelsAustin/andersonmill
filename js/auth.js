@@ -93,10 +93,15 @@ function updateRoleUIVisibility() {
   const canDash = userHasRole(ROLES.CORPORATE_ADMIN) || userHasRole(ROLES.STORE_MANAGER);
   const dashboardBtn = document.getElementById('dashboardBtn');
   if (dashboardBtn) dashboardBtn.style.display = canDash ? 'inline-flex' : 'none';
-  const settingsBtn = document.getElementById('settingsBtn');
-  if (settingsBtn) settingsBtn.style.display = canDash ? 'inline-flex' : 'none';
-  const inventoryBtn = document.getElementById('inventoryBtn');
-  if (inventoryBtn) inventoryBtn.style.display = canDash ? 'inline-flex' : 'none';
+  const tabBtnSettings = document.getElementById('tabBtnSettings');
+  if (tabBtnSettings) tabBtnSettings.style.display = canDash ? '' : 'none';
+  const tabBtnInventory = document.getElementById('tabBtnInventory');
+  if (tabBtnInventory) tabBtnInventory.style.display = canDash ? '' : 'none';
+  // If the currently-active tab just got hidden (e.g. signed out), fall back to Run.
+  if (!canDash && (document.getElementById('tabPanelSettings')?.classList.contains('active') ||
+                   document.getElementById('tabPanelInventory')?.classList.contains('active'))) {
+    switchTab('Run');
+  }
   _updateHeaderSub();
 }
 

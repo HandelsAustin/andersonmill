@@ -28,6 +28,22 @@ service cloud.firestore {
       match /stores/{storeId} {
         allow read: if isOrgMember();
         allow create, update, delete: if isStoreManager();
+
+        // Date-recallable daily logs — Ice Cream Run, Novelties checklist, and
+        // Inventory counts. Doc IDs are YYYY-MM-DD dates; one small doc per day/
+        // count session so a store's full history doesn't bloat the store doc itself.
+        match /runs/{date} {
+          allow read: if isOrgMember();
+          allow create, update, delete: if isStoreManager();
+        }
+        match /noveltiesLog/{date} {
+          allow read: if isOrgMember();
+          allow create, update, delete: if isStoreManager();
+        }
+        match /inventoryLog/{date} {
+          allow read: if isOrgMember();
+          allow create, update, delete: if isStoreManager();
+        }
       }
 
       // Members collection - protect membership records

@@ -4,18 +4,15 @@
 
 let _storeSettings = {}; // populated by applyData() in store-org.js: { profile, inventory, theme }
 
+// Settings is now a bottom-tab panel rather than a popup overlay — these wrappers
+// stay so existing internal call sites (e.g. the roster-management button below)
+// don't need to change.
 function openSettings() {
-  const overlay = document.getElementById('settingsOverlay');
-  if (!overlay) return;
-  renderSettingsPage();
-  overlay.classList.add('open');
-  document.body.style.overflow = 'hidden';
+  switchTab('Settings');
 }
 
 function closeSettings() {
-  const overlay = document.getElementById('settingsOverlay');
-  if (overlay) overlay.classList.remove('open');
-  document.body.style.overflow = '';
+  switchTab('Run');
 }
 
 async function saveStoreSettings(patch) {
@@ -183,10 +180,10 @@ function renderSettingsPage() {
   _applyNewPagesTheme(_storeSettings.theme || 'dark');
 }
 
-// Toggles the light/dark CSS-variable scope on the new-page overlays only
-// (see .store-overlay.theme-light in index.html) — the rest of the app is unaffected.
+// Toggles the light/dark CSS-variable scope on the new-page tab panels only
+// (see .tab-panel.theme-light in index.html) — the rest of the app is unaffected.
 function _applyNewPagesTheme(theme) {
-  ['settingsOverlay', 'noveltiesOverlay', 'inventoryOverlay'].forEach(id => {
+  ['tabPanelSettings', 'tabPanelNovelties', 'tabPanelInventory'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('theme-light', theme === 'light');
   });

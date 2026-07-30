@@ -16,7 +16,7 @@
   <!-- These fonts are expected to be installed on devices; system fallbacks provided -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, getDoc, getDocs, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, getDocs, onSnapshot, collection, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import { FIREBASE_CONFIG, DEFAULT_ORG_ID, DEFAULT_ORG_META, ROLES, STORAGE_KEYS } from "./config.js";
 
@@ -30,6 +30,9 @@
     window._getDocs = getDocs;
     window._onSnapshot = onSnapshot;
     window._collection = collection;
+    window._query = query;
+    window._orderBy = orderBy;
+    window._limit = limit;
     window._auth = auth;
     window._firebaseReady = true;
     window._ORG_ID = localStorage.getItem(STORAGE_KEYS.orgId) || DEFAULT_ORG_ID;
@@ -82,13 +85,13 @@
     body { background: #2c3691; font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; color: #ffffff; min-height: 100vh; }
     #app { max-width: 980px; margin: 0 auto; background: #1e2870; min-height: 100vh; }
 
-    /* Theme variables — scoped to newer pages (Settings/Novelties/Inventory) only.
+    /* Theme variables — scoped to newer tab panels (Settings/Novelties/Inventory) only.
        The rest of the app uses hardcoded colors and stays dark-only for now. */
-    .store-overlay {
+    .tab-panel {
       --panel-bg: #1e2870; --panel-bg-alt: #162053; --panel-border: #2e4a70;
       --text-primary: #ffffff; --text-accent: #98d4e3; --text-muted: #8fa3be; --text-dim: #5a7a9a;
     }
-    .store-overlay.theme-light {
+    .tab-panel.theme-light {
       --panel-bg: #ffffff; --panel-bg-alt: #f0f3f9; --panel-border: #d7e0ec;
       --text-primary: #16213e; --text-accent: #2c3691; --text-muted: #5a6b85; --text-dim: #8290a3;
     }
@@ -125,6 +128,28 @@
     .handels-logo { height: 48px; width: auto; flex-shrink: 0; display: block; mix-blend-mode: screen; }
 
     .app-body { padding: 16px 24px; }
+
+    /* Bottom tab navigation — Ice Cream Run / Novelties / Inventory / Store Settings */
+    .tab-panel { display: none; padding: 16px 24px 88px; }
+    .tab-panel.active { display: block; }
+    .tab-panel-header { margin-bottom: 16px; }
+    .tab-panel-header h2 { font-family: 'Raiders', 'Impact', sans-serif; font-size: 22px; color: #ffffff; margin: 0; text-transform: uppercase; letter-spacing: 0.04em; }
+    .bottom-tab-bar {
+      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 100%; max-width: 980px; z-index: 250;
+      display: flex; background: #1e2870; border-top: 1.5px solid #98d4e3;
+      padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .tab-btn {
+      flex: 1; background: none; border: none; color: #8fa3be;
+      font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif;
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+      padding: 9px 4px 8px; min-height: 58px; cursor: pointer; touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    }
+    .tab-btn .tab-icon { font-size: 20px; line-height: 1; }
+    .tab-btn.active { color: #ffffff; }
 
     /* Toolbar */
     .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -336,16 +361,14 @@
     </div>
     <div class="header-right">
       <button class="btn btn-primary" id="dashboardBtn" style="display:none;" onclick="openDashboard()">Dashboard</button>
-      <button class="btn" id="settingsBtn" style="display:none;" onclick="openSettings()">&#9881; Settings</button>
-      <button class="btn" id="inventoryBtn" style="display:none;" onclick="openInventory()">&#128230; Inventory</button>
       <button class="btn btn-green" id="authBtn" onclick="openAuthModal()">Sign In</button>
       <button class="btn" id="pwaInstallBtn" onclick="triggerPwaInstall()" style="display:none" title="Install this app on your device for offline use">&#11015; Install App</button>
     </div>
   </div>
-  <div class="app-body">
+  <div class="app-body tab-panel active" id="tabPanelRun">
+    <div id="runDatePicker" style="margin-bottom:10px;"></div>
     <div class="toolbar">
       <button class="btn" id="editFlavorsBtn" onclick="requireManager(openAddModal)">&#9776; Edit Flavors</button>
-      <button class="btn" onclick="openNovelties()">&#127848; Novelties</button>
       <button class="btn btn-red" onclick="resetDay()">&#8635; Reset</button>
       <button class="btn btn-green" onclick="calculateRun()">&#9654; Calculate Run</button>
       <div id="printDropdown" style="position:relative;">
@@ -394,6 +417,28 @@
       </thead>
       <tbody id="mainTbody"></tbody>
     </table>
+  </div>
+
+  <div class="tab-panel" id="tabPanelNovelties">
+    <div class="tab-panel-header"><h2>Novelties</h2></div>
+    <div id="noveltiesContent"></div>
+  </div>
+
+  <div class="tab-panel" id="tabPanelInventory">
+    <div class="tab-panel-header"><h2>Inventory</h2></div>
+    <div id="inventoryContent"></div>
+  </div>
+
+  <div class="tab-panel" id="tabPanelSettings">
+    <div class="tab-panel-header"><h2>Store Settings</h2></div>
+    <div id="settingsContent"></div>
+  </div>
+
+  <div class="bottom-tab-bar">
+    <button class="tab-btn active" id="tabBtnRun" onclick="switchTab('Run')"><span class="tab-icon">&#127848;</span>Ice Cream Run</button>
+    <button class="tab-btn" id="tabBtnNovelties" onclick="switchTab('Novelties')"><span class="tab-icon">&#127820;</span>Novelties</button>
+    <button class="tab-btn" id="tabBtnInventory" style="display:none;" onclick="switchTab('Inventory')"><span class="tab-icon">&#128230;</span>Inventory</button>
+    <button class="tab-btn" id="tabBtnSettings" style="display:none;" onclick="switchTab('Settings')"><span class="tab-icon">&#9881;</span>Store Settings</button>
   </div>
 </div>
 <!-- PIN Modal -->
@@ -498,39 +543,6 @@
       <button class="btn" onclick="closeManagerDashboard()">Close</button>
     </div>
     <div id="managerDashboardContent" style="overflow-y:auto;flex:1;min-height:0;padding-right:2px;"></div>
-  </div>
-</div>
-
-<!-- Manager Settings Overlay -->
-<div id="settingsOverlay" class="store-overlay">
-  <div class="settings-panel" style="max-width:560px;width:100%;padding:24px;display:flex;flex-direction:column;max-height:calc(100vh - 48px);overflow:hidden;">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-bottom:16px;">
-      <h2 style="font-family:'Raiders','Impact',sans-serif;font-size:20px;color:var(--text-primary);margin:0;text-transform:uppercase;letter-spacing:0.04em;">Settings</h2>
-      <button class="btn" onclick="closeSettings()">Close</button>
-    </div>
-    <div id="settingsContent" style="overflow-y:auto;flex:1;min-height:0;padding-right:2px;"></div>
-  </div>
-</div>
-
-<!-- Novelties Overlay -->
-<div id="noveltiesOverlay" class="store-overlay">
-  <div class="settings-panel" style="max-width:640px;width:100%;padding:24px;display:flex;flex-direction:column;max-height:calc(100vh - 48px);overflow:hidden;">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-bottom:16px;">
-      <h2 style="font-family:'Raiders','Impact',sans-serif;font-size:20px;color:var(--text-primary);margin:0;text-transform:uppercase;letter-spacing:0.04em;">Novelties</h2>
-      <button class="btn" onclick="closeNovelties()">Close</button>
-    </div>
-    <div id="noveltiesContent" style="overflow-y:auto;flex:1;min-height:0;padding-right:2px;"></div>
-  </div>
-</div>
-
-<!-- Inventory Overlay -->
-<div id="inventoryOverlay" class="store-overlay">
-  <div class="settings-panel" style="max-width:680px;width:100%;padding:24px;display:flex;flex-direction:column;max-height:calc(100vh - 48px);overflow:hidden;">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;margin-bottom:16px;">
-      <h2 style="font-family:'Raiders','Impact',sans-serif;font-size:20px;color:var(--text-primary);margin:0;text-transform:uppercase;letter-spacing:0.04em;">Inventory</h2>
-      <button class="btn" onclick="closeInventory()">Close</button>
-    </div>
-    <div id="inventoryContent" style="overflow-y:auto;flex:1;min-height:0;padding-right:2px;"></div>
   </div>
 </div>
 

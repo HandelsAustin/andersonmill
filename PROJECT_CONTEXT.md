@@ -43,15 +43,35 @@ organizations/{orgId}
 
 organizations/{orgId}/stores/{storeId}
   id, label, createdAt, createdBy
-  activeFlavors, customAdded, removedNames, updatedAt  ← production data
+  customAdded, removedNames, updatedAt                 ← flavor roster (persistent; NOT per-day)
   lastRunDate, lastRunBuckets, lastRunAt               ← written on run completion
   storeEvents: [{type, buckets, at, by?}]               ← activity log, max 10 entries, trimmed on write; by = first-name attribution (optional, signed-in users only)
   settings: { profile: {phone, email, hours}, inventory: {orderLeadTimeDays, inventoryCountIntervalDays}, theme }
     ← Manager Settings page (js/settings.js); merged onto the store doc, no new collection
-  novelties: [{category, name, onHand, parLevel}]
-    ← Novelties page (js/novelties.js); daily on-hand/refill tracking for pre-packaged items
-  inventoryItems: [{name, unit, onHand, parLevel, history: [{date, onHand}]}], inventoryLastCountedAt
-    ← Inventory page (js/inventory.js); separate supply catalog, biweekly order qty = par − on-hand
+  novelties: [{category, name, parLevel}]
+    ← Novelties catalog (js/novelties.js) — persistent; daily on-hand/done state lives in noveltiesLog/{date} below
+  inventoryCatalog: [{name, unit, category, parLevel, pricePerUnit, locationOrder, distributorOrder, history}], inventoryLastCountedAt
+    ← Inventory catalog (js/inventory.js) — persistent; per-count on-hand lives in inventoryLog/{date} below.
+      pricePerUnit/locationOrder/distributorOrder support CSV import, dual sort, and $ valuation.
+
+organizations/{orgId}/stores/{storeId}/runs/{date}                 (date = YYYY-MM-DD)
+  activeFlavors, cateringItems, updatedAt
+  ← One doc per day's Ice Cream Run — recallable/re-editable, not just a rolling summary.
+    activeFlavors used to live directly on the store doc; moved here so history doesn't
+    bloat the doc that's read on every app load. Live onSnapshot follows whichever date
+    is currently loaded (js/store-org.js: loadRunForDate()).
+
+organizations/{orgId}/stores/{storeId}/noveltiesLog/{date}
+  items: [{category, name, onHand, done}], updatedAt
+  ← One doc per day's Novelties checklist (js/novelties.js: loadNoveltiesForDate()).
+
+organizations/{orgId}/stores/{storeId}/inventoryLog/{date}
+  items: [{name, onHand}], updatedAt
+  ← One doc per inventory count session (js/inventory.js: loadInventoryForDate()).
+
+All three date-log subcollections are covered by firestore.rules (isOrgMember() read /
+isStoreManager() write, same as the store doc) — ⚠ not yet deployed to production as of
+this writing; see TODO.md.
 
 organizations/{orgId}/members/{uid}
   uid, email, role, stores[], createdAt
