@@ -2,8 +2,9 @@
 // Extracted from index.html — no logic changes.
 
 // ── Bottom tab navigation ────────────────────────────────────────────────────
-// Ice Cream Run / Novelties / Inventory / Store Settings. Inventory + Settings tabs
-// are hidden (via updateRoleUIVisibility() in auth.js) unless signed in as manager/admin.
+// Ice Cream Run / Novelties / Inventory / Store Settings. All four tabs are always
+// visible to any signed-in account — Inventory/Settings are gated at point-of-use
+// by requireManager() (the shared per-store PIN) instead of by role-based hiding.
 const TABS = {
   Run:        { panel: 'tabPanelRun',        btn: 'tabBtnRun',        render: () => { renderTable(); _renderRunDatePicker(); } },
   Novelties:  { panel: 'tabPanelNovelties',  btn: 'tabBtnNovelties',  render: () => renderNoveltiesPage() },
@@ -20,6 +21,11 @@ function switchTab(name) {
   });
   document.getElementById(target.panel)?.classList.add('active');
   document.getElementById(target.btn)?.classList.add('active');
+  // Sign Out lives in the header everywhere except Settings — Settings has its
+  // own account-related actions (Switch Store etc.), so the header button there
+  // would just be visual clutter/duplication.
+  const authBtn = document.getElementById('authBtn');
+  if (authBtn) authBtn.style.display = name === 'Settings' ? 'none' : '';
   window.scrollTo(0, 0);
   target.render();
 }

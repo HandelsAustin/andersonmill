@@ -1,6 +1,8 @@
 // Master flavor roster, roster CRUD, add-flavor modal/picker, cabinet-sort prefs.
 // Extracted from index.html — no logic changes.
 
+let _orgCustomFlavors = []; // [{name, category, type}] — corporate-added, shared across every store in the org; populated by loadOrgMetadata() in store-org.js
+
 const MASTER_ROSTER = [
   {category:"90301", name:"Banana (BAN)", type:"TD"},
   {category:"90302", name:"Banana Cream Pie (BCP)", type:"TD"},
@@ -25,7 +27,7 @@ const MASTER_ROSTER = [
   {category:"903", name:"Caramel Latte (CL)", type:""},
   {category:"901", name:"Caramel Pretzel Crunch (CPC)", type:""},
   {category:"93003", name:"Carrot Cake (CARROT)", type:"TD"},
-  {category:"800", name:"Cheesecake Made with Oreo®️ (OREOCHZ)", type:""},
+  {category:"800", name:"Cheesecake Made with Oreo® (OREOCHZ)", type:""},
   {category:"92800", name:"Cherry Cordial (CORD)", type:"TD"},
   {category:"601", name:"Cherry Magnolia (CMAG)", type:""},
   {category:"111", name:"Cherry Vanilla (CV)", type:""},
@@ -39,7 +41,7 @@ const MASTER_ROSTER = [
   {category:"113", name:"Chocolate Chip (CHOC CHIP)", type:""},
   {category:"108", name:"Chocolate Chip Cookie Dough (CD)", type:""},
   {category:"92100", name:"Chocolate Covered Strawberry (CCS)", type:"TD"},
-  {category:"212", name:"Chocolate Made with Oreo®️ (CHOC OREO)", type:""},
+  {category:"212", name:"Chocolate Made with Oreo® (CHOC OREO)", type:""},
   {category:"200", name:"Chocolate Malt with Caramel (CMC)", type:""},
   {category:"209", name:"Chocolate Marshmallow (CM)", type:""},
   {category:"213", name:"Chocolate Ooohh...Dough! (CHOC OD)", type:""},
@@ -86,7 +88,7 @@ const MASTER_ROSTER = [
   {category:"91002", name:"Meri's Joy (MJ)", type:"TD"},
   {category:"216", name:"Midnight Madness (MM)", type:""},
   {category:"407", name:"Mint Chocolate Chip (MCC)", type:""},
-  {category:"405", name:"Mint Made with Oreo®️ (MO)", type:""},
+  {category:"405", name:"Mint Made with Oreo® (MO)", type:""},
   {category:"SO82400", name:"Mixed Berry Sorbet (MB SOR)", type:"TD"},
   {category:"125", name:"Mocha Almond Fudge Ripple (MAFR)", type:""},
   {category:"90304", name:"Monkey Business (MB)", type:"TD"},
@@ -146,13 +148,13 @@ const MASTER_ROSTER = [
   {category:"101", name:"Vanilla (VAN)", type:""},
   {category:"114", name:"Vanilla Caramel Brownie (VCB)", type:""},
   {category:"115", name:"Vanilla Caramel Truffle (VCT)", type:""},
-  {category:"109", name:"Vanilla Made with Oreo®️ (OREO)", type:""},
+  {category:"109", name:"Vanilla Made with Oreo® (OREO)", type:""},
   {category:"119", name:"Vanilla Peanut Butter Chip (VPBC)", type:""},
   {category:"118", name:"Vanilla Peanut Butter Ripple (VPBR)", type:""},
   {category:"SO82600", name:"Vanilla Pineapple Sorbet (VP SOR)", type:"TD"},
   {category:"116", name:"Vanilla Raspberry Chip (VRC)", type:""},
   {category:"117", name:"Vanilla Turtle (VT)", type:""},
-  {category:"120", name:"Vanilla with Reese's Peanut Butter Cup®️ (VRPBC)", type:""},
+  {category:"120", name:"Vanilla with Reese's Peanut Butter Cup® (VRPBC)", type:""},
   {category:"TDICE82100", name:"Watermelon Ice (WM ICE)", type:"WO"},
 ];
 
@@ -491,19 +493,30 @@ function renderPicker() {
     typeBadge.textContent = r.type || '—';
     div.appendChild(typeBadge);
 
-    // Remove from roster
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'picker-remove';
-    removeBtn.textContent = '🗑';
-    removeBtn.title = 'Remove from roster';
-    removeBtn.addEventListener('click', e => { e.stopPropagation(); removeFromRoster(r.name); });
-    div.appendChild(removeBtn);
+    // Unselect — only shown for flavors currently on today's list. Not a roster
+    // delete (that's corporate-only now, done org-wide, not from this picker).
+    if (isActive) {
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'picker-remove';
+      removeBtn.textContent = '🗑';
+      removeBtn.title = "Remove from today's list";
+      removeBtn.addEventListener('click', e => { e.stopPropagation(); toggleFlavor(r.name); });
+      div.appendChild(removeBtn);
+    }
 
     list.appendChild(div);
   });
+
+  const addSection = document.getElementById('addFlavorSection');
+  if (addSection) addSection.style.display = userHasRole(ROLES.CORPORATE_ADMIN) ? '' : 'none';
 }
 
-function addNewToRoster() {
+// Adding a flavor is corporate-only and org-wide — it's saved on the org doc
+// (organizations/{orgId}.customFlavors), not the store doc, so every store's
+// roster picks it up. The "Add" section is hidden for non-corporate accounts
+// in renderPicker(); this check guards the underlying action too.
+async function addNewToRoster() {
+  if (!userHasRole(ROLES.CORPORATE_ADMIN)) return;
   const name = document.getElementById('newFlavorName').value.trim();
   const type = document.getElementById('newFlavorType').value;
   if (!name) { document.getElementById('newFlavorName').focus(); return; }
@@ -511,8 +524,20 @@ function addNewToRoster() {
     alert(`"${name}" is already in the roster.`); return;
   }
   // Custom flavors get a high category number so they sort to the end in run mode
-  roster.push({ name, category: '99999', type });
-  saveAll(); renderPicker();
+  const newFlavor = { name, category: '99999', type };
+  _orgCustomFlavors.push(newFlavor);
+  roster.push(newFlavor);
+  document.getElementById('newFlavorName').value = '';
+  document.getElementById('newFlavorType').value = '';
+  renderPicker();
+  if (!window._firebaseReady) { showStatusMessage('Offline — flavor saved locally only', 3000); return; }
+  try {
+    await window._setDoc(getOrgDocRef(), { customFlavors: _orgCustomFlavors }, { merge: true });
+    showStatusMessage(`✓ "${name}" added for every store`, 2500);
+  } catch (e) {
+    console.error('Org custom flavor save error:', e);
+    showStatusMessage('⚠ Could not save flavor', 2500);
+  }
 }
 
 // ── VARIEGATES ──────────────────────────────────────────────────────────────

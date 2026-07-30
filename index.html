@@ -242,7 +242,7 @@
     .empty-state { text-align: center; padding: 2.5rem 1rem; color: #98d4e3; font-size: 13px; font-family: 'Arial Narrow', Arial, sans-serif; }
 
     /* Modal */
-    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(20,24,80,0.92); z-index: 100; align-items: flex-start; justify-content: center; padding: 8px; }
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(20,24,80,0.92); z-index: 260; align-items: flex-start; justify-content: center; padding: 8px; }
     .modal-backdrop.open { display: flex; }
     .modal { background: #1e2870; border-radius: 10px; border: 1.5px solid #98d4e3; width: 500px; max-width: calc(100vw - 16px); padding: 16px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); height: calc(100vh - 16px); max-height: calc(100vh - 16px); display: flex; flex-direction: column; overflow: hidden; }
     .modal h2 { font-family: 'Raiders', 'Impact', sans-serif; font-size: 18px; color: #ffffff; margin-bottom: 10px; border-bottom: 2px solid #d72627; padding-bottom: 8px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -373,7 +373,6 @@
   <div class="app-body tab-panel active" id="tabPanelRun">
     <div id="runDatePicker" style="margin-bottom:10px;"></div>
     <div class="toolbar">
-      <button class="btn" id="editFlavorsBtn" onclick="requireManager(openAddModal)">&#9776; Edit Flavors</button>
       <button class="btn btn-red" onclick="resetDay()">&#8635; Reset</button>
       <button class="btn btn-green" onclick="calculateRun()">&#9654; Calculate Run</button>
       <div id="printDropdown" style="position:relative;">
@@ -574,7 +573,7 @@
 <div id="modalBackdrop" class="modal-backdrop" onclick="backdropClick(event)">
   <div class="modal">
     <h2>Edit Today's Flavors</h2>
-    <p class="section-label">Click a flavor to add/remove from today's list &middot; &#128465; removes from roster</p>
+    <p class="section-label">Click a flavor to add/remove from today's list &middot; &#128465; removes a selected flavor from today's list</p>
     <div class="search-wrap">
       <input type="text" id="pickerSearch" placeholder="Search flavors&hellip;" oninput="renderPicker()">
     </div>
@@ -586,15 +585,17 @@
     </div>
     <div class="picker-list" id="pickerList"></div>
     <div class="divider"></div>
-    <p class="section-label">Add a custom flavor to roster</p>
-    <div class="new-flavor-row">
-      <input type="text" id="newFlavorName" placeholder="Flavor name&hellip;">
-      <select id="newFlavorType">
-        <option value="">Regular</option>
-        <option value="WO">WO</option>
-        <option value="TD">TD</option>
-      </select>
-      <button class="btn" onclick="addNewToRoster()">+ Add</button>
+    <div id="addFlavorSection" style="display:none;">
+      <p class="section-label">Add a new flavor (available to every store)</p>
+      <div class="new-flavor-row">
+        <input type="text" id="newFlavorName" placeholder="Flavor name&hellip;">
+        <select id="newFlavorType">
+          <option value="">Regular</option>
+          <option value="WO">WO</option>
+          <option value="TD">TD</option>
+        </select>
+        <button class="btn" onclick="addNewToRoster()">+ Add</button>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary" onclick="closeModal()">Done</button>

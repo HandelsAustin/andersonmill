@@ -28,6 +28,7 @@ async function loadOrgMetadata() {
       document.title = `${meta.name} — Count & Run`;
       window._orgName = meta.name;
     }
+    _orgCustomFlavors = meta?.customFlavors || [];
   } catch (e) {
     console.error('Org metadata load error:', e);
   }
@@ -45,9 +46,10 @@ function _getOrgDisplayName() {
 function applyData(data) {
   _storeDoc = data || null;
   const removed = data?.removedNames || [];
-  const custom  = data?.customAdded  || [];
+  const custom  = data?.customAdded  || []; // legacy per-store custom flavors, kept for backward-compat
   roster = [
     ...MASTER_ROSTER.filter(m => !removed.includes(m.name)),
+    ..._orgCustomFlavors, // corporate-added, shared across every store — see loadOrgMetadata()
     ...custom
   ];
   activeFlavors = (activeFlavors || []).map(f => {

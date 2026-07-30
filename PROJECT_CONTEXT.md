@@ -49,6 +49,9 @@ A multi-store operational SaaS platform for ice cream and food production workfl
 ```
 organizations/{orgId}
   name, createdAt, createdBy
+  customFlavors: [{name, category, type}]
+    ← corporate-added flavors (js/roster.js addNewToRoster()), merged into every store's
+      roster alongside MASTER_ROSTER — only CORPORATE_ADMIN can add; applies org-wide
 
 organizations/{orgId}/stores/{storeId}
   id, label, createdAt, createdBy

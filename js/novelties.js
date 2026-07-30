@@ -1,15 +1,16 @@
 // Novelties: daily make-checklist for pre-packaged items (ice cream sandwiches,
 // Handel Pops, Hurricane toppings, waffle bowls/cones, Cambros, chocolate bananas,
-// sundae bases) — same model as the Ice Cream Run: qty-to-make = par − on-hand,
-// check off as made, recallable/re-editable by date.
+// sundae bases) — laid out like the Ice Cream Run's flavor table: Item / Target /
+// On Hand / To Make / Made, recallable/re-editable by date.
 //
 // Catalog (category, name, parLevel) is persistent — store.novelties, merged onto
-// the existing store doc. Each day's on-hand counts + made checkmarks live in their
-// own small doc, organizations/{orgId}/stores/{storeId}/noveltiesLog/{date}, so a
-// day can be pulled back up later without bloating the store doc.
+// the existing store doc. Items are a fixed, preset catalog — staff can't add or
+// remove items from this page. Each day's on-hand counts live in their own small
+// doc, organizations/{orgId}/stores/{storeId}/noveltiesLog/{date}, so a day can be
+// pulled back up later without bloating the store doc.
 
 let novelties = []; // catalog: [{ category, name, parLevel }] — populated by applyData() in store-org.js
-let _noveltiesLog = []; // working date's data: [{ category, name, onHand, done }]
+let _noveltiesLog = []; // working date's data: [{ category, name, onHand }]
 let _workingNoveltiesDate = null;
 
 const NOVELTY_CATALOG = [
@@ -93,36 +94,6 @@ function closeNovelties() {
   switchTab('Run');
 }
 
-// Generic rapid-fire long-press stepper (same interaction as the production run's
-// holding +/- counters in production.js, parameterized instead of tied to activeFlavors).
-function _attachStepper(btn, delta, getVal, setVal, onSettle) {
-  let timerId = null, delay = 400, pressing = false;
-  const clamp = v => Math.min(999, Math.max(0, v));
-  const tick = () => {
-    if (!pressing) return;
-    setVal(clamp(getVal() + delta));
-    delay = Math.max(60, delay * 0.85);
-    timerId = setTimeout(tick, delay);
-  };
-  const start = e => {
-    e.preventDefault();
-    pressing = true;
-    delay = 400;
-    setVal(clamp(getVal() + delta));
-    timerId = setTimeout(tick, delay);
-  };
-  const stop = () => {
-    if (!pressing) return;
-    pressing = false;
-    clearTimeout(timerId);
-    if (onSettle) onSettle();
-  };
-  btn.addEventListener('pointerdown', start);
-  btn.addEventListener('pointerup', stop);
-  btn.addEventListener('pointercancel', stop);
-  btn.addEventListener('pointerleave', stop);
-}
-
 function _noveltyKey(item) {
   return `${item.category}::${item.name}`;
 }
@@ -132,7 +103,7 @@ function _getLogEntry(item) {
   const key = _noveltyKey(item);
   let entry = _noveltiesLog.find(e => _noveltyKey(e) === key);
   if (!entry) {
-    entry = { category: item.category, name: item.name, onHand: 0, done: false };
+    entry = { category: item.category, name: item.name, onHand: 0 };
     _noveltiesLog.push(entry);
   }
   return entry;
@@ -145,10 +116,7 @@ function _toMakeNovelty(item, entry) {
 function _updateNoveltiesSummary() {
   const el = document.getElementById('noveltiesSummary');
   if (!el) return;
-  const needMake = novelties.filter(item => {
-    const entry = _getLogEntry(item);
-    return !entry.done && _toMakeNovelty(item, entry) > 0;
-  }).length;
+  const needMake = novelties.filter(item => _toMakeNovelty(item, _getLogEntry(item)) > 0).length;
   el.textContent = needMake > 0
     ? `${needMake} item${needMake !== 1 ? 's' : ''} still need to be made today`
     : 'All caught up for today.';
@@ -241,125 +209,100 @@ function renderNoveltiesPage() {
 
       const section = _settingsSection(category);
 
+      const table = document.createElement('table');
+      table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr>
+        <th style="text-align:left;padding:6px 4px;color:var(--text-accent);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;">Item</th>
+        <th style="text-align:center;padding:6px 4px;color:var(--text-accent);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;">Target</th>
+        <th style="text-align:center;padding:6px 4px;color:var(--text-accent);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;">On Hand</th>
+        <th style="text-align:center;padding:6px 4px;color:var(--text-accent);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;">To Make</th>
+        <th style="padding:6px 4px;"></th>
+      </tr>`;
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+
       items.forEach(item => {
         const entry = _getLogEntry(item);
-        const row = document.createElement('div');
-        row.className = 'settings-card';
-        row.style.cssText += 'display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;flex-wrap:wrap;' + (entry.done ? 'opacity:0.55;' : '');
+        const tr = document.createElement('tr');
+        tr.style.cssText = 'border-bottom:1px solid var(--panel-border);';
 
-        const nameWrap = document.createElement('div');
-        nameWrap.style.cssText = 'flex:1;min-width:120px;';
-        const nameEl = document.createElement('div');
-        nameEl.style.cssText = 'font-size:13px;font-weight:600;' + (entry.done ? 'text-decoration:line-through;' : '');
-        nameEl.textContent = item.name;
-        nameWrap.appendChild(nameEl);
-        const makeEl = document.createElement('div');
-        nameWrap.appendChild(makeEl);
-        row.appendChild(nameWrap);
+        const tdName = document.createElement('td');
+        tdName.style.cssText = 'padding:9px 4px;font-weight:600;';
+        tdName.textContent = item.name;
+        tr.appendChild(tdName);
 
-        const stepperWrap = document.createElement('div');
-        stepperWrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
-        const minusBtn = document.createElement('button');
-        minusBtn.textContent = '−';
-        minusBtn.className = 'btn';
-        minusBtn.style.cssText = 'width:40px;height:40px;padding:0;font-size:18px;';
-        const valEl = document.createElement('span');
-        valEl.style.cssText = 'min-width:30px;text-align:center;font-size:15px;font-weight:700;';
-        valEl.textContent = entry.onHand;
-        const plusBtn = document.createElement('button');
-        plusBtn.textContent = '+';
-        plusBtn.className = 'btn';
-        plusBtn.style.cssText = 'width:40px;height:40px;padding:0;font-size:18px;';
-        stepperWrap.append(minusBtn, valEl, plusBtn);
-        row.appendChild(stepperWrap);
+        // Target — same manager-PIN gating as the flavor Target column in the Run tab.
+        const tdTarget = document.createElement('td');
+        tdTarget.style.cssText = 'text-align:center;padding:9px 4px;';
+        const renderTargetCell = () => {
+          tdTarget.innerHTML = '';
+          if (_managerUnlocked) {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.value = item.parLevel;
+            input.style.cssText = 'width:52px;padding:6px;text-align:center;border-radius:6px;border:1.5px solid var(--panel-border);background:var(--panel-bg-alt);color:var(--text-primary);';
+            input.onchange = () => {
+              item.parLevel = Math.max(0, parseInt(input.value) || 0);
+              saveNoveltiesCatalog();
+              renderToMakeCell();
+            };
+            tdTarget.appendChild(input);
+          } else {
+            const span = document.createElement('span');
+            span.textContent = item.parLevel || '—';
+            span.style.cssText = 'color:var(--text-muted);cursor:pointer;';
+            span.title = 'Manager access required';
+            span.onclick = () => requireManager(renderTargetCell);
+            tdTarget.appendChild(span);
+          }
+        };
+        renderTargetCell();
+        tr.appendChild(tdTarget);
 
-        const rerenderMake = () => {
+        // On Hand
+        const tdOnHand = document.createElement('td');
+        tdOnHand.style.cssText = 'text-align:center;padding:9px 4px;font-weight:600;';
+        tdOnHand.textContent = entry.onHand;
+        tr.appendChild(tdOnHand);
+
+        // To Make
+        const tdMake = document.createElement('td');
+        tdMake.style.cssText = 'text-align:center;padding:9px 4px;font-weight:700;';
+        const renderToMakeCell = () => {
           const need = _toMakeNovelty(item, entry);
-          makeEl.textContent = need > 0 ? `Make ${need}` : 'At par';
-          makeEl.style.cssText = `font-size:11px;font-weight:700;margin-top:2px;color:${need > 0 ? '#f0a500' : '#22a05a'};`;
+          tdMake.textContent = need > 0 ? need : '—';
+          tdMake.style.color = need > 0 ? '#f0a500' : '#22a05a';
           _updateNoveltiesSummary();
         };
-        rerenderMake();
+        renderToMakeCell();
+        tr.appendChild(tdMake);
 
-        _attachStepper(minusBtn, -1,
-          () => entry.onHand,
-          v => { entry.onHand = v; valEl.textContent = v; rerenderMake(); },
-          () => saveNoveltiesLog());
-        _attachStepper(plusBtn, +1,
-          () => entry.onHand,
-          v => { entry.onHand = v; valEl.textContent = v; rerenderMake(); },
-          () => saveNoveltiesLog());
-
-        const doneBtn = document.createElement('button');
-        doneBtn.className = 'btn' + (entry.done ? ' btn-green' : '');
-        doneBtn.style.cssText = 'font-size:12px;padding:8px 12px;';
-        doneBtn.textContent = entry.done ? '✓ Made' : 'Mark Made';
-        doneBtn.onclick = () => {
-          entry.done = !entry.done;
+        // Made — prompts for a quantity, adds it to on-hand.
+        const tdMadeBtn = document.createElement('td');
+        tdMadeBtn.style.cssText = 'text-align:right;padding:9px 4px;white-space:nowrap;';
+        const madeBtn = document.createElement('button');
+        madeBtn.className = 'btn btn-green';
+        madeBtn.style.cssText = 'font-size:12px;padding:8px 14px;';
+        madeBtn.textContent = 'Made';
+        madeBtn.onclick = () => {
+          const input = prompt(`How many "${item.name}" did you make?`, '');
+          if (input === null) return;
+          const qty = parseInt(input);
+          if (!Number.isFinite(qty) || qty <= 0) return;
+          entry.onHand = Math.min(999, (entry.onHand || 0) + qty);
+          tdOnHand.textContent = entry.onHand;
+          renderToMakeCell();
           saveNoveltiesLog();
-          renderNoveltiesPage();
         };
-        row.appendChild(doneBtn);
+        tdMadeBtn.appendChild(madeBtn);
+        tr.appendChild(tdMadeBtn);
 
-        // Par level + remove — manager-only catalog edits (not date-specific)
-        const parWrap = document.createElement('div');
-        parWrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
-        const parLabel = document.createElement('span');
-        parLabel.className = 'settings-label';
-        parLabel.textContent = 'Par';
-        const parInput = document.createElement('input');
-        parInput.type = 'number';
-        parInput.className = 'settings-input';
-        parInput.style.cssText = 'width:56px;padding:6px;text-align:center;';
-        parInput.value = item.parLevel;
-        parInput.onchange = () => {
-          item.parLevel = Math.max(0, parseInt(parInput.value) || 0);
-          rerenderMake();
-          saveNoveltiesCatalog();
-        };
-        const removeBtn = document.createElement('button');
-        removeBtn.textContent = '🗑';
-        removeBtn.title = 'Remove item';
-        removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:6px;';
-        removeBtn.onclick = () => requireManager(() => _removeNovelty(novelties.indexOf(item)));
-        parWrap.append(parLabel, parInput, removeBtn);
-        row.appendChild(parWrap);
-
-        section.appendChild(row);
+        tbody.appendChild(tr);
       });
 
-      const addRow = document.createElement('div');
-      addRow.style.cssText = 'display:flex;gap:6px;margin-top:4px;';
-      const addInput = document.createElement('input');
-      addInput.className = 'settings-input';
-      addInput.placeholder = `Add item to ${category}…`;
-      addInput.style.flex = '1';
-      const addBtn = document.createElement('button');
-      addBtn.className = 'btn';
-      addBtn.textContent = '+ Add';
-      addBtn.onclick = () => requireManager(() => {
-        const name = addInput.value.trim();
-        if (!name) return;
-        novelties.push({ category, name, parLevel: NOVELTY_DEFAULT_PAR });
-        saveNoveltiesCatalog();
-        renderNoveltiesPage();
-      });
-      addRow.append(addInput, addBtn);
-      section.appendChild(addRow);
-
+      table.appendChild(tbody);
+      section.appendChild(table);
       content.appendChild(section);
     });
-}
-
-function _removeNovelty(idx) {
-  const removed = novelties[idx];
-  const prevList = [...novelties];
-  novelties = novelties.filter((_, i) => i !== idx);
-  saveNoveltiesCatalog();
-  renderNoveltiesPage();
-  showUndoToast(`"${removed.name}" removed.`, () => {
-    novelties = prevList;
-    saveNoveltiesCatalog();
-    renderNoveltiesPage();
-  });
 }
