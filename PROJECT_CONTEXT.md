@@ -46,6 +46,12 @@ organizations/{orgId}/stores/{storeId}
   activeFlavors, customAdded, removedNames, updatedAt  ← production data
   lastRunDate, lastRunBuckets, lastRunAt               ← written on run completion
   storeEvents: [{type, buckets, at, by?}]               ← activity log, max 10 entries, trimmed on write; by = first-name attribution (optional, signed-in users only)
+  settings: { profile: {phone, email, hours}, inventory: {orderLeadTimeDays, inventoryCountIntervalDays}, theme }
+    ← Manager Settings page (js/settings.js); merged onto the store doc, no new collection
+  novelties: [{category, name, onHand, parLevel}]
+    ← Novelties page (js/novelties.js); daily on-hand/refill tracking for pre-packaged items
+  inventoryItems: [{name, unit, onHand, parLevel, history: [{date, onHand}]}], inventoryLastCountedAt
+    ← Inventory page (js/inventory.js); separate supply catalog, biweekly order qty = par − on-hand
 
 organizations/{orgId}/members/{uid}
   uid, email, role, stores[], createdAt

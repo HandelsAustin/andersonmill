@@ -68,6 +68,10 @@ window.getOrgMemberRef = function(uid, orgId = window.getCurrentOrgId()) {
   return window._doc(window._db, 'organizations', orgId, 'members', uid);
 };
 
+window.getOrgMembersCollectionRef = function(orgId = window.getCurrentOrgId()) {
+  return window._collection(window._db, 'organizations', orgId, 'members');
+};
+
 window.getOrgEventsCollectionRef = function(orgId = window.getCurrentOrgId()) {
   return window._collection(window._db, 'organizations', orgId, 'events');
 };
