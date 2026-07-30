@@ -59,6 +59,7 @@ function applyData(data) {
   novelties = data?.novelties || [];
   inventoryCatalog = data?.inventoryCatalog || [];
   _inventoryLastCountedAt = data?.inventoryLastCountedAt || null;
+  _managerPin = data?.managerPin || null;
 }
 
 function _applyRunData(runData) {
@@ -268,12 +269,21 @@ async function selectOrg(orgId) {
   }
 }
 
+// Non-corporate accounts only ever see/select the store(s) in their own member doc
+// (members/{uid}.stores[]) — corporate accounts see every store in the org.
+function _scopedStores(allStores) {
+  if (userHasRole(ROLES.CORPORATE_ADMIN)) return allStores;
+  const allowed = new Set(window._userStores || []);
+  return allStores.filter(s => allowed.has(s.id));
+}
+
 async function loadOrgStores() {
   if (!window._firebaseReady || !window._getDocs) return [];
   try {
     const coll = window.getOrgStoresCollectionRef();
     const snap = await window._getDocs(coll);
-    const stores = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    window._orgHasAnyStores = snap.docs.length > 0; // distinguishes "brand new org" from "just not assigned to one yet"
+    const stores = _scopedStores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     window.setOrgStores(stores);
     return stores;
   } catch (e) {
@@ -295,11 +305,10 @@ async function showStorePicker(skipWelcomeBack = false) {
     return;
   }
 
-  // Close button — shown whenever user has an active session (employee or signed-in)
+  // Close button — shown whenever a store is already selected (switching, not first pick)
   const _existingClose = document.getElementById('storeOverlayClose');
   if (_existingClose) _existingClose.remove();
-  const _hasSession = savedId || sessionStorage.getItem('car_employee_session') || (window._auth && window._auth.currentUser);
-  if (_hasSession) {
+  if (savedId) {
     const closeBtn = document.createElement('button');
     closeBtn.id = 'storeOverlayClose';
     closeBtn.textContent = '× Not now';
@@ -320,19 +329,21 @@ async function showStorePicker(skipWelcomeBack = false) {
   }
 
   if (!stores.length) {
-    if (window._auth && window._auth.currentUser) {
+    if (!window._orgHasAnyStores) {
+      // Genuinely brand-new org — bootstrap the first store (creator becomes CORPORATE_ADMIN).
       showOrgSetupForm(list);
     } else {
+      // Org has stores, but this account isn't assigned to any of them yet.
       const p = document.createElement('p');
       p.style.cssText = 'color:#98d4e3;font-size:13px;line-height:1.6;text-align:center;margin-bottom:20px;';
-      p.textContent = 'No stores found. A manager needs to sign in to set up this device.';
+      p.textContent = "This account isn't assigned to any store yet. Ask your manager or corporate admin to grant access.";
       list.appendChild(p);
-      const signInBtn = document.createElement('button');
-      signInBtn.className = 'store-btn';
-      signInBtn.style.cssText = 'text-align:center;background:#0f4a2a;border-color:#98d4e3;';
-      signInBtn.textContent = 'Manager Sign In';
-      signInBtn.onclick = () => openAuthModal();
-      list.appendChild(signInBtn);
+      const signOutBtn = document.createElement('button');
+      signOutBtn.className = 'store-btn';
+      signOutBtn.style.cssText = 'text-align:center;';
+      signOutBtn.textContent = 'Sign In as a Different Account';
+      signOutBtn.onclick = () => signOutUser();
+      list.appendChild(signOutBtn);
     }
   } else {
     stores.forEach(store => {
@@ -563,6 +574,11 @@ function findStoreById(id) {
 function selectStore(id) {
   window.setStoreId(id);
   document.getElementById('storeOverlay').classList.remove('open');
+  // The manager PIN is per-store — being unlocked at the previous store must not
+  // carry over to this one. Bounce back to the Run tab so we're not left showing
+  // a manager-gated tab's stale content for a store we're no longer unlocked at.
+  if (typeof lockManager === 'function') lockManager();
+  if (typeof switchTab === 'function') switchTab('Run');
   const store = findStoreById(id);
   if (store) {
     const displayName = store.label || store.id;

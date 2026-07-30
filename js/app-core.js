@@ -191,22 +191,9 @@ function hideEntryScreen() {
   document.getElementById('entryOverlay').classList.remove('open');
 }
 
-function enterEmployeeMode() {
-  sessionStorage.setItem('car_employee_session', '1');
-  window._USER_ROLE = ROLES.EMPLOYEE;
-  localStorage.setItem('car_user_role', ROLES.EMPLOYEE);
-  hideEntryScreen();
-  updateUserRoleDisplay();
-  updateRoleUIVisibility();
-  updateConnectivityStatus();
-  loadCabinetPref();
-  if (window._firebaseReady) loadOrgMetadata();
-  showStorePicker();
-}
-
 function bootstrap() {
-  // Identity gate: if no auth session and no employee session, show entry screen
-  if (!(window._auth && window._auth.currentUser) && !sessionStorage.getItem('car_employee_session')) {
+  // Identity gate: every session must be signed in — no anonymous/employee mode.
+  if (!(window._auth && window._auth.currentUser)) {
     showEntryScreen();
     return;
   }

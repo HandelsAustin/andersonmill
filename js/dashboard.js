@@ -481,9 +481,11 @@ function closeCorporateDashboard() {
 // ── DASHBOARD ROUTING ────────────────────────────────────────────────────────
 function openDashboard() {
   if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+    // Corporate accounts are already personally authenticated — no PIN gate.
     showCorporateDashboard();
-  } else if (userHasRole(ROLES.STORE_MANAGER)) {
-    showManagerDashboard();
+  } else {
+    // Store-tier accounts share a login, so the PIN is what confirms "acting as manager."
+    requireManager(showManagerDashboard);
   }
 }
 

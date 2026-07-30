@@ -70,6 +70,40 @@ function renderSettingsPage() {
   if (!content) return;
   content.innerHTML = '';
 
+  // ── Switch Store ─────────────────────────────────────────────────────────
+  // Same email can be assigned to multiple stores (or, for CORPORATE_ADMIN, every
+  // store in the org) — window.getOrgStores() is already scoped accordingly.
+  const accessibleStores = window.getOrgStores();
+  if (accessibleStores.length > 1) {
+    const switchSection = _settingsSection('Switch Store');
+    const currentId = window.getCurrentStoreId();
+    accessibleStores.forEach(store => {
+      const isCurrent = store.id === currentId;
+      const row = document.createElement('div');
+      row.className = 'settings-card';
+      row.style.cssText += 'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
+      const nameEl = document.createElement('span');
+      nameEl.style.cssText = 'font-size:13px;font-weight:600;';
+      nameEl.textContent = store.label || store.id;
+      row.appendChild(nameEl);
+      if (isCurrent) {
+        const tag = document.createElement('span');
+        tag.style.cssText = 'font-size:11px;color:var(--text-dim);';
+        tag.textContent = 'Current';
+        row.appendChild(tag);
+      } else {
+        const switchBtn = document.createElement('button');
+        switchBtn.className = 'btn';
+        switchBtn.style.cssText = 'font-size:12px;padding:6px 12px;';
+        switchBtn.textContent = 'Switch';
+        switchBtn.onclick = () => selectStore(store.id);
+        row.appendChild(switchBtn);
+      }
+      switchSection.appendChild(row);
+    });
+    content.appendChild(switchSection);
+  }
+
   // ── Store Profile ──────────────────────────────────────────────────────────
   const profileSection = _settingsSection('Store Profile');
   const profile = _storeSettings.profile || {};

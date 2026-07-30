@@ -30,10 +30,19 @@ A multi-store operational SaaS platform for ice cream and food production workfl
 - Preserve existing workflows
 - Work incrementally
 
-## Roles
-- CORPORATE_ADMIN — assigned to org creator on first setup; full access
-- STORE_MANAGER — assigned via Firebase auth; store-level access
-- EMPLOYEE — default unauthenticated role; production workflow only
+## Roles & Access Model
+- No anonymous/employee mode — every session signs in with email + password (the entry
+  screen *is* the login form). That login is typically a **shared per-store credential**
+  ("whoever's on shift" uses the store's login), not one account per employee.
+- CORPORATE_ADMIN — assigned to org creator on first setup; sees every store in the org,
+  gets the corporate dashboard, and bypasses the manager PIN entirely (already a personally
+  authenticated, elevated account).
+- STORE_MANAGER — the role every other account gets; scoped to the store(s) in its member
+  doc's `stores[]` (enforced client-side in `js/store-org.js`: `_scopedStores()`). No longer
+  a distinct "manager tier" for UI purposes — any store login sees all 4 tabs, and a
+  **shared 4-digit PIN per store** (`store.managerPin`, `js/manager-lock.js`) gates
+  Dashboard/Inventory/Store Settings/Edit Flavors instead.
+- `ROLES.EMPLOYEE` constant still exists (harmless) but is never assigned to a real session.
 
 ## Firestore Structure (Live)
 
@@ -43,6 +52,7 @@ organizations/{orgId}
 
 organizations/{orgId}/stores/{storeId}
   id, label, createdAt, createdBy
+  managerPin                                           ← shared 4-digit PIN, gates manager features (js/manager-lock.js)
   customAdded, removedNames, updatedAt                 ← flavor roster (persistent; NOT per-day)
   lastRunDate, lastRunBuckets, lastRunAt               ← written on run completion
   storeEvents: [{type, buckets, at, by?}]               ← activity log, max 10 entries, trimmed on write; by = first-name attribution (optional, signed-in users only)
@@ -70,8 +80,7 @@ organizations/{orgId}/stores/{storeId}/inventoryLog/{date}
   ← One doc per inventory count session (js/inventory.js: loadInventoryForDate()).
 
 All three date-log subcollections are covered by firestore.rules (isOrgMember() read /
-isStoreManager() write, same as the store doc) — ⚠ not yet deployed to production as of
-this writing; see TODO.md.
+isStoreManager() write, same as the store doc) — deployed to production.
 
 organizations/{orgId}/members/{uid}
   uid, email, role, stores[], createdAt
@@ -81,11 +90,12 @@ organizations/{orgId}/events/{eventId}
 ```
 
 ## Onboarding Flow
-1. First load → no saved store → store picker opens
-2. No stores in Firestore → if signed in: shows inline "Create first store" form
-3. User fills store name → store ID auto-slugged → clicks "Create Store"
-4. Writes org doc, store doc, and member doc (CORPORATE_ADMIN)
-5. Selects store → app proceeds normally
+1. First load → entry screen (login form) → sign in
+2. No saved store → store picker opens, scoped to this account's stores[] (or all, for corporate)
+3. Brand new org (zero stores exist anywhere) → inline "Create first store" form instead
+4. User fills store name → store ID auto-slugged → clicks "Create Store"
+5. Writes org doc, store doc, and member doc (CORPORATE_ADMIN)
+6. Selects store → prompted to set this store's manager PIN the first time a gated feature is opened → app proceeds normally
 
 ## Important Constraints
 - Mobile-first usability

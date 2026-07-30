@@ -1,5 +1,8 @@
-// Manager PIN lock (local session lock layered on top of role/auth).
-// Extracted from index.html — no logic changes.
+// Manager PIN lock — gates Dashboard/Inventory/Store Settings/Edit Flavors.
+// The PIN is a shared secret per store (Firestore field `managerPin` on the store
+// doc, populated by applyData() in store-org.js), not per-device — a reset applies
+// everywhere immediately. CORPORATE_ADMIN accounts bypass the PIN entirely (already
+// personally authenticated); every other signed-in account needs this store's PIN.
 
 let _managerUnlocked  = false;
 let _managerTimer     = null;
@@ -7,6 +10,8 @@ let _pinCallback      = null;
 let _pinMode          = 'enter'; // 'enter' | 'set' | 'confirm'
 let _pinSetFirst      = '';
 const MANAGER_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+let _managerPin = null; // populated by applyData() in store-org.js
+
 function buildPinKeypad() {
   const kp = document.getElementById('pinKeypad');
   kp.innerHTML = '';
@@ -43,8 +48,18 @@ function handlePinKey(k) {
   if (_pinEntry.length === 4) setTimeout(submitPin, 120);
 }
 
+async function _saveManagerPin(pin) {
+  _managerPin = pin;
+  if (!window._firebaseReady) { showStatusMessage('Offline — PIN saved locally only', 3000); return; }
+  try {
+    await window._setDoc(getStoreDocRef(), { managerPin: pin }, { merge: true });
+  } catch (e) {
+    console.error('PIN save error:', e);
+    showStatusMessage('⚠ Could not save PIN', 2500);
+  }
+}
+
 function submitPin() {
-  const stored = localStorage.getItem('car_manager_pin');
   if (_pinMode === 'set') {
     _pinSetFirst = _pinEntry;
     _pinEntry = '';
@@ -61,16 +76,17 @@ function submitPin() {
       updatePinDisplay();
       _pinMode = 'set';
       document.getElementById('pinTitle').textContent = 'Set Manager PIN';
-      document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for manager access.';
+      document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for manager access at this store.';
       return;
     }
-    localStorage.setItem('car_manager_pin', _pinEntry);
+    const pin = _pinEntry;
     closePinModal();
+    _saveManagerPin(pin);
     unlockManager();
     return;
   }
   // _pinMode === 'enter'
-  if (_pinEntry === stored) {
+  if (_pinEntry === _managerPin) {
     closePinModal();
     unlockManager();
   } else {
@@ -88,9 +104,13 @@ function openPinModal(mode, callback) {
   buildPinKeypad();
   updatePinDisplay();
   document.getElementById('pinError').textContent = '';
+  document.getElementById('pinDisplay').style.display = '';
+  document.getElementById('pinKeypad').style.display = '';
+  document.getElementById('pinForgotLink').style.display = mode === 'set' ? 'none' : '';
+  document.getElementById('pinReauthForm').style.display = 'none';
   if (mode === 'set') {
     document.getElementById('pinTitle').textContent = 'Set Manager PIN';
-    document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for manager access.';
+    document.getElementById('pinSubtitle').textContent = 'Choose a 4-digit PIN for manager access at this store.';
   } else {
     document.getElementById('pinTitle').textContent = 'Manager Access';
     document.getElementById('pinSubtitle').textContent = 'Enter your PIN to continue.';
@@ -102,21 +122,10 @@ function closePinModal() {
   document.getElementById('pinOverlay').classList.remove('open');
 }
 
-
-// When PIN is used to unlock, treat user as local store manager (fallback)
-const _origUnlockManager = unlockManager;
 function unlockManager() {
   _managerUnlocked = true;
   if (_managerTimer) clearTimeout(_managerTimer);
   _managerTimer = setTimeout(lockManager, MANAGER_TIMEOUT);
-  // If not authenticated, set local role to STORE_MANAGER so UI gating works
-  if (!(window._auth && window._auth.currentUser)) {
-    window._USER_ROLE = ROLES.STORE_MANAGER;
-    localStorage.setItem('car_user_role', window._USER_ROLE);
-    updateUserRoleDisplay();
-    updateAuthButton();
-    updateRoleUIVisibility();
-  }
   renderTable(); // re-render so target dropdowns appear
   if (_pinCallback) { const cb = _pinCallback; _pinCallback = null; cb(); }
 }
@@ -127,13 +136,61 @@ function lockManager() {
   renderTable();
 }
 
+// Gates Dashboard / Inventory / Store Settings / Edit Flavors. Corporate accounts
+// bypass the PIN entirely — they're already a personally-authenticated, elevated
+// account, not the shared store login the PIN exists to distinguish from staff.
 function requireManager(callback) {
-  if (window._auth && window._auth.currentUser) {
-    _managerUnlocked = true;
-    callback();
-    return;
-  }
-  showStatusMessage('Sign in as Manager to access this feature.', 2500);
+  if (userHasRole(ROLES.CORPORATE_ADMIN)) { callback(); return; }
+  if (_managerUnlocked) { callback(); return; }
+  openPinModal(_managerPin ? 'enter' : 'set', callback);
 }
 
-// ── CABINET SORT ───────────────────────────────────────────
+// ── Forgot PIN ───────────────────────────────────────────────────────────────
+// No email step (confirmed with the user — this app has no backend to send a
+// custom "reset your PIN" email). Instead: re-confirm the store login's own
+// password via Firebase reauthentication, then set a new PIN immediately.
+function startPinReauth() {
+  document.getElementById('pinError').textContent = '';
+  document.getElementById('pinDisplay').style.display = 'none';
+  document.getElementById('pinKeypad').style.display = 'none';
+  document.getElementById('pinForgotLink').style.display = 'none';
+  document.getElementById('pinReauthForm').style.display = '';
+  document.getElementById('pinReauthPassword').value = '';
+  document.getElementById('pinTitle').textContent = 'Forgot PIN';
+  document.getElementById('pinSubtitle').textContent = window._auth && window._auth.currentUser
+    ? `Confirm the password for ${window._auth.currentUser.email}`
+    : '';
+  setTimeout(() => document.getElementById('pinReauthPassword').focus(), 10);
+}
+
+function cancelPinReauth() {
+  openPinModal(_managerPin ? 'enter' : 'set', _pinCallback);
+}
+
+async function confirmPinReauth() {
+  const password = document.getElementById('pinReauthPassword').value;
+  const errEl = document.getElementById('pinError');
+  document.getElementById('pinReauthForm').style.display = 'none'; // hide while we verify
+  errEl.textContent = '';
+  if (!password) {
+    errEl.textContent = 'Enter the password to continue.';
+    document.getElementById('pinReauthForm').style.display = '';
+    return;
+  }
+  const user = window._auth && window._auth.currentUser;
+  if (!user) {
+    errEl.textContent = 'You must be signed in.';
+    document.getElementById('pinReauthForm').style.display = '';
+    return;
+  }
+  try {
+    const credential = window._EmailAuthProvider.credential(user.email, password);
+    await window._reauthenticateWithCredential(user, credential);
+    const cb = _pinCallback;
+    openPinModal('set', cb);
+  } catch (e) {
+    errEl.textContent = 'Incorrect password.';
+    document.getElementById('pinReauthForm').style.display = '';
+    console.error('PIN reauth error:', e);
+  }
+}

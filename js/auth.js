@@ -39,17 +39,20 @@ async function loadCurrentUserRole(forceCreate = false) {
     if (snap.exists()) {
       const member = snap.data();
       window._USER_ROLE = member.role || ROLES.STORE_MANAGER;
+      window._userStores = member.stores || [];
     } else if (forceCreate) {
       window._USER_ROLE = ROLES.STORE_MANAGER;
+      window._userStores = window.getCurrentStoreId() ? [window.getCurrentStoreId()] : [];
       await window._setDoc(ref, {
         uid: user.uid,
         email: user.email,
         role: window._USER_ROLE,
-        stores: window.getCurrentStoreId() ? [window.getCurrentStoreId()] : [],
+        stores: window._userStores,
         createdAt: Date.now()
       });
     } else {
       window._USER_ROLE = ROLES.STORE_MANAGER;
+      window._userStores = [];
     }
     localStorage.setItem('car_user_role', window._USER_ROLE);
     updateUserRoleDisplay();
@@ -89,19 +92,10 @@ function updateAuthButton() {
 }
 
 
+// All tabs and the Dashboard button are always visible to any signed-in account —
+// Inventory/Store Settings/Dashboard/Edit Flavors are gated at point-of-use by
+// requireManager() (the shared per-store PIN) instead of by role-based hiding.
 function updateRoleUIVisibility() {
-  const canDash = userHasRole(ROLES.CORPORATE_ADMIN) || userHasRole(ROLES.STORE_MANAGER);
-  const dashboardBtn = document.getElementById('dashboardBtn');
-  if (dashboardBtn) dashboardBtn.style.display = canDash ? 'inline-flex' : 'none';
-  const tabBtnSettings = document.getElementById('tabBtnSettings');
-  if (tabBtnSettings) tabBtnSettings.style.display = canDash ? '' : 'none';
-  const tabBtnInventory = document.getElementById('tabBtnInventory');
-  if (tabBtnInventory) tabBtnInventory.style.display = canDash ? '' : 'none';
-  // If the currently-active tab just got hidden (e.g. signed out), fall back to Run.
-  if (!canDash && (document.getElementById('tabPanelSettings')?.classList.contains('active') ||
-                   document.getElementById('tabPanelInventory')?.classList.contains('active'))) {
-    switchTab('Run');
-  }
   _updateHeaderSub();
 }
 
@@ -120,6 +114,8 @@ function _updateHeaderSub() {
   sub.textContent = storeLabel + roleTag + " — Handel's Homemade Ice Cream";
 }
 
+// The header's Sign In/Sign Out button. There's no separate auth modal anymore —
+// signing in always uses the entry screen's own form (the only login UI in the app).
 function openAuthModal() {
   if (window._auth && window._auth.currentUser) {
     signOutUser();
@@ -130,11 +126,7 @@ function openAuthModal() {
   errEl.style.color = '';
   document.getElementById('authEmail').value = '';
   document.getElementById('authPassword').value = '';
-  document.getElementById('authOverlay').classList.add('open');
-}
-
-function closeAuthModal() {
-  document.getElementById('authOverlay').classList.remove('open');
+  showEntryScreen();
 }
 
 async function signInManager() {
@@ -150,9 +142,7 @@ async function signInManager() {
     await window._signInWithEmailAndPassword(window._auth, email, password);
     await loadCurrentUserRole(true);
     await window.logOrgEvent('signed_in', { email });
-    closeAuthModal();
     hideEntryScreen();
-    sessionStorage.removeItem('car_employee_session');
     updateConnectivityStatus();
     loadCabinetPref();
     if (window._firebaseReady) loadOrgMetadata();
@@ -162,16 +152,14 @@ async function signInManager() {
     }
   } catch (e) {
     if (e.code === 'auth/user-not-found' || e.code === 'auth/invalid-credential') {
-      const create = confirm('No account found. Create a new manager account?');
+      const create = confirm('No account found for that email. Create a new store login?');
       if (!create) return;
       try {
         await window._createUserWithEmailAndPassword(window._auth, email, password);
         await window._signInWithEmailAndPassword(window._auth, email, password);
         await loadCurrentUserRole(true);
         await window.logOrgEvent('account_created', { email });
-        closeAuthModal();
         hideEntryScreen();
-        sessionStorage.removeItem('car_employee_session');
         updateConnectivityStatus();
         loadCabinetPref();
         if (window._firebaseReady) loadOrgMetadata();
@@ -228,11 +216,16 @@ async function resetPassword() {
 async function signOutUser() {
   if (!window._auth) return;
   if (_unsubscribeSnapshot) { _unsubscribeSnapshot(); _unsubscribeSnapshot = null; }
+  if (_unsubscribeRunSnapshot) { _unsubscribeRunSnapshot(); _unsubscribeRunSnapshot = null; }
   try {
     await window._signOut(window._auth);
     await window.logOrgEvent('signed_out', {});
     window._USER_ROLE = ROLES.EMPLOYEE;
     localStorage.setItem('car_user_role', window._USER_ROLE);
+    window._userStores = [];
+    // Next person on this shared device starts locked out of manager actions again.
+    if (typeof lockManager === 'function') lockManager();
+    if (typeof switchTab === 'function') switchTab('Run');
     updateUserRoleDisplay();
     updateAuthButton();
     updateRoleUIVisibility();
