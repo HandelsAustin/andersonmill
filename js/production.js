@@ -622,13 +622,24 @@ function _startProductionRun(dailyNeeded) {
   runMade = {};
   cateringMade = {};
   try { localStorage.setItem('car_run_state', JSON.stringify({ made: 0, at: Date.now(), catering: _cateringItems })); } catch(e) {}
-  saveAll(); // guarantees today's run doc exists so it shows up under Saved Runs right away
-  // Explicitly clear submitted (handles starting a second run on a date whose
-  // first run was already submitted earlier the same day)
-  if (window._firebaseReady) {
-    window._setDoc(window.getStoreRunLogRef(_workingRunDate || todayStr()), { submitted: false }, { merge: true })
-      .catch(e => console.error('Run submitted-flag reset error:', e));
-  }
+
+  // Single write that both guarantees today's run doc exists under Saved Runs
+  // and explicitly clears `submitted` (handles starting a second run on a
+  // date whose first run was already submitted earlier the same day). Fired
+  // immediately but not blocking run mode from starting — awaited internally
+  // so a failure can still be surfaced instead of silently swallowed.
+  (async () => {
+    if (!window._firebaseReady) return;
+    try {
+      await window._setDoc(window.getStoreRunLogRef(_workingRunDate || todayStr()), {
+        activeFlavors, cateringItems: _cateringItems, runMade, cateringMade,
+        submitted: false, updatedAt: Date.now()
+      }, { merge: true });
+    } catch (e) {
+      console.error('Failed to save new run:', e);
+      showStatusMessage('⚠ Could not save this run — check your connection', 4000);
+    }
+  })();
 
   const dailyTotal    = dailyNeeded.reduce((s, f) => s + toMake(f), 0);
   const cateringTotal = _cateringItems.reduce((s, c) => s + c.buckets, 0);

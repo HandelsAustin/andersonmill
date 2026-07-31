@@ -7,6 +7,12 @@ v0.2
 
 ## Recent Changes
 
+### Follow-up Fixes: Run-Save Race, Novelties Toolbar, Sign Out Visibility (2026-07-30)
+- **Fixed:** "Start Production Run and Save" wasn't reliably creating a Saved Runs entry — `js/production.js` `_startProductionRun()` previously fired two separate, un-awaited Firestore writes to the same run doc (`saveAll()` plus a `submitted:false` reset); collapsed into a single write, still fire-and-forget so entering Run Mode is instant, but now properly sequenced and awaited internally so a genuine save failure surfaces a status toast instead of failing silently.
+- **Changed:** Novelties tab — removed the "Saved Lists" date picker (no more multi-day browse/resume for this tab); added **Reset** (clears today's on-hand counts back to 0, 5-second undo toast — same pattern as the Run tab's Reset) and **Print** (`printNovelties()`, same print-window pattern as the Run tab's Print Inventory) buttons in its place.
+- **Changed:** Sign Out now only appears in the header on the Store Settings tab — previously hidden only on Settings and Run, now also hidden on Novelties and Inventory (and shown on Settings, reversing the original always-hide-on-Settings behavior).
+- **Fixed:** the Ice Cream Run flavor table could render wider than its container on narrow phones (long flavor names plus the fixed-width Holding −/+ buttons exceeded their `<col>` percentage allotment under the table's default auto layout), forcing the *entire page* — header, toolbar, tab bar — to overflow and appear squeezed against the left edge with blank space on the right. Wrapped the table (and Novelties' per-category tables, same underlying risk) in an `overflow-x:auto` container in `index.html`/`js/novelties.js` — the table can now scroll horizontally on its own if needed, without breaking the rest of the page's width.
+
 ### Made-Stepper Workflow for Run + Novelties, Dashboard Cleanup (2026-07-30)
 Reworks the core daily-production interaction on both the Ice Cream Run and Novelties tabs to a single consistent pattern, and cleans up several Dashboard sections.
 

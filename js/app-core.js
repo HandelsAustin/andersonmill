@@ -21,11 +21,10 @@ function switchTab(name) {
   });
   document.getElementById(target.panel)?.classList.add('active');
   document.getElementById(target.btn)?.classList.add('active');
-  // Sign Out lives in the header except on Settings (its own account actions
-  // make the header button redundant there) and Run (kept out of the way of
-  // the production workflow).
+  // Sign Out only lives in the header on Store Settings — every other tab
+  // keeps the header clear of account actions during production work.
   const authBtn = document.getElementById('authBtn');
-  if (authBtn) authBtn.style.display = (name === 'Settings' || name === 'Run') ? 'none' : '';
+  if (authBtn) authBtn.style.display = name === 'Settings' ? '' : 'none';
   window.scrollTo(0, 0);
   target.render();
 }

@@ -72,19 +72,6 @@ async function loadNoveltiesForDate(date) {
   renderNoveltiesPage();
 }
 
-// Lists recent Saved Lists — in-progress (unsubmitted) checklists only.
-async function listRecentNoveltiesDates(max = 60) {
-  if (!window._firebaseReady || !window._getDocs || !window._query) return [];
-  try {
-    const q = window._query(window.getStoreNoveltiesLogCollectionRef(), window._orderBy('__name__', 'desc'), window._limit(max));
-    const snap = await window._getDocs(q);
-    return snap.docs.filter(d => d.data().submitted !== true).map(d => d.id);
-  } catch (e) {
-    console.error('List novelties dates error:', e);
-    return [];
-  }
-}
-
 // Novelties is now a bottom-tab panel rather than a popup overlay — these wrappers
 // stay in case anything still calls them directly.
 function openNovelties() {
@@ -123,50 +110,81 @@ function _updateNoveltiesSummary() {
     : 'All caught up for today.';
 }
 
-// ── Saved Lists ───────────────────────────────────────────────────────────────
-// Lists in-progress (unsubmitted) checklists by creation date. Opening one
-// resumes exactly where it was left. Once Submitted, a list is excluded from
-// this picker (though its data stays in Firestore for Dashboard history).
-function _renderNoveltiesDatePicker() {
-  const container = document.getElementById('noveltiesDatePicker');
-  if (!container) return;
-  container.style.position = 'relative';
-  container.innerHTML = '';
+// ── Reset ──────────────────────────────────────────────────────────────────
+// Resets today's on-hand counts back to 0 (same undo-toast pattern as the
+// Run tab's resetDay()) — 5-second recovery window, no confirm() dialog.
+let _noveltiesResetSnapshot  = null;
+let _noveltiesResetUndoTimer = null;
 
-  const btn = document.createElement('button');
-  btn.className = 'btn';
-  btn.style.cssText = 'font-size:12px;padding:8px 12px;';
-  btn.textContent = '📅 Saved Lists ▾';
-  btn.onclick = e => { e.stopPropagation(); _toggleNoveltiesDateMenu(); };
-  container.appendChild(btn);
-
-  const menu = document.createElement('div');
-  menu.id = 'noveltiesDateMenu';
-  menu.style.cssText = 'display:none;position:absolute;top:110%;left:0;background:#1a2744;border:1.5px solid #2e4a70;border-radius:8px;overflow:hidden;z-index:200;min-width:200px;max-height:280px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.4);';
-  container.appendChild(menu);
+function resetNoveltiesDay() {
+  if (_noveltiesResetUndoTimer) { clearTimeout(_noveltiesResetUndoTimer); _noveltiesResetSnapshot = null; _noveltiesResetUndoTimer = null; }
+  _noveltiesResetSnapshot = _noveltiesLog.map(e => ({ ...e }));
+  _noveltiesLog.forEach(e => { e.onHand = 0; delete e.madeQty; });
+  saveNoveltiesLog();
+  renderNoveltiesPage();
+  showUndoToast('⟳ Checklist reset — tap Undo to restore', undoNoveltiesReset);
+  _noveltiesResetUndoTimer = setTimeout(() => {
+    _noveltiesResetSnapshot = null;
+    _noveltiesResetUndoTimer = null;
+    hideUndoToast();
+  }, 5000);
 }
 
-async function _toggleNoveltiesDateMenu() {
-  const menu = document.getElementById('noveltiesDateMenu');
-  if (!menu) return;
-  if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
-  menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">Loading…</div>';
-  menu.style.display = 'block';
-  setTimeout(() => document.addEventListener('click', () => { menu.style.display = 'none'; }, { once: true }), 0);
+function undoNoveltiesReset() {
+  if (!_noveltiesResetSnapshot) return;
+  clearTimeout(_noveltiesResetUndoTimer);
+  _noveltiesLog = _noveltiesResetSnapshot;
+  _noveltiesResetSnapshot = null;
+  _noveltiesResetUndoTimer = null;
+  saveNoveltiesLog();
+  renderNoveltiesPage();
+  hideUndoToast();
+}
 
-  const dates = await listRecentNoveltiesDates();
-  menu.innerHTML = '';
-  if (!dates.length) {
-    menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">No saved lists in progress.</div>';
-    return;
-  }
-  dates.forEach(d => {
-    const row = document.createElement('button');
-    row.style.cssText = 'display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid #2e4a70;color:#c5d8f0;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;cursor:pointer;';
-    row.textContent = d === todayStr() ? `${d} (Today)` : d;
-    row.onclick = () => { loadNoveltiesForDate(d); menu.style.display = 'none'; };
-    menu.appendChild(row);
-  });
+// ── Print ──────────────────────────────────────────────────────────────────
+function printNovelties() {
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  const rows = novelties.map(item => {
+    const entry = _getLogEntry(item);
+    const need  = _toMakeNovelty(item, entry);
+    return `<tr>
+      <td>${item.category}</td>
+      <td>${item.name}</td>
+      <td style="text-align:center">${item.parLevel}</td>
+      <td style="text-align:center">${entry.onHand}</td>
+      <td style="text-align:center;font-weight:bold">${need > 0 ? need : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Novelties Checklist — ${today}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 13px; margin: 24px; color: #000; }
+    h2 { margin: 0 0 4px; font-size: 18px; }
+    p { margin: 0 0 16px; color: #555; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 6px 8px; border-bottom: 2px solid #d72627; color: #444; }
+    td { padding: 7px 8px; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+  </style></head><body>
+  <h2>Handel's — Novelties Checklist</h2>
+  <p>${today}</p>
+  <table>
+    <thead><tr>
+      <th>Category</th>
+      <th>Item</th>
+      <th style="text-align:center">Target</th>
+      <th style="text-align:center">On Hand</th>
+      <th style="text-align:center">To Make</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <script>window.onload = function(){ window.print(); }<\/script>
+  </body></html>`;
+
+  const w = window.open('', '_blank', 'width=800,height=600');
+  if (w) { w.document.write(html); w.document.close(); }
+  else { alert('Please allow pop-ups for this page to print.'); }
 }
 
 function renderNoveltiesPage() {
@@ -181,11 +199,14 @@ function renderNoveltiesPage() {
   if (typeof _applyNewPagesTheme === 'function') _applyNewPagesTheme((_storeSettings && _storeSettings.theme) || 'dark');
   content.innerHTML = '';
 
-  const dateBar = document.createElement('div');
-  dateBar.id = 'noveltiesDatePicker';
-  dateBar.style.marginBottom = '14px';
-  content.appendChild(dateBar);
-  _renderNoveltiesDatePicker();
+  const toolbar = document.createElement('div');
+  toolbar.className = 'toolbar';
+  toolbar.style.marginBottom = '14px';
+  toolbar.innerHTML = `
+    <button class="btn btn-red" onclick="resetNoveltiesDay()">&#8635; Reset</button>
+    <button class="btn" onclick="printNovelties()">&#128438; Print</button>
+  `;
+  content.appendChild(toolbar);
 
   const summary = document.createElement('div');
   summary.id = 'noveltiesSummary';
@@ -202,6 +223,9 @@ function renderNoveltiesPage() {
       if (!items.length) return;
 
       const section = _settingsSection(category);
+
+      const tableWrap = document.createElement('div');
+      tableWrap.style.cssText = 'overflow-x:auto;-webkit-overflow-scrolling:touch;';
 
       const table = document.createElement('table');
       table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
@@ -307,7 +331,8 @@ function renderNoveltiesPage() {
       });
 
       table.appendChild(tbody);
-      section.appendChild(table);
+      tableWrap.appendChild(table);
+      section.appendChild(tableWrap);
       content.appendChild(section);
     });
 
