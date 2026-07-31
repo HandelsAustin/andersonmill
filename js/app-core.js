@@ -21,11 +21,11 @@ function switchTab(name) {
   });
   document.getElementById(target.panel)?.classList.add('active');
   document.getElementById(target.btn)?.classList.add('active');
-  // Sign Out lives in the header everywhere except Settings — Settings has its
-  // own account-related actions (Switch Store etc.), so the header button there
-  // would just be visual clutter/duplication.
+  // Sign Out lives in the header except on Settings (its own account actions
+  // make the header button redundant there) and Run (kept out of the way of
+  // the production workflow).
   const authBtn = document.getElementById('authBtn');
-  if (authBtn) authBtn.style.display = name === 'Settings' ? 'none' : '';
+  if (authBtn) authBtn.style.display = (name === 'Settings' || name === 'Run') ? 'none' : '';
   window.scrollTo(0, 0);
   target.render();
 }

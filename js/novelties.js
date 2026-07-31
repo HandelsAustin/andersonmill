@@ -72,12 +72,13 @@ async function loadNoveltiesForDate(date) {
   renderNoveltiesPage();
 }
 
+// Lists recent Saved Lists — in-progress (unsubmitted) checklists only.
 async function listRecentNoveltiesDates(max = 60) {
   if (!window._firebaseReady || !window._getDocs || !window._query) return [];
   try {
     const q = window._query(window.getStoreNoveltiesLogCollectionRef(), window._orderBy('__name__', 'desc'), window._limit(max));
     const snap = await window._getDocs(q);
-    return snap.docs.map(d => d.id);
+    return snap.docs.filter(d => d.data().submitted !== true).map(d => d.id);
   } catch (e) {
     console.error('List novelties dates error:', e);
     return [];
@@ -122,29 +123,22 @@ function _updateNoveltiesSummary() {
     : 'All caught up for today.';
 }
 
-// ── Date recall ──────────────────────────────────────────────────────────────
+// ── Saved Lists ───────────────────────────────────────────────────────────────
+// Lists in-progress (unsubmitted) checklists by creation date. Opening one
+// resumes exactly where it was left. Once Submitted, a list is excluded from
+// this picker (though its data stays in Firestore for Dashboard history).
 function _renderNoveltiesDatePicker() {
   const container = document.getElementById('noveltiesDatePicker');
   if (!container) return;
-  const isToday = _workingNoveltiesDate === todayStr();
   container.style.position = 'relative';
   container.innerHTML = '';
 
   const btn = document.createElement('button');
   btn.className = 'btn';
   btn.style.cssText = 'font-size:12px;padding:8px 12px;';
-  btn.textContent = `📅 ${isToday ? 'Today' : _workingNoveltiesDate} ▾`;
+  btn.textContent = '📅 Saved Lists ▾';
   btn.onclick = e => { e.stopPropagation(); _toggleNoveltiesDateMenu(); };
   container.appendChild(btn);
-
-  if (!isToday) {
-    const backBtn = document.createElement('button');
-    backBtn.className = 'btn';
-    backBtn.style.cssText = 'font-size:12px;padding:8px 12px;margin-left:6px;';
-    backBtn.textContent = '↩ Back to Today';
-    backBtn.onclick = () => loadNoveltiesForDate(todayStr());
-    container.appendChild(backBtn);
-  }
 
   const menu = document.createElement('div');
   menu.id = 'noveltiesDateMenu';
@@ -163,7 +157,7 @@ async function _toggleNoveltiesDateMenu() {
   const dates = await listRecentNoveltiesDates();
   menu.innerHTML = '';
   if (!dates.length) {
-    menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">No saved checklists yet.</div>';
+    menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">No saved lists in progress.</div>';
     return;
   }
   dates.forEach(d => {
@@ -232,22 +226,18 @@ function renderNoveltiesPage() {
         tdName.textContent = item.name;
         tr.appendChild(tdName);
 
-        // Target — same manager-PIN gating as the flavor Target column in the Run tab.
+        // Target — dropdown, same as the flavor Target column in the Run tab
+        // (TARGET_OPTIONS is shared, defined in roster.js).
         const tdTarget = document.createElement('td');
         tdTarget.style.cssText = 'text-align:center;padding:9px 4px;';
         const renderTargetCell = () => {
           tdTarget.innerHTML = '';
           if (_managerUnlocked) {
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.value = item.parLevel;
-            input.style.cssText = 'width:52px;padding:6px;text-align:center;border-radius:6px;border:1.5px solid var(--panel-border);background:var(--panel-bg-alt);color:var(--text-primary);';
-            input.onchange = () => {
-              item.parLevel = Math.max(0, parseInt(input.value) || 0);
+            tdTarget.appendChild(makeSelect(TARGET_OPTIONS, item.parLevel, val => {
+              item.parLevel = val;
               saveNoveltiesCatalog();
               renderToMakeCell();
-            };
-            tdTarget.appendChild(input);
+            }));
           } else {
             const span = document.createElement('span');
             span.textContent = item.parLevel || '—';
@@ -278,24 +268,39 @@ function renderNoveltiesPage() {
         renderToMakeCell();
         tr.appendChild(tdMake);
 
-        // Made — prompts for a quantity, adds it to on-hand.
+        // Made — pre-filled, adjustable stepper; submitted rows show a done
+        // status with Undo (same pattern as the Run tab's Made column).
+        if (entry.madeQty !== undefined) {
+          tr.style.opacity = '0.6';
+          tdName.style.textDecoration = 'line-through';
+        }
         const tdMadeBtn = document.createElement('td');
         tdMadeBtn.style.cssText = 'text-align:right;padding:9px 4px;white-space:nowrap;';
-        const madeBtn = document.createElement('button');
-        madeBtn.className = 'btn btn-green';
-        madeBtn.style.cssText = 'font-size:12px;padding:8px 14px;';
-        madeBtn.textContent = 'Made';
-        madeBtn.onclick = () => {
-          const input = prompt(`How many "${item.name}" did you make?`, '');
-          if (input === null) return;
-          const qty = parseInt(input);
-          if (!Number.isFinite(qty) || qty <= 0) return;
-          entry.onHand = Math.min(999, (entry.onHand || 0) + qty);
-          tdOnHand.textContent = entry.onHand;
-          renderToMakeCell();
-          saveNoveltiesLog();
-        };
-        tdMadeBtn.appendChild(madeBtn);
+        if (entry.madeQty !== undefined) {
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:8px;';
+          const label = document.createElement('span');
+          label.textContent = `✓ ${entry.madeQty} made`;
+          label.style.cssText = 'font-size:12px;color:#22a05a;font-weight:600;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;';
+          const undoBtn = document.createElement('button');
+          undoBtn.textContent = 'Undo';
+          undoBtn.style.cssText = 'background:none;border:1px solid #4a6a8a;color:var(--text-muted);font-size:11px;font-weight:700;padding:5px 10px;border-radius:5px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;touch-action:manipulation;-webkit-tap-highlight-color:transparent;min-height:36px;';
+          undoBtn.onclick = () => undoNoveltyMade(item, entry);
+          wrap.appendChild(label);
+          wrap.appendChild(undoBtn);
+          tdMadeBtn.appendChild(wrap);
+        } else {
+          const madeBtn = document.createElement('button');
+          madeBtn.className = 'btn btn-green';
+          madeBtn.style.cssText = 'font-size:12px;padding:8px 14px;';
+          madeBtn.textContent = 'Made';
+          madeBtn.onclick = () => openMadeStepper({
+            title: item.name,
+            value: _toMakeNovelty(item, entry),
+            onSubmit: qty => setNoveltyMade(item, entry, qty)
+          });
+          tdMadeBtn.appendChild(madeBtn);
+        }
         tr.appendChild(tdMadeBtn);
 
         tbody.appendChild(tr);
@@ -305,4 +310,105 @@ function renderNoveltiesPage() {
       section.appendChild(table);
       content.appendChild(section);
     });
+
+  const doneFooter = document.createElement('div');
+  doneFooter.id = 'noveltiesDoneFooter';
+  doneFooter.style.cssText = 'display:none;background:#0f4a2a;border:1.5px solid #98d4e3;border-radius:8px;padding:12px;margin-top:14px;';
+  doneFooter.innerHTML = '<button class="btn btn-green" onclick="showNoveltiesSummary()" style="width:100%;justify-content:center;font-size:14px;padding:13px;">&#10003; Done — Review &amp; Submit</button>';
+  content.appendChild(doneFooter);
+  checkNoveltiesComplete();
+}
+
+// Sets this item's made quantity for the day — re-derives on-hand from the
+// delta so re-opening Made to adjust a value never double-counts.
+function setNoveltyMade(item, entry, qty) {
+  const delta = qty - (entry.madeQty || 0);
+  entry.onHand = Math.max(0, Math.min(999, (entry.onHand || 0) + delta));
+  entry.madeQty = qty;
+  saveNoveltiesLog();
+  renderNoveltiesPage();
+}
+
+function undoNoveltyMade(item, entry) {
+  entry.onHand = Math.max(0, (entry.onHand || 0) - (entry.madeQty || 0));
+  delete entry.madeQty;
+  saveNoveltiesLog();
+  renderNoveltiesPage();
+}
+
+// Toggles the bottom Done footer — shown once every item is either fully
+// stocked already or has been explicitly submitted via Made (0 counts).
+function checkNoveltiesComplete() {
+  const footer = document.getElementById('noveltiesDoneFooter');
+  if (!footer) return;
+  const allDone = novelties.length > 0 && novelties.every(item => {
+    const entry = _getLogEntry(item);
+    return _toMakeNovelty(item, entry) === 0 || entry.madeQty !== undefined;
+  });
+  footer.style.display = allDone ? '' : 'none';
+}
+
+function showNoveltiesSummary() {
+  const body = document.getElementById('noveltiesSummaryBody');
+  body.innerHTML = '';
+
+  const madeItems = novelties.filter(item => (_getLogEntry(item).madeQty || 0) > 0);
+  const totalMade = madeItems.reduce((s, item) => s + (_getLogEntry(item).madeQty || 0), 0);
+
+  const primaryRow = document.createElement('tr');
+  const primaryL = document.createElement('td');
+  primaryL.style.cssText = 'padding:16px 8px 14px;font-size:13px;color:#22a05a;font-weight:700;border-bottom:1px solid rgba(34,160,90,0.25);';
+  primaryL.textContent = 'Total Items Made';
+  const primaryV = document.createElement('td');
+  primaryV.style.cssText = 'padding:16px 8px 14px;text-align:right;font-size:32px;font-weight:700;color:#22a05a;letter-spacing:-0.02em;border-bottom:1px solid rgba(34,160,90,0.25);';
+  primaryV.textContent = totalMade;
+  primaryRow.appendChild(primaryL);
+  primaryRow.appendChild(primaryV);
+  body.appendChild(primaryRow);
+
+  madeItems.forEach(item => {
+    const entry = _getLogEntry(item);
+    const tr = document.createElement('tr');
+    const tdL = document.createElement('td');
+    tdL.textContent = item.name;
+    const tdV = document.createElement('td');
+    tdV.textContent = entry.madeQty;
+    tr.appendChild(tdL);
+    tr.appendChild(tdV);
+    body.appendChild(tr);
+  });
+
+  document.getElementById('noveltiesSummaryOverlay').classList.add('open');
+}
+
+// Adjust: back out of the review popup — items stay submitted/editable via Undo.
+function adjustNoveltiesSummary() {
+  document.getElementById('noveltiesSummaryOverlay').classList.remove('open');
+}
+
+// Submit: locks the checklist in — writes the Dashboard-facing summary and
+// marks the day's log submitted so it drops off the Saved Lists picker.
+async function submitNoveltiesSummary() {
+  document.getElementById('noveltiesSummaryOverlay').classList.remove('open');
+  const madeItems = novelties.filter(item => (_getLogEntry(item).madeQty || 0) > 0);
+  const totalMade = madeItems.reduce((s, item) => s + (_getLogEntry(item).madeQty || 0), 0);
+  if (window._firebaseReady && window._auth && window._auth.currentUser) {
+    if (totalMade > 0) {
+      try {
+        const userName = _currentUserName();
+        const newEntry = {
+          type: 'novelties_completed', items: totalMade, at: Date.now(),
+          ...(userName ? { by: userName } : {}),
+        };
+        _storeEvents = [..._storeEvents, newEntry].slice(-10);
+        await window._setDoc(getStoreDocRef(), { storeEvents: _storeEvents }, { merge: true });
+      } catch (e) { console.error('Novelties summary write error:', e); }
+    }
+    try {
+      await window._setDoc(window.getStoreNoveltiesLogRef(_workingNoveltiesDate || todayStr()), { submitted: true }, { merge: true });
+    } catch (e) { console.error('Novelties submitted-flag write error:', e); }
+  }
+  novelties.forEach(item => { delete _getLogEntry(item).madeQty; });
+  saveNoveltiesLog();
+  renderNoveltiesPage();
 }

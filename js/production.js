@@ -13,8 +13,8 @@ let _resetUndoTimer = null;
 let _doneRunPending = false; // double-tap guard: first tap of Done mid-run shows warning
 let _doneRunTimer   = null;
 let _runDurationMs  = 0;    // duration of last completed run in ms (captured at summary time)
-let _cateringItems     = []; // [{name, buckets}] — user-added catering entries; persist across recalculations
-let _cateringDismissed = []; // [{name, index, action}] — completed/skipped catering buckets; cleared on run end
+let _cateringItems = []; // [{name, buckets}] — user-added catering entries; persist across recalculations
+let cateringMade   = {}; // flavor name -> catering qty made/submitted today; cleared on run end
 
 // ── CATEGORY SORT ──────────────────────────────────────────────────────────
 // Converts a category string to a numeric-sortable value.
@@ -57,11 +57,16 @@ function buildRow(f, runIndex, runTotal) {
   tr.appendChild(tdType);
 
   if (runMode) {
-    // Run mode: completed rows stay visible, muted; incomplete rows show checkboxes + skip
-    const doneCount      = runDismissed.filter(d => d.name === f.name).length;
-    const cateringTotal  = _cateringItems.filter(c => c.name === f.name).reduce((s, c) => s + c.buckets, 0);
-    const cateringDone   = _cateringDismissed.filter(d => d.name === f.name).length;
-    const isFullyDone    = doneCount >= tm && cateringDone >= cateringTotal;
+    // Run mode: each owed item (daily and/or catering) gets its own Made
+    // button with a pre-filled, adjustable stepper. A row is fully done once
+    // every owed part has been submitted (0 is a valid submitted value — the
+    // replacement for the old Skip button).
+    const cateringTotal     = _cateringItems.filter(c => c.name === f.name).reduce((s, c) => s + c.buckets, 0);
+    const dailyOwed         = tm > 0;
+    const cateringOwed      = cateringTotal > 0;
+    const dailySubmitted    = Object.prototype.hasOwnProperty.call(runMade, f.name);
+    const cateringSubmitted = Object.prototype.hasOwnProperty.call(cateringMade, f.name);
+    const isFullyDone       = (!dailyOwed || dailySubmitted) && (!cateringOwed || cateringSubmitted);
 
     if (isFullyDone) {
       tr.style.opacity    = '0.5';
@@ -69,110 +74,82 @@ function buildRow(f, runIndex, runTotal) {
       sp.style.textDecoration = 'line-through';
     }
 
-    const tdBoxes = document.createElement('td');
-    tdBoxes.style.cssText = 'text-align:center;';
+    // To Make column — numeric, same style as the Novelties tab
+    const tdToMake = document.createElement('td');
+    tdToMake.style.cssText = 'text-align:center;';
+    const tmParts = [];
+    if (dailyOwed) tmParts.push(`<div class="to-make to-make-needed" style="font-size:14px;">${tm}</div>`);
+    if (cateringOwed) tmParts.push(`<div style="font-size:11px;color:#f0a500;margin-top:2px;font-family:'Arial Narrow',Arial,sans-serif;">🍨 ${cateringTotal}</div>`);
+    tdToMake.innerHTML = tmParts.length ? tmParts.join('') : '<span class="to-make to-make-ok" style="font-size:14px;">✓</span>';
+    tr.appendChild(tdToMake);
 
-    if (isFullyDone) {
-      const wasSkipped    = runDismissed.some(d => d.name === f.name && d.action === 'skip');
-      const wasSkippedCat = _cateringDismissed.some(d => d.name === f.name && d.action === 'skip');
-      const madeCount     = runDismissed.filter(d => d.name === f.name && d.action === 'made').length;
-      const catMadeCount  = _cateringDismissed.filter(d => d.name === f.name && d.action === 'made').length;
-      const completedWrap = document.createElement('div');
-      completedWrap.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;';
-      if (tm > 0) {
-        const statusLabel = document.createElement('span');
-        statusLabel.textContent = wasSkipped ? '— Skipped' : `✓ ${madeCount} made`;
-        statusLabel.style.cssText = wasSkipped
-          ? 'font-size:12px;color:#8fa3be;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;'
-          : 'font-size:12px;color:#22a05a;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;font-weight:600;';
-        completedWrap.appendChild(statusLabel);
-      }
-      if (cateringTotal > 0) {
-        const catLabel = document.createElement('span');
-        catLabel.textContent = wasSkippedCat ? '— Catering skipped' : `🍨 ${catMadeCount} catering`;
-        catLabel.style.cssText = 'font-size:12px;color:#f0a500;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;font-weight:600;';
-        completedWrap.appendChild(catLabel);
-      }
-      const undoBtn = document.createElement('button');
-      undoBtn.textContent = 'Undo';
-      undoBtn.style.cssText = 'background:none;border:1px solid #4a6a8a;color:#8fa3be;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:11px;font-weight:700;padding:5px 10px;border-radius:5px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;touch-action:manipulation;-webkit-tap-highlight-color:transparent;min-height:36px;';
-      undoBtn.onclick = () => undoRunRow(f.name);
-      completedWrap.appendChild(undoBtn);
-      tdBoxes.appendChild(completedWrap);
-    } else {
-      const boxWrap = document.createElement('div');
-      boxWrap.style.cssText = 'display:flex;gap:8px;justify-content:center;align-items:flex-end;flex-wrap:wrap;';
-      // Daily production checkboxes
-      for (let i = 1; i <= tm; i++) {
-        const alreadyDone = runDismissed.find(d => d.name === f.name && d.index === i);
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = !!alreadyDone;
-        cb.disabled = !!alreadyDone;
-        cb.style.cssText = 'width:36px;height:36px;cursor:pointer;accent-color:#22a05a;';
-        if (!alreadyDone) {
-          cb.addEventListener('change', () => {
-            if (!cb.checked) return;
-            cb.disabled = true;
-            dismissRunRow(f.name, i, 'made');
-          });
-        }
-        boxWrap.appendChild(cb);
-      }
-      // Catering checkboxes — visually distinct with 🍨 badge + amber accent
-      if (cateringTotal > 0) {
-        if (tm > 0) {
-          const sep = document.createElement('div');
-          sep.style.cssText = 'width:1px;height:30px;background:#3a4a70;flex-shrink:0;align-self:center;margin:0 2px;';
-          boxWrap.appendChild(sep);
-        }
-        for (let i = 1; i <= cateringTotal; i++) {
-          const alreadyDone = _cateringDismissed.find(d => d.name === f.name && d.index === i);
-          const cbWrap = document.createElement('div');
-          cbWrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;';
-          const badge = document.createElement('span');
-          badge.textContent = '🍨';
-          badge.style.cssText = 'font-size:11px;line-height:1;';
-          badge.title = 'Catering bucket';
-          cbWrap.appendChild(badge);
-          const cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.checked = !!alreadyDone;
-          cb.disabled = !!alreadyDone;
-          cb.style.cssText = 'width:36px;height:36px;cursor:pointer;accent-color:#f0a500;';
-          cb.title = 'Catering bucket';
-          if (!alreadyDone) {
-            cb.addEventListener('change', () => {
-              if (!cb.checked) return;
-              cb.disabled = true;
-              _dismissCateringRow(f.name, i, 'made');
-            });
-          }
-          cbWrap.appendChild(cb);
-          boxWrap.appendChild(cbWrap);
-        }
-      }
-      tdBoxes.appendChild(boxWrap);
-    }
-    tr.appendChild(tdBoxes);
+    // Made column — one Made button (or done status) per owed part
+    const tdMade = document.createElement('td');
+    tdMade.style.cssText = 'text-align:center;';
+    const madeWrap = document.createElement('div');
+    madeWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:center;';
 
-    const tdActions = document.createElement('td');
-    tdActions.style.cssText = 'text-align:right;white-space:nowrap;';
-    if (!isFullyDone) {
-      const skipBtn = document.createElement('button');
-      skipBtn.textContent = 'Skip';
-      skipBtn.style.cssText = 'background:#d72627;border:1.5px solid #d72627;color:#ffffff;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;font-weight:700;padding:8px 16px;border-radius:7px;cursor:pointer;min-height:44px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-transform:uppercase;letter-spacing:0.04em;';
-      skipBtn.onclick = () => dismissRunRow(f.name, null, 'skip');
-      tdActions.appendChild(skipBtn);
+    const _madeUndoBtnStyle = 'background:none;border:1px solid #4a6a8a;color:#8fa3be;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:11px;font-weight:700;padding:5px 10px;border-radius:5px;cursor:pointer;text-transform:uppercase;letter-spacing:0.04em;touch-action:manipulation;-webkit-tap-highlight-color:transparent;min-height:36px;';
+
+    if (dailyOwed) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      if (dailySubmitted) {
+        const label = document.createElement('span');
+        label.textContent = `✓ ${runMade[f.name]} made`;
+        label.style.cssText = 'font-size:12px;color:#22a05a;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;font-weight:600;';
+        const undoBtn = document.createElement('button');
+        undoBtn.textContent = 'Undo';
+        undoBtn.style.cssText = _madeUndoBtnStyle;
+        undoBtn.onclick = () => undoRunMade(f.name);
+        row.appendChild(label);
+        row.appendChild(undoBtn);
+      } else {
+        const madeBtn = document.createElement('button');
+        madeBtn.className = 'btn btn-green';
+        madeBtn.style.cssText = 'font-size:12px;padding:8px 14px;min-height:36px;';
+        madeBtn.textContent = 'Made';
+        madeBtn.onclick = () => openMadeStepper({
+          title: f.name,
+          value: tm,
+          onSubmit: qty => setRunMade(f.name, qty)
+        });
+        row.appendChild(madeBtn);
+      }
+      madeWrap.appendChild(row);
     }
-    tr.appendChild(tdActions);
+
+    if (cateringOwed) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      if (cateringSubmitted) {
+        const label = document.createElement('span');
+        label.textContent = `🍨 ${cateringMade[f.name]} catering`;
+        label.style.cssText = 'font-size:12px;color:#f0a500;font-family:\'Arial Narrow\',Arial,sans-serif;letter-spacing:0.04em;font-weight:600;';
+        const undoBtn = document.createElement('button');
+        undoBtn.textContent = 'Undo';
+        undoBtn.style.cssText = _madeUndoBtnStyle;
+        undoBtn.onclick = () => undoCateringMade(f.name);
+        row.appendChild(label);
+        row.appendChild(undoBtn);
+      } else {
+        const madeBtn = document.createElement('button');
+        madeBtn.textContent = '🍨 Made';
+        madeBtn.style.cssText = 'font-size:12px;padding:8px 14px;min-height:36px;background:rgba(240,165,0,0.12);border:1.5px solid #f0a500;border-radius:6px;color:#f0a500;cursor:pointer;font-weight:700;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
+        madeBtn.onclick = () => openMadeStepper({
+          title: `${f.name} (Catering)`,
+          value: cateringTotal,
+          onSubmit: qty => setCateringMade(f.name, qty)
+        });
+        row.appendChild(madeBtn);
+      }
+      madeWrap.appendChild(row);
+    }
+
+    tdMade.appendChild(madeWrap);
+    tr.appendChild(tdMade);
   } else {
-    // Normal mode: dropdowns + To Make
-    const TARGET_OPTIONS = [
-      {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
-      {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
-      {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
-    ];
+    // Normal mode: dropdowns + To Make (TARGET_OPTIONS is shared, defined in roster.js)
     const tdTarget = document.createElement('td');
     tdTarget.style.cssText = 'text-align:center;';
     if (_managerUnlocked) {
@@ -293,31 +270,22 @@ function buildRow(f, runIndex, runTotal) {
   return tr;
 }
 
-// ── Date recall ──────────────────────────────────────────────────────────────
-// "Which day's Ice Cream Run am I looking at" control — defaults to today,
-// lets a manager pull up a past date's run and keep checking it off normally.
+// ── Saved Runs ──────────────────────────────────────────────────────────────
+// Lists in-progress (unsubmitted) runs by creation date. Opening one resumes
+// Run Mode exactly where it was left. Once a run is Submitted it's excluded
+// from this list (though its data stays in Firestore for Dashboard history).
 function _renderRunDatePicker() {
   const container = document.getElementById('runDatePicker');
   if (!container) return;
-  const isToday = _workingRunDate === todayStr();
   container.style.position = 'relative';
   container.innerHTML = '';
 
   const btn = document.createElement('button');
   btn.className = 'btn';
   btn.style.cssText = 'font-size:12px;padding:8px 12px;';
-  btn.textContent = `📅 ${isToday ? 'Today' : _workingRunDate} ▾`;
+  btn.textContent = '📅 Saved Runs ▾';
   btn.onclick = e => { e.stopPropagation(); _toggleRunDateMenu(); };
   container.appendChild(btn);
-
-  if (!isToday) {
-    const backBtn = document.createElement('button');
-    backBtn.className = 'btn';
-    backBtn.style.cssText = 'font-size:12px;padding:8px 12px;margin-left:6px;';
-    backBtn.textContent = '↩ Back to Today';
-    backBtn.onclick = () => loadRunForDate(todayStr());
-    container.appendChild(backBtn);
-  }
 
   const menu = document.createElement('div');
   menu.id = 'runDateMenu';
@@ -336,16 +304,35 @@ async function _toggleRunDateMenu() {
   const dates = await listRecentRunDates();
   menu.innerHTML = '';
   if (!dates.length) {
-    menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">No saved runs yet.</div>';
+    menu.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#8fa3be;">No saved runs in progress.</div>';
     return;
   }
   dates.forEach(d => {
     const row = document.createElement('button');
     row.style.cssText = 'display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;border-bottom:1px solid #2e4a70;color:#c5d8f0;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:13px;cursor:pointer;';
     row.textContent = d === todayStr() ? `${d} (Today)` : d;
-    row.onclick = () => { loadRunForDate(d); menu.style.display = 'none'; };
+    row.onclick = () => { _resumeSavedRun(d); menu.style.display = 'none'; };
     menu.appendChild(row);
   });
+}
+
+// Opens a saved (unsubmitted) run right back into Run Mode with its prior
+// Made progress restored.
+async function _resumeSavedRun(date) {
+  await loadRunForDate(date);
+  runMode = true;
+  const dailyNeeded   = activeFlavors.filter(f => toMake(f) > 0);
+  const dailyTotal    = dailyNeeded.reduce((s, f) => s + toMake(f), 0);
+  const cateringTotal = _cateringItems.reduce((s, c) => s + c.buckets, 0);
+  const total         = dailyTotal + cateringTotal;
+  const bannerMsg     = document.getElementById('runBannerMsg');
+  bannerMsg.innerHTML =
+    `<span style="font-size:18px;font-weight:700;color:#ffffff;line-height:1.2;">${total} bucket${total !== 1 ? 's' : ''}</span>` +
+    `<span style="font-size:11px;color:#98d4e3;display:block;margin-top:2px;font-family:'Arial Narrow',Arial,sans-serif;">${dailyNeeded.length} flavor${dailyNeeded.length !== 1 ? 's' : ''} · category order${cateringTotal > 0 ? ' · ' + cateringTotal + ' catering' : ''}</span>`;
+  document.getElementById('runBanner').style.display = 'flex';
+  startRunTimer();
+  renderTable();
+  checkRunComplete();
 }
 
 function renderTable() {
@@ -363,15 +350,13 @@ function renderTable() {
   const thHolding = document.getElementById('thHolding');
   const thToMake  = document.getElementById('thToMake');
   const thBucket  = document.getElementById('thBucket');
-  const thActions = document.getElementById('thActions');
   if (runMode) {
     thCategory.style.display = '';
     thTarget.style.display  = 'none';
     thDipping.style.display = 'none';
     thHolding.style.display = 'none';
-    thToMake.style.display  = 'none';
+    thToMake.style.display  = '';
     thBucket.style.display  = '';
-    thActions.style.display = '';
   } else {
     thCategory.style.display = 'none';
     thTarget.style.display  = '';
@@ -379,7 +364,6 @@ function renderTable() {
     thHolding.style.display = '';
     thToMake.style.display  = '';
     thBucket.style.display  = 'none';
-    thActions.style.display = 'none';
   }
 
   // In run mode: include daily production flavors + catering-only flavors
@@ -433,66 +417,63 @@ function removeFromActive(idx) {
 }
 
 // ── RUN MODE ───────────────────────────────────────────────────────────────
-let runDismissed = []; // tracks {name, index} pairs dismissed during run
+let runMade = {}; // flavor name -> daily qty made/submitted today (0 is valid — the Skip replacement)
 // Manager mode
 let _runTimerInterval = null;
 let _runStartTime = null;
 let _totalBucketsMade = 0;
 
-function dismissRunRow(name, index, action) {
-  if (action === 'made') {
-    runDismissed.push({ name, index, action: 'made' });
-    _totalBucketsMade++;
-    const idx = activeFlavors.findIndex(f => f.name === name);
-    if (idx >= 0) {
-      activeFlavors[idx].made = (activeFlavors[idx].made || 0) + 1;
-      saveAll();
-    }
-    const flavorIdx = activeFlavors.findIndex(f => f.name === name);
-    const tm = flavorIdx >= 0 ? toMake(activeFlavors[flavorIdx]) : 0;
-    const doneCount = runDismissed.filter(d => d.name === name).length;
-    if (doneCount >= tm) {
-      renderTable(); // transition row to muted/completed state
-      checkRunComplete();
-    }
-  } else if (action === 'skip') {
-    const idx = activeFlavors.findIndex(f => f.name === name);
-    const tm = idx >= 0 ? toMake(activeFlavors[idx]) : 0;
-    for (let i = 1; i <= tm; i++) {
-      if (!runDismissed.find(d => d.name === name && d.index === i)) {
-        runDismissed.push({ name, index: i, action: 'skip' });
-      }
-    }
-    // Skip catering for this flavor too — "Skip" means skip everything for the flavor
-    const cateringTotal = _cateringItems.filter(c => c.name === name).reduce((s, c) => s + c.buckets, 0);
-    for (let i = 1; i <= cateringTotal; i++) {
-      if (!_cateringDismissed.find(d => d.name === name && d.index === i)) {
-        _cateringDismissed.push({ name, index: i, action: 'skip' });
-      }
-    }
-    renderTable();
-    checkRunComplete();
-  }
-  if (runMode) {
-    try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems })); } catch(e) {}
-  }
+function _persistRunState() {
+  if (!runMode) return;
+  try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems })); } catch(e) {}
 }
 
-function undoRunRow(name) {
-  const entries    = runDismissed.filter(d => d.name === name);
-  const catEntries = _cateringDismissed.filter(d => d.name === name);
-  if (!entries.length && !catEntries.length) return;
-  const madeCount = entries.filter(d => d.action === 'made').length;
-  runDismissed        = runDismissed.filter(d => d.name !== name);
-  _cateringDismissed  = _cateringDismissed.filter(d => d.name !== name);
-  _totalBucketsMade   = Math.max(0, _totalBucketsMade - madeCount);
+function setRunMade(name, qty) {
+  runMade[name] = Math.max(0, parseInt(qty) || 0);
+  _totalBucketsMade = Object.values(runMade).reduce((s, v) => s + v, 0);
   const idx = activeFlavors.findIndex(f => f.name === name);
-  if (idx >= 0 && madeCount > 0) {
-    activeFlavors[idx].made = Math.max(0, (activeFlavors[idx].made || 0) - madeCount);
-    saveAll();
-  }
-  try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems })); } catch(e) {}
+  if (idx >= 0) { activeFlavors[idx].made = runMade[name]; }
+  _persistRunState();
+  saveAll();
   renderTable();
+  checkRunComplete();
+}
+
+function undoRunMade(name) {
+  delete runMade[name];
+  _totalBucketsMade = Object.values(runMade).reduce((s, v) => s + v, 0);
+  const idx = activeFlavors.findIndex(f => f.name === name);
+  if (idx >= 0) { activeFlavors[idx].made = 0; }
+  _persistRunState();
+  saveAll();
+  renderTable();
+  checkRunComplete();
+}
+
+function setCateringMade(name, qty) {
+  cateringMade[name] = Math.max(0, parseInt(qty) || 0);
+  _persistRunState();
+  saveAll();
+  renderTable();
+  checkRunComplete();
+}
+
+function undoCateringMade(name) {
+  delete cateringMade[name];
+  _persistRunState();
+  saveAll();
+  renderTable();
+  checkRunComplete();
+}
+
+// A run-mode row is done once every part it owes (daily production and/or
+// catering) has a submitted quantity — 0 counts as submitted.
+function _isRunRowDone(f) {
+  const tm = toMake(f);
+  const cateringTotal = _cateringItems.filter(c => c.name === f.name).reduce((s, c) => s + c.buckets, 0);
+  const dailyDone    = tm === 0 || Object.prototype.hasOwnProperty.call(runMade, f.name);
+  const cateringDone = cateringTotal === 0 || Object.prototype.hasOwnProperty.call(cateringMade, f.name);
+  return dailyDone && cateringDone;
 }
 
 function calculateRun() {
@@ -611,7 +592,7 @@ function _renderRunPrepContent(container, dailyNeeded) {
   const startBtn = document.createElement('button');
   startBtn.className = 'btn btn-green';
   startBtn.style.cssText = 'width:100%;justify-content:center;font-size:14px;padding:13px;min-height:46px;';
-  startBtn.textContent = `Start Production Run — ${total} bucket${total !== 1 ? 's' : ''}`;
+  startBtn.textContent = `Start Production Run and Save — ${total} bucket${total !== 1 ? 's' : ''}`;
   startBtn.onclick = () => _startProductionRun(dailyNeeded);
   footer.appendChild(startBtn);
 
@@ -638,7 +619,16 @@ function removeCateringEntry(index) {
 function _startProductionRun(dailyNeeded) {
   closeRunPrepOverlay();
   runMode = true;
+  runMade = {};
+  cateringMade = {};
   try { localStorage.setItem('car_run_state', JSON.stringify({ made: 0, at: Date.now(), catering: _cateringItems })); } catch(e) {}
+  saveAll(); // guarantees today's run doc exists so it shows up under Saved Runs right away
+  // Explicitly clear submitted (handles starting a second run on a date whose
+  // first run was already submitted earlier the same day)
+  if (window._firebaseReady) {
+    window._setDoc(window.getStoreRunLogRef(_workingRunDate || todayStr()), { submitted: false }, { merge: true })
+      .catch(e => console.error('Run submitted-flag reset error:', e));
+  }
 
   const dailyTotal    = dailyNeeded.reduce((s, f) => s + toMake(f), 0);
   const cateringTotal = _cateringItems.reduce((s, c) => s + c.buckets, 0);
@@ -650,22 +640,8 @@ function _startProductionRun(dailyNeeded) {
 
   document.getElementById('runBanner').style.display = 'flex';
   renderTable();
+  checkRunComplete();
   showVariegateModal(dailyNeeded);
-}
-
-function _dismissCateringRow(name, index, action) {
-  if (action === 'made') {
-    _cateringDismissed.push({ name, index, action: 'made' });
-    const cateringTotal = _cateringItems.filter(c => c.name === name).reduce((s, c) => s + c.buckets, 0);
-    const cateringDone  = _cateringDismissed.filter(d => d.name === name).length;
-    if (cateringDone >= cateringTotal) {
-      renderTable();
-      checkRunComplete();
-    }
-  }
-  if (runMode) {
-    try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems })); } catch(e) {}
-  }
 }
 
 function togglePrintMenu(e) {
@@ -796,11 +772,14 @@ function doneRun() {
   if (_doneRunTimer) { clearTimeout(_doneRunTimer); _doneRunTimer = null; }
   stopRunTimer();
   runMode = false;
-  runDismissed = [];
-  _cateringDismissed = [];
+  runMade = {};
+  cateringMade = {};
   _cateringItems = [];
+  _totalBucketsMade = 0;
   localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
+  const doneFooter = document.getElementById('runDoneFooter');
+  if (doneFooter) doneFooter.style.display = 'none';
   renderTable();
 }
 
@@ -828,11 +807,14 @@ function confirmDoneRun() {
 function clearRunView() {
   stopRunTimer();
   runMode = false;
-  runDismissed = [];
-  _cateringDismissed = [];
+  runMade = {};
+  cateringMade = {};
   _cateringItems = [];
+  _totalBucketsMade = 0;
   localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
+  const doneFooter = document.getElementById('runDoneFooter');
+  if (doneFooter) doneFooter.style.display = 'none';
   renderTable();
 }
 
@@ -852,13 +834,15 @@ async function resetDay() {
   // Apply reset immediately — no confirm() dialog; undo toast is the recovery path
   activeFlavors.forEach(f => { f.dipping = 0; f.holding = 0; });
   runMode = false;
-  // Clear stale run state — prevents dismissed entries carrying over to the next run
-  runDismissed = [];
-  _cateringDismissed = [];
+  // Clear stale run state — prevents made entries carrying over to the next run
+  runMade = {};
+  cateringMade = {};
   _cateringItems = [];
   _totalBucketsMade = 0;
   localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
+  const doneFooter = document.getElementById('runDoneFooter');
+  if (doneFooter) doneFooter.style.display = 'none';
   saveAll(); renderTable();
 
   // Show undo toast — 5-second recovery window
@@ -922,21 +906,21 @@ function stopRunTimer() {
   if (el) el.textContent = '';
 }
 
+// Toggles the bottom Done footer's visibility — shown once every row in the
+// current run-mode list (daily + catering-only flavors) has a submitted Made
+// quantity. Does NOT auto-open the summary; the operator taps Done explicitly.
 function checkRunComplete() {
-  if (!runMode) return;
-  // Check daily production
-  const dailyIncomplete = activeFlavors.some(f => {
-    const tm   = toMake(f);
-    const done = runDismissed.filter(d => d.name === f.name).length;
-    return tm > 0 && done < tm;
-  });
-  // Check catering (aggregate totals per flavor)
-  const cateringByFlavor = {};
-  _cateringItems.forEach(c => { cateringByFlavor[c.name] = (cateringByFlavor[c.name] || 0) + c.buckets; });
-  const cateringIncomplete = Object.entries(cateringByFlavor).some(([name, total]) =>
-    _cateringDismissed.filter(d => d.name === name).length < total
+  const footer = document.getElementById('runDoneFooter');
+  if (!footer) return;
+  if (!runMode) { footer.style.display = 'none'; return; }
+  const dailyFlavors = activeFlavors.filter(f => toMake(f) > 0);
+  const dailyNames   = new Set(dailyFlavors.map(f => f.name));
+  const cateringOnly = activeFlavors.filter(f =>
+    !dailyNames.has(f.name) && _cateringItems.some(c => c.name === f.name)
   );
-  if (!dailyIncomplete && !cateringIncomplete) showRunSummary();
+  const list = [...dailyFlavors, ...cateringOnly];
+  const allDone = list.length > 0 && list.every(_isRunRowDone);
+  footer.style.display = allDone ? '' : 'none';
 }
 
 function showRunSummary() {
@@ -964,7 +948,7 @@ function showRunSummary() {
   body.appendChild(primaryRow);
 
   // Catering row (if any)
-  const cateringMadeSummary = _cateringDismissed.filter(d => d.action === 'made').length;
+  const cateringMadeSummary = Object.values(cateringMade).reduce((s, v) => s + v, 0);
   if (cateringMadeSummary > 0) {
     const catRow = document.createElement('tr');
     const catL   = document.createElement('td');
@@ -997,7 +981,15 @@ function showRunSummary() {
   document.getElementById('summaryOverlay').classList.add('open');
 }
 
-function closeSummary() {
+// Adjust: back out of the review popup with the run left exactly as it was —
+// rows stay submitted/editable via their own Undo buttons.
+function adjustSummary() {
+  document.getElementById('summaryOverlay').classList.remove('open');
+}
+
+// Submit: locks the run in — writes the Dashboard-facing summary and marks
+// the day's run doc submitted so it drops off the Saved Runs list.
+function submitSummary() {
   document.getElementById('summaryOverlay').classList.remove('open');
   writeRunSummary(); // fire-and-forget — non-blocking
   doneRun();
@@ -1014,24 +1006,18 @@ function _currentUserName() {
   return segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase();
 }
 
-// Writes lastRunDate + lastRunBuckets + storeEvents to the store doc on run completion.
-// Called from closeSummary() only. Uses merge so it never clobbers production data.
+// Writes lastRunDate + lastRunBuckets + storeEvents to the store doc on run completion,
+// and marks the day's run doc submitted so it drops off the Saved Runs list.
+// Called from submitSummary() only. Uses merge so it never clobbers production data.
 // storeEvents[] keeps the last 10 run entries so the store detail panel can show a timeline
 // without any extra Firestore reads — it's part of the store doc already loaded by getDocs.
 async function writeRunSummary() {
-  const cateringMadeCount = _cateringDismissed.filter(d => d.action === 'made').length;
+  const cateringMadeCount = Object.values(cateringMade).reduce((s, v) => s + v, 0);
   if (_totalBucketsMade <= 0 && cateringMadeCount === 0) return;
   if (!window._firebaseReady || !window._auth || !window._auth.currentUser) return;
-  // Capture per-flavor daily counts from runDismissed (before doneRun clears it)
-  const flavors = {};
-  runDismissed.filter(d => d.action === 'made').forEach(d => {
-    flavors[d.name] = (flavors[d.name] || 0) + 1;
-  });
-  // Catering flavor counts
-  const cateringFlavors = {};
-  _cateringDismissed.filter(d => d.action === 'made').forEach(d => {
-    cateringFlavors[d.name] = (cateringFlavors[d.name] || 0) + 1;
-  });
+  // Only non-zero entries count as "made this flavor" for flavor-tracking purposes
+  const flavors         = Object.fromEntries(Object.entries(runMade).filter(([, v]) => v > 0));
+  const cateringFlavors = Object.fromEntries(Object.entries(cateringMade).filter(([, v]) => v > 0));
   try {
     const userName = _currentUserName();
     const newEntry = {
@@ -1048,6 +1034,7 @@ async function writeRunSummary() {
       lastRunAt:      Date.now(),
       storeEvents:    _storeEvents
     }, { merge: true });
+    await window._setDoc(window.getStoreRunLogRef(_workingRunDate || todayStr()), { submitted: true }, { merge: true });
   } catch (e) {
     console.error('Run summary write error:', e);
   }

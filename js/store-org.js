@@ -88,13 +88,17 @@ function _applyRunData(runData) {
     return r ? { ...f, category: r.category, type: r.type } : f;
   }).filter(f => roster.find(x => x.name === f.name));
   _cateringItems = rd.cateringItems || [];
+  runMade      = rd.runMade || {};
+  cateringMade = rd.cateringMade || {};
 }
 
 async function saveAll() {
   const customAdded  = roster.filter(r => !MASTER_ROSTER.find(m => m.name === r.name));
   const removedNames = MASTER_ROSTER.filter(m => !roster.find(r => r.name === m.name)).map(m => m.name);
   const rosterPayload = { customAdded, removedNames, updatedAt: Date.now() };
-  const runPayload = { activeFlavors, cateringItems: _cateringItems, updatedAt: Date.now() };
+  // Note: submitted is never written here — only writeRunSummary() sets it, so
+  // an in-progress run's regular autosaves never accidentally clear the flag.
+  const runPayload = { activeFlavors, cateringItems: _cateringItems, runMade, cateringMade, updatedAt: Date.now() };
   localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify({ ...rosterPayload, ...runPayload }));
   if (!window._firebaseReady) { setSyncStatus('offline'); return; }
   setSyncStatus('saving');
@@ -190,14 +194,15 @@ async function loadRunForDate(date, offlineFallback) {
   }
 }
 
-// Lists recent saved run dates (doc IDs are already YYYY-MM-DD, so ordering by
-// document id is a cheap, sortable "date list" with no extra fields needed).
+// Lists recent Saved Runs — in-progress (unsubmitted) runs only. Doc IDs are
+// already YYYY-MM-DD, so ordering by document id is a cheap, sortable "date
+// list"; submitted runs are filtered out client-side (no rules/index needed).
 async function listRecentRunDates(max = 60) {
   if (!window._firebaseReady || !window._getDocs || !window._query) return [];
   try {
     const q = window._query(window.getStoreRunLogCollectionRef(), window._orderBy('__name__', 'desc'), window._limit(max));
     const snap = await window._getDocs(q);
-    return snap.docs.map(d => d.id);
+    return snap.docs.filter(d => d.data().submitted !== true).map(d => d.id);
   } catch (e) {
     console.error('List run dates error:', e);
     return [];

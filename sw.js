@@ -5,7 +5,7 @@
  * To deploy a new app version that busts the old cache, bump CACHE_VERSION below.
  */
 
-const CACHE_VERSION = 'v10';
+const CACHE_VERSION = 'v11';
 const CACHE_NAME    = `count-and-run-${CACHE_VERSION}`;
 
 // App shell — precached on SW install; served from cache immediately on all subsequent loads.
@@ -20,6 +20,7 @@ const APP_SHELL = [
   '/icons/icon-512.png',
   '/js/auth.js',
   '/js/roster.js',
+  '/js/made-stepper.js',
   '/js/production.js',
   '/js/manager-lock.js',
   '/js/store-org.js',

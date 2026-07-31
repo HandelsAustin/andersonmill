@@ -366,7 +366,7 @@
     </div>
     <div class="header-right">
       <button class="btn btn-primary" id="dashboardBtn" onclick="openDashboard()">Dashboard</button>
-      <button class="btn btn-green" id="authBtn" onclick="openAuthModal()">Sign In</button>
+      <button class="btn btn-green" id="authBtn" onclick="openAuthModal()" style="display:none">Sign In</button>
       <button class="btn" id="pwaInstallBtn" onclick="triggerPwaInstall()" style="display:none" title="Install this app on your device for offline use">&#11015; Install App</button>
     </div>
   </div>
@@ -415,12 +415,15 @@
           <th id="thDipping">In Dipping</th>
           <th id="thHolding" style="text-align:center">Holding</th>
           <th id="thToMake" style="text-align:center">To Make</th>
-          <th id="thBucket" style="text-align:center;display:none">Bucket</th>
-          <th id="thActions" style="display:none"></th>
+          <th id="thBucket" style="text-align:center;display:none">Made</th>
         </tr>
       </thead>
       <tbody id="mainTbody"></tbody>
     </table>
+
+    <div id="runDoneFooter" style="display:none;background:#0f4a2a;border:1.5px solid #98d4e3;border-radius:8px;padding:12px;margin-top:14px;">
+      <button class="btn btn-green" onclick="showRunSummary()" style="width:100%;justify-content:center;font-size:14px;padding:13px;">&#10003; Done — Review &amp; Submit</button>
+    </div>
   </div>
 
   <div class="tab-panel" id="tabPanelNovelties">
@@ -482,6 +485,23 @@
   </div>
 </div>
 
+<!-- Made Quantity Stepper — shared by Ice Cream Run + Novelties Made buttons -->
+<div id="madeStepperOverlay" class="cabinet-overlay">
+  <div class="cabinet-box" style="max-width:320px;">
+    <h2 id="madeStepperTitle">Made</h2>
+    <p>Adjust the quantity, then submit.</p>
+    <div style="display:flex;align-items:center;justify-content:center;gap:18px;margin:8px 0 6px;">
+      <button onclick="_stepMadeStepper(-1)" style="width:52px;height:52px;font-size:26px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:8px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;-webkit-tap-highlight-color:transparent;">−</button>
+      <span id="madeStepperValue" style="font-size:38px;font-weight:700;min-width:64px;text-align:center;color:#ffffff;">0</span>
+      <button onclick="_stepMadeStepper(1)" style="width:52px;height:52px;font-size:26px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:8px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;-webkit-tap-highlight-color:transparent;">+</button>
+    </div>
+    <div class="modal-footer" style="justify-content:center;margin-top:20px;">
+      <button class="btn btn-green" onclick="_confirmMadeStepper()">Submit</button>
+      <button class="btn" onclick="_cancelMadeStepper()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Run Summary Modal -->
 <div id="summaryOverlay" class="summary-overlay">
   <div class="summary-box">
@@ -489,7 +509,24 @@
     <table class="summary-table">
       <tbody id="summaryBody"></tbody>
     </table>
-    <button class="summary-close" onclick="closeSummary()">Done</button>
+    <div class="modal-footer" style="margin-top:22px;">
+      <button class="btn" style="flex:1;justify-content:center;padding:13px;" onclick="adjustSummary()">Adjust</button>
+      <button class="summary-close" style="margin-top:0;flex:1;" onclick="submitSummary()">Submit</button>
+    </div>
+  </div>
+</div>
+
+<!-- Novelties Summary Modal -->
+<div id="noveltiesSummaryOverlay" class="summary-overlay">
+  <div class="summary-box">
+    <h2>Checklist Complete 🎉</h2>
+    <table class="summary-table">
+      <tbody id="noveltiesSummaryBody"></tbody>
+    </table>
+    <div class="modal-footer" style="margin-top:22px;">
+      <button class="btn" style="flex:1;justify-content:center;padding:13px;" onclick="adjustNoveltiesSummary()">Adjust</button>
+      <button class="summary-close" style="margin-top:0;flex:1;" onclick="submitNoveltiesSummary()">Submit</button>
+    </div>
   </div>
 </div>
 
@@ -605,6 +642,7 @@
 
 <script src="./js/auth.js" defer></script>
 <script src="./js/roster.js" defer></script>
+<script src="./js/made-stepper.js" defer></script>
 <script src="./js/production.js" defer></script>
 <script src="./js/manager-lock.js" defer></script>
 <script src="./js/store-org.js" defer></script>

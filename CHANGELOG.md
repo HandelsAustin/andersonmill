@@ -7,6 +7,18 @@ v0.2
 
 ## Recent Changes
 
+### Made-Stepper Workflow for Run + Novelties, Dashboard Cleanup (2026-07-30)
+Reworks the core daily-production interaction on both the Ice Cream Run and Novelties tabs to a single consistent pattern, and cleans up several Dashboard sections.
+
+- **Added:** shared Made-quantity stepper modal (`js/made-stepper.js`, `#madeStepperOverlay`) — `openMadeStepper({title, value, onSubmit})` pre-fills with the app-calculated quantity and lets the operator adjust with −/+ before submitting. Used by both the Run and Novelties tabs' Made buttons, replacing the Run tab's per-bucket checkboxes and the Novelties tab's plain `prompt()`.
+- **Changed:** Ice Cream Run mode — each flavor now tracks a submitted daily quantity (`runMade`) and, when catering applies, a separate submitted catering quantity (`cateringMade`), each with its own Made button and Undo. A numeric **To Make** column (matching Novelties) is now shown in run mode. The **Skip** button is gone — adjusting the stepper down to 0 and submitting is the new equivalent.
+- **Added:** a bottom **Done** footer on the Run table, shown once every flavor (daily + catering) has a submitted quantity. Tapping it opens the existing summary popup, now with **Adjust** (closes the popup, run stays exactly as-is) and **Submit** (writes the Dashboard-facing summary, marks the day's run doc `submitted: true`, clears run mode).
+- **Changed:** the Run tab's "📅 Today ▾" picker is renamed **Saved Runs** and now lists only in-progress (unsubmitted) runs; opening one resumes straight into Run Mode with prior progress restored. Submitted runs drop off this list but their data stays in Firestore for Dashboard history. The Run Prep overlay's start button is renamed **"Start Production Run and Save"** (same function).
+- **Added:** `runMade`/`cateringMade` now autosave to the day's `runs/{date}` doc alongside `activeFlavors`/`cateringItems` (`js/store-org.js` `saveAll()`/`_applyRunData()`), so an interrupted run resumes exactly where it left off.
+- **Changed:** Novelties tab mirrors the same pattern — the Target column is now a dropdown (`TARGET_OPTIONS`, hoisted to `js/roster.js` and shared with the Run tab's flavor Target column), the Made button opens the same stepper, a bottom Done footer appears once every item is accounted for, and "📅 Today ▾" is renamed **Saved Lists** with the same in-progress-only/resume/submit behavior. Submitting writes a `novelties_completed` entry to `storeEvents[]` for Dashboard aggregation.
+- **Changed:** Manager Dashboard — store name now falls back to a title-cased version of the store-id slug (e.g. "anderson-mill" → "Anderson Mill") instead of the raw slug when no custom label is set (`_titleCaseSlug()`); "Today's Production" gained a **Novelties Made** metric; **Inventory Health** and **Current Shortages** sections are removed; a new **Production — Last 30 Days** section shows the same four metrics (Buckets Made, Novelties Made, Flavors, Avg Bkts/Hr) summed over the trailing 30 days.
+- **Changed:** the Sign Out button is now hidden on the Ice Cream Run tab (previously only hidden on Store Settings), in addition to Settings.
+
 ### Master Flavor List Management, Store Assignment, PWA Icons (2026-07-30)
 Rounds out the corporate-admin tooling and closes a couple of long-standing gaps found while reviewing outstanding work.
 

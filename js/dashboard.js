@@ -1,6 +1,13 @@
 // Corporate + manager dashboards, store detail panel, trend analytics.
 // Extracted from index.html — no logic changes.
 
+// Fallback display name for a raw store-id slug (e.g. "anderson-mill" ->
+// "Anderson Mill") — used wherever store.label/car_store_label isn't set.
+function _titleCaseSlug(id) {
+  if (!id) return id;
+  return id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
 function calcStoreTrend(store) {
   const runs = (store.storeEvents || []).filter(ev => ev.type === 'run_completed');
   if (runs.length < 3) return null; // insufficient history for a reliable signal
@@ -108,7 +115,7 @@ function _buildStoreDetailPanel(store, anchorEl) {
   header.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;';
 
   const titleBlock = document.createElement('div');
-  titleBlock.innerHTML = `<div style="font-size:15px;font-weight:700;color:#ffffff;">${store.label || store.id}</div><div style="font-size:10px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;margin-top:2px;letter-spacing:0.04em;">${store.id}</div>`;
+  titleBlock.innerHTML = `<div style="font-size:15px;font-weight:700;color:#ffffff;">${store.label || _titleCaseSlug(store.id)}</div><div style="font-size:10px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;margin-top:2px;letter-spacing:0.04em;">${store.id}</div>`;
   // Trend badge below name — only shown when ≥3 run_completed events exist
   const detailTrend = _renderTrendBadge(calcStoreTrend(store));
   if (detailTrend) {
@@ -334,7 +341,7 @@ async function renderMultiStoreOverview(content) {
     const nameBlock = document.createElement('div');
     nameBlock.style.cssText = 'flex:1;min-width:140px;';
     const cardSyncColor = _syncAgeColor(store.updatedAt);
-    nameBlock.innerHTML = `<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:8px;color:${isActive ? '#22a05a' : '#5a7a9a'};">●</span><span style="font-size:14px;font-weight:700;color:#ffffff;">${store.label || store.id}</span><span style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;">${isActive ? 'Active' : 'Inactive'}</span></div><div style="font-size:11px;color:${cardSyncColor};margin-top:4px;font-family:'Arial Narrow',Arial,sans-serif;padding-left:16px;">last updated ${lastActive}</div>`;
+    nameBlock.innerHTML = `<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:8px;color:${isActive ? '#22a05a' : '#5a7a9a'};">●</span><span style="font-size:14px;font-weight:700;color:#ffffff;">${store.label || _titleCaseSlug(store.id)}</span><span style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;">${isActive ? 'Active' : 'Inactive'}</span></div><div style="font-size:11px;color:${cardSyncColor};margin-top:4px;font-family:'Arial Narrow',Arial,sans-serif;padding-left:16px;">last updated ${lastActive}</div>`;
     card.appendChild(nameBlock);
 
     // Right: metric pills + expand indicator
@@ -436,7 +443,8 @@ function showCorporateDashboard() {
 
   const currentStoreId    = window.getCurrentStoreId();
   const currentStoreLabel = localStorage.getItem('car_store_label') ||
-    stores.find(s => s.id === currentStoreId)?.label || currentStoreId || 'None selected';
+    stores.find(s => s.id === currentStoreId)?.label ||
+    (currentStoreId ? _titleCaseSlug(currentStoreId) : 'None selected');
 
   content.innerHTML = '';
 
@@ -504,12 +512,27 @@ function _renderMgrSection(title, noTopBorder) {
   return section;
 }
 
+// Shared 2x2 metrics grid — used by both Today's Production and Production —
+// Last 30 Days (same four metrics, different time window).
+function _renderProductionGrid(metrics) {
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:8px;';
+  metrics.forEach(({ label, value }) => {
+    const cell = document.createElement('div');
+    cell.style.cssText = 'background:#162053;border:1px solid #2e4a70;border-radius:8px;padding:12px 6px;text-align:center;';
+    cell.innerHTML = `<div style="font-size:26px;font-weight:700;color:#ffffff;line-height:1;">${value}</div><div style="font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;margin-top:5px;">${label}</div>`;
+    grid.appendChild(cell);
+  });
+  return grid;
+}
+
 function showManagerDashboard() {
   const overlay = document.getElementById('managerDashboardOverlay');
   const content = document.getElementById('managerDashboardContent');
   if (!overlay || !content) return;
 
-  const storeLabel = localStorage.getItem('car_store_label') || window.getCurrentStoreId() || 'Store';
+  const storeLabel = localStorage.getItem('car_store_label') ||
+    (window.getCurrentStoreId() ? _titleCaseSlug(window.getCurrentStoreId()) : 'Store');
   const today      = todayStr();
   const now        = Date.now();
 
@@ -537,16 +560,16 @@ function showManagerDashboard() {
     avgBph = th > 0 ? roundToHalf(tb / th) : null;
   }
 
+  // Novelties made today (from novelties_completed storeEvents)
+  const todayNoveltiesEvents = _storeEvents.filter(ev =>
+    ev.type === 'novelties_completed' &&
+    new Date(ev.at).toLocaleDateString('en-CA') === today
+  );
+  const noveltiesToday = todayNoveltiesEvents.reduce((s, ev) => s + (ev.items || 0), 0);
+
   // Last production activity
   const lastRun   = [..._storeEvents].reverse().find(ev => ev.type === 'run_completed');
   const lastRunAt = lastRun?.at || _storeDoc?.lastRunAt || null;
-
-  // Current shortages
-  const shortages  = activeFlavors.filter(f => toMake(f) > 0).sort((a, b) => toMake(b) - toMake(a));
-  const invTotal   = activeFlavors.length;
-  const invStocked = activeFlavors.filter(f => toMake(f) === 0).length;
-  const invLow     = activeFlavors.filter(f => toMake(f) === 1).length;
-  const invCrit    = activeFlavors.filter(f => toMake(f) >= 2).length;
 
   // Flavor analytics — last 30 days from storeEvents entries with flavor data
   const cutoff30 = now - 30 * 24 * 60 * 60 * 1000;
@@ -560,6 +583,21 @@ function showManagerDashboard() {
   const bottom3       = flavorsSorted.length > 3
     ? flavorsSorted.filter(([n]) => !topNames.has(n)).slice(-3).reverse()
     : [];
+
+  // Production — Last 30 Days (same shape as Today's Production, summed over 30 days)
+  const runsLast30      = _storeEvents.filter(ev => ev.type === 'run_completed' && ev.at >= cutoff30);
+  const bucketsLast30   = runsLast30.reduce((s, ev) => s + (ev.buckets || 0), 0);
+  const flavorsLast30   = Object.keys(flavorTotals).length;
+  const runsWithDur30   = runsLast30.filter(ev => ev.durationMs > 0);
+  let avgBph30 = null;
+  if (runsWithDur30.length) {
+    const tb30 = runsWithDur30.reduce((s, ev) => s + (ev.buckets || 0), 0);
+    const th30 = runsWithDur30.reduce((s, ev) => s + ev.durationMs, 0) / 3600000;
+    avgBph30 = th30 > 0 ? roundToHalf(tb30 / th30) : null;
+  }
+  const noveltiesLast30 = _storeEvents
+    .filter(ev => ev.type === 'novelties_completed' && ev.at >= cutoff30)
+    .reduce((s, ev) => s + (ev.items || 0), 0);
 
   // 7-day trend
   const day7  = now - 7  * 24 * 60 * 60 * 1000;
@@ -586,62 +624,23 @@ function showManagerDashboard() {
 
   // ── Today's Production ───────────────────────────────────────────────────
   const prodSection = _renderMgrSection("Today’s Production", true);
-  const prodGrid = document.createElement('div');
-  prodGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;';
-  [
-    { label: 'Buckets Made', value: bucketsToday || '—' },
-    { label: 'Flavors',      value: flavorsToday  || '—' },
-    { label: 'Avg Bkts/Hr', value: avgBph !== null ? avgBph : '—' },
-  ].forEach(({ label, value }) => {
-    const cell = document.createElement('div');
-    cell.style.cssText = 'background:#162053;border:1px solid #2e4a70;border-radius:8px;padding:12px 6px;text-align:center;';
-    cell.innerHTML = `<div style="font-size:26px;font-weight:700;color:#ffffff;line-height:1;">${value}</div><div style="font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;margin-top:5px;">${label}</div>`;
-    prodGrid.appendChild(cell);
-  });
-  prodSection.appendChild(prodGrid);
+  prodSection.appendChild(_renderProductionGrid([
+    { label: 'Buckets Made',   value: bucketsToday   || '—' },
+    { label: 'Novelties Made', value: noveltiesToday || '—' },
+    { label: 'Flavors',        value: flavorsToday   || '—' },
+    { label: 'Avg Bkts/Hr',    value: avgBph !== null ? avgBph : '—' },
+  ]));
   content.appendChild(prodSection);
 
-  // ── Inventory Health ─────────────────────────────────────────────────────
-  if (invTotal > 0) {
-    const invSection = _renderMgrSection('Inventory Health');
-    const invGrid = document.createElement('div');
-    invGrid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:8px;';
-    [
-      { label: 'Stocked',  value: invStocked, color: '#22a05a', border: '#1e4a30', bg: 'rgba(34,160,90,0.08)' },
-      { label: 'Low',      value: invLow,     color: '#f0a500', border: '#4a3600', bg: 'rgba(240,165,0,0.08)' },
-      { label: 'Critical', value: invCrit,    color: '#ff8080', border: '#5a1a1a', bg: 'rgba(215,38,39,0.08)' },
-    ].forEach(({ label, value, color, border, bg }) => {
-      const chip = document.createElement('div');
-      chip.style.cssText = `padding:12px 6px;border-radius:8px;border:1px solid ${border};background:${bg};text-align:center;`;
-      chip.innerHTML = `<div style="font-size:22px;font-weight:700;color:${color};line-height:1;">${value}</div><div style="font-size:10px;color:${color};opacity:0.85;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;margin-top:5px;">${label}</div>`;
-      invGrid.appendChild(chip);
-    });
-    invSection.appendChild(invGrid);
-    content.appendChild(invSection);
-  }
-
-  // ── Current Shortages ────────────────────────────────────────────────────
-  const shortSection = _renderMgrSection('Current Shortages' + (shortages.length ? ' · ' + shortages.length : ''));
-  if (!shortages.length) {
-    const ok = document.createElement('div');
-    ok.style.cssText = 'display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:7px;border:1px solid #1e5c33;background:rgba(34,160,90,0.08);';
-    ok.innerHTML = `<span style="font-size:8px;color:#22a05a;">&#9679;</span><span style="font-size:13px;color:#c5d8f0;font-family:'Arial Narrow',Arial,sans-serif;">${invTotal > 0 ? 'All flavors fully stocked' : 'No flavors set up — tap Edit Flavors to begin'}</span>`;
-    shortSection.appendChild(ok);
-  } else {
-    const sl = document.createElement('div');
-    sl.style.cssText = 'display:grid;gap:5px;';
-    shortages.forEach(f => {
-      const needed = toMake(f);
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:7px;background:rgba(215,38,39,0.07);border:1px solid #4a1a1a;cursor:pointer;touch-action:manipulation;';
-      row.title = 'Tap to manage flavors';
-      row.innerHTML = `<span style="font-size:13px;color:#ffffff;font-weight:600;">${f.name}</span><span style="font-size:13px;font-weight:700;color:#ff8080;white-space:nowrap;">−${needed} needed</span>`;
-      row.onclick = () => { closeManagerDashboard(); requireManager(openAddModal); };
-      sl.appendChild(row);
-    });
-    shortSection.appendChild(sl);
-  }
-  content.appendChild(shortSection);
+  // ── Production — Last 30 Days ────────────────────────────────────────────
+  const prod30Section = _renderMgrSection('Production — Last 30 Days');
+  prod30Section.appendChild(_renderProductionGrid([
+    { label: 'Buckets Made',   value: bucketsLast30   || '—' },
+    { label: 'Novelties Made', value: noveltiesLast30 || '—' },
+    { label: 'Flavors',        value: flavorsLast30   || '—' },
+    { label: 'Avg Bkts/Hr',    value: avgBph30 !== null ? avgBph30 : '—' },
+  ]));
+  content.appendChild(prod30Section);
 
   // ── 7-Day Trend ──────────────────────────────────────────────────────────
   const trendSection = _renderMgrSection('Production Trend · 7 Days');
