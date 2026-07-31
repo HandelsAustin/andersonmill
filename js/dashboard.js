@@ -1,13 +1,6 @@
 // Corporate + manager dashboards, store detail panel, trend analytics.
 // Extracted from index.html — no logic changes.
 
-// Fallback display name for a raw store-id slug (e.g. "anderson-mill" ->
-// "Anderson Mill") — used wherever store.label/car_store_label isn't set.
-function _titleCaseSlug(id) {
-  if (!id) return id;
-  return id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-}
-
 function calcStoreTrend(store) {
   const runs = (store.storeEvents || []).filter(ev => ev.type === 'run_completed');
   if (runs.length < 3) return null; // insufficient history for a reliable signal
@@ -115,7 +108,7 @@ function _buildStoreDetailPanel(store, anchorEl) {
   header.style.cssText = 'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px;';
 
   const titleBlock = document.createElement('div');
-  titleBlock.innerHTML = `<div style="font-size:15px;font-weight:700;color:#ffffff;">${store.label || _titleCaseSlug(store.id)}</div><div style="font-size:10px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;margin-top:2px;letter-spacing:0.04em;">${store.id}</div>`;
+  titleBlock.innerHTML = `<div style="font-size:15px;font-weight:700;color:#ffffff;">${_storeLabelFor(store)}</div><div style="font-size:10px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;margin-top:2px;letter-spacing:0.04em;">${store.id}</div>`;
   // Trend badge below name — only shown when ≥3 run_completed events exist
   const detailTrend = _renderTrendBadge(calcStoreTrend(store));
   if (detailTrend) {
@@ -341,7 +334,7 @@ async function renderMultiStoreOverview(content) {
     const nameBlock = document.createElement('div');
     nameBlock.style.cssText = 'flex:1;min-width:140px;';
     const cardSyncColor = _syncAgeColor(store.updatedAt);
-    nameBlock.innerHTML = `<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:8px;color:${isActive ? '#22a05a' : '#5a7a9a'};">●</span><span style="font-size:14px;font-weight:700;color:#ffffff;">${store.label || _titleCaseSlug(store.id)}</span><span style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;">${isActive ? 'Active' : 'Inactive'}</span></div><div style="font-size:11px;color:${cardSyncColor};margin-top:4px;font-family:'Arial Narrow',Arial,sans-serif;padding-left:16px;">last updated ${lastActive}</div>`;
+    nameBlock.innerHTML = `<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:8px;color:${isActive ? '#22a05a' : '#5a7a9a'};">●</span><span style="font-size:14px;font-weight:700;color:#ffffff;">${_storeLabelFor(store)}</span><span style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;">${isActive ? 'Active' : 'Inactive'}</span></div><div style="font-size:11px;color:${cardSyncColor};margin-top:4px;font-family:'Arial Narrow',Arial,sans-serif;padding-left:16px;">last updated ${lastActive}</div>`;
     card.appendChild(nameBlock);
 
     // Right: metric pills + expand indicator
@@ -442,9 +435,9 @@ function showCorporateDashboard() {
   const orgName     = _getOrgDisplayName();
 
   const currentStoreId    = window.getCurrentStoreId();
-  const currentStoreLabel = localStorage.getItem('car_store_label') ||
-    stores.find(s => s.id === currentStoreId)?.label ||
-    (currentStoreId ? _titleCaseSlug(currentStoreId) : 'None selected');
+  const currentStoreLabel = currentStoreId
+    ? _storeDisplayLabel(currentStoreId, stores.find(s => s.id === currentStoreId)?.label)
+    : 'None selected';
 
   content.innerHTML = '';
 
@@ -514,16 +507,23 @@ function _renderMgrSection(title, noTopBorder) {
 
 // Shared 2x2 metrics grid — used by both Today's Production and Production —
 // Last 30 Days (same four metrics, different time window).
-function _renderProductionGrid(metrics) {
+function _renderProductionGrid(metrics, columns = 2) {
   const grid = document.createElement('div');
-  grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:8px;';
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(${columns},1fr);gap:8px;`;
   metrics.forEach(({ label, value }) => {
     const cell = document.createElement('div');
-    cell.style.cssText = 'background:#162053;border:1px solid #2e4a70;border-radius:8px;padding:12px 6px;text-align:center;';
-    cell.innerHTML = `<div style="font-size:26px;font-weight:700;color:#ffffff;line-height:1;">${value}</div><div style="font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;margin-top:5px;">${label}</div>`;
+    cell.style.cssText = 'background:#162053;border:1px solid #2e4a70;border-radius:8px;padding:12px 4px;text-align:center;';
+    cell.innerHTML = `<div style="font-size:${columns > 2 ? 20 : 26}px;font-weight:700;color:#ffffff;line-height:1;">${value}</div><div style="font-size:10px;color:#98d4e3;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;margin-top:5px;">${label}</div>`;
     grid.appendChild(cell);
   });
   return grid;
+}
+
+// Sums a novelties_completed event list's per-category made counts for one
+// category (events written before category tracking existed just won't have
+// a .categories field, so they contribute 0 — no crash, just no history).
+function _sumNoveltyCategory(events, category) {
+  return events.reduce((s, ev) => s + ((ev.categories && ev.categories[category]) || 0), 0);
 }
 
 function showManagerDashboard() {
@@ -531,8 +531,8 @@ function showManagerDashboard() {
   const content = document.getElementById('managerDashboardContent');
   if (!overlay || !content) return;
 
-  const storeLabel = localStorage.getItem('car_store_label') ||
-    (window.getCurrentStoreId() ? _titleCaseSlug(window.getCurrentStoreId()) : 'Store');
+  const currentStoreId = window.getCurrentStoreId();
+  const storeLabel = currentStoreId ? _storeDisplayLabel(currentStoreId, _storeDoc?.label) : 'Store';
   const today      = todayStr();
   const now        = Date.now();
 
@@ -546,12 +546,7 @@ function showManagerDashboard() {
     bucketsToday = _storeDoc.lastRunBuckets || 0; // fallback for pre-storeEvents stores
   }
 
-  // Flavors produced today (only from runs with flavor breakdown)
-  const todayFlavorSet = new Set();
-  todayRuns.forEach(ev => { if (ev.flavors) Object.keys(ev.flavors).forEach(n => todayFlavorSet.add(n)); });
-  const flavorsToday = todayFlavorSet.size;
-
-  // Avg buckets per hour (today's runs that have durationMs)
+  // Avg buckets per hour + total run duration (today's runs that have durationMs)
   const runsWithDur = todayRuns.filter(ev => ev.durationMs > 0);
   let avgBph = null;
   if (runsWithDur.length) {
@@ -559,13 +554,16 @@ function showManagerDashboard() {
     const th = runsWithDur.reduce((s, ev) => s + ev.durationMs, 0) / 3600000;
     avgBph = th > 0 ? roundToHalf(tb / th) : null;
   }
+  const durationTodayMs = todayRuns.reduce((s, ev) => s + (ev.durationMs || 0), 0);
 
-  // Novelties made today (from novelties_completed storeEvents)
+  // Novelties made today, broken down by category (from novelties_completed storeEvents)
   const todayNoveltiesEvents = _storeEvents.filter(ev =>
     ev.type === 'novelties_completed' &&
     new Date(ev.at).toLocaleDateString('en-CA') === today
   );
-  const noveltiesToday = todayNoveltiesEvents.reduce((s, ev) => s + (ev.items || 0), 0);
+  const sandwichesToday = _sumNoveltyCategory(todayNoveltiesEvents, 'Ice Cream Sandwiches');
+  const popsToday        = _sumNoveltyCategory(todayNoveltiesEvents, 'Handel Pops');
+  const bananasToday     = _sumNoveltyCategory(todayNoveltiesEvents, 'Chocolate Bananas');
 
   // Last production activity
   const lastRun   = [..._storeEvents].reverse().find(ev => ev.type === 'run_completed');
@@ -585,19 +583,20 @@ function showManagerDashboard() {
     : [];
 
   // Production — Last 30 Days (same shape as Today's Production, summed over 30 days)
-  const runsLast30      = _storeEvents.filter(ev => ev.type === 'run_completed' && ev.at >= cutoff30);
-  const bucketsLast30   = runsLast30.reduce((s, ev) => s + (ev.buckets || 0), 0);
-  const flavorsLast30   = Object.keys(flavorTotals).length;
-  const runsWithDur30   = runsLast30.filter(ev => ev.durationMs > 0);
+  const runsLast30       = _storeEvents.filter(ev => ev.type === 'run_completed' && ev.at >= cutoff30);
+  const bucketsLast30    = runsLast30.reduce((s, ev) => s + (ev.buckets || 0), 0);
+  const runsWithDur30    = runsLast30.filter(ev => ev.durationMs > 0);
   let avgBph30 = null;
   if (runsWithDur30.length) {
     const tb30 = runsWithDur30.reduce((s, ev) => s + (ev.buckets || 0), 0);
     const th30 = runsWithDur30.reduce((s, ev) => s + ev.durationMs, 0) / 3600000;
     avgBph30 = th30 > 0 ? roundToHalf(tb30 / th30) : null;
   }
-  const noveltiesLast30 = _storeEvents
-    .filter(ev => ev.type === 'novelties_completed' && ev.at >= cutoff30)
-    .reduce((s, ev) => s + (ev.items || 0), 0);
+  const durationLast30Ms = runsLast30.reduce((s, ev) => s + (ev.durationMs || 0), 0);
+  const noveltiesLast30Events = _storeEvents.filter(ev => ev.type === 'novelties_completed' && ev.at >= cutoff30);
+  const sandwichesLast30 = _sumNoveltyCategory(noveltiesLast30Events, 'Ice Cream Sandwiches');
+  const popsLast30        = _sumNoveltyCategory(noveltiesLast30Events, 'Handel Pops');
+  const bananasLast30     = _sumNoveltyCategory(noveltiesLast30Events, 'Chocolate Bananas');
 
   // 7-day trend
   const day7  = now - 7  * 24 * 60 * 60 * 1000;
@@ -625,21 +624,25 @@ function showManagerDashboard() {
   // ── Today's Production ───────────────────────────────────────────────────
   const prodSection = _renderMgrSection("Today’s Production", true);
   prodSection.appendChild(_renderProductionGrid([
-    { label: 'Buckets Made',   value: bucketsToday   || '—' },
-    { label: 'Novelties Made', value: noveltiesToday || '—' },
-    { label: 'Flavors',        value: flavorsToday   || '—' },
+    { label: 'Buckets Made',   value: bucketsToday || '—' },
+    { label: 'Run Duration',   value: durationTodayMs > 0 ? fmtTime(durationTodayMs) : '—' },
     { label: 'Avg Bkts/Hr',    value: avgBph !== null ? avgBph : '—' },
-  ]));
+    { label: 'Ice Cream Sandwiches', value: sandwichesToday || '—' },
+    { label: 'Handel Pops',          value: popsToday        || '—' },
+    { label: 'Bananas',              value: bananasToday     || '—' },
+  ], 3));
   content.appendChild(prodSection);
 
   // ── Production — Last 30 Days ────────────────────────────────────────────
   const prod30Section = _renderMgrSection('Production — Last 30 Days');
   prod30Section.appendChild(_renderProductionGrid([
-    { label: 'Buckets Made',   value: bucketsLast30   || '—' },
-    { label: 'Novelties Made', value: noveltiesLast30 || '—' },
-    { label: 'Flavors',        value: flavorsLast30   || '—' },
+    { label: 'Buckets Made',   value: bucketsLast30 || '—' },
+    { label: 'Run Duration',   value: durationLast30Ms > 0 ? fmtTime(durationLast30Ms) : '—' },
     { label: 'Avg Bkts/Hr',    value: avgBph30 !== null ? avgBph30 : '—' },
-  ]));
+    { label: 'Ice Cream Sandwiches', value: sandwichesLast30 || '—' },
+    { label: 'Handel Pops',          value: popsLast30        || '—' },
+    { label: 'Bananas',              value: bananasLast30     || '—' },
+  ], 3));
   content.appendChild(prod30Section);
 
   // ── 7-Day Trend ──────────────────────────────────────────────────────────
@@ -682,16 +685,25 @@ function showManagerDashboard() {
   content.appendChild(topSection);
 
   // ── Bottom Flavors ────────────────────────────────────────────────────────
-  if (bottom3.length) {
-    const botSection = _renderMgrSection('Bottom Flavors — Last 30 Days');
+  // Always rendered (even with no/insufficient data) so it's never silently
+  // absent — matches Top Flavors' empty-state pattern above.
+  const botSection = _renderMgrSection('Bottom Flavors — Last 30 Days');
+  if (!bottom3.length) {
+    const nfl = document.createElement('div');
+    nfl.style.cssText = 'font-size:12px;color:#5a7a9a;font-family:\'Arial Narrow\',Arial,sans-serif;';
+    nfl.textContent = flavorsSorted.length > 3
+      ? 'Flavor tracking begins with the next completed run.'
+      : 'Needs more than 3 distinct flavors tracked to show a meaningful bottom list.';
+    botSection.appendChild(nfl);
+  } else {
     bottom3.forEach(([name, count]) => {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:7px;background:#162053;border:1px solid #2e4a70;margin-bottom:5px;';
       row.innerHTML = `<span style="font-size:16px;flex-shrink:0;">🔻</span><span style="flex:1;font-size:13px;color:#c5d8f0;">${name}</span><span style="font-size:12px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;white-space:nowrap;">${count} bucket${count !== 1 ? 's' : ''}</span>`;
       botSection.appendChild(row);
     });
-    content.appendChild(botSection);
   }
+  content.appendChild(botSection);
 
   // ── Store Status ──────────────────────────────────────────────────────────
   const statusSection = _renderMgrSection('Store Status');

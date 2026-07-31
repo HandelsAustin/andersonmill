@@ -101,6 +101,42 @@ window.getStoreInventoryLogCollectionRef = function(orgId = window.getCurrentOrg
   return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'inventoryLog');
 };
 
+// Fallback display name for a raw store-id slug (e.g. "anderson-mill" ->
+// "Anderson Mill") — used wherever store.label isn't set.
+function _titleCaseSlug(id) {
+  if (!id) return id;
+  return id.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+// Pure display-name resolver for ANY store (current or not) — safe to use when
+// listing multiple stores (picker options, store cards) since it never touches
+// the cache. Prefers a real Firestore label, falls back to a title-cased id.
+function _storeLabelFor(store) {
+  if (!store) return null;
+  return store.label || _titleCaseSlug(store.id);
+}
+
+// Best-known display name for the CURRENTLY selected store, with self-healing
+// cache. Prefers a real Firestore label, then a cached label — UNLESS that
+// cache is just the raw id itself (a sign the store was never actually
+// labeled, from before `label` was written on creation, and got permanently
+// cached that way the first time it was selected) — falling back to a
+// title-cased id. Always re-caches the resolved value so a bad old cache
+// self-heals the first time this runs. Only call this for the CURRENT store —
+// calling it once per row in a multi-store list would repeatedly overwrite the
+// cache with whichever store rendered last; use _storeLabelFor() for those.
+function _storeDisplayLabel(id, freshLabel) {
+  if (freshLabel) {
+    try { localStorage.setItem('car_store_label', freshLabel); } catch (e) {}
+    return freshLabel;
+  }
+  const cached = localStorage.getItem('car_store_label');
+  if (cached && cached !== 'undefined' && cached !== id) return cached;
+  const computed = id ? _titleCaseSlug(id) : null;
+  if (computed) { try { localStorage.setItem('car_store_label', computed); } catch (e) {} }
+  return computed;
+}
+
 window.setOrgStores = function(stores) {
   window.APP_STATE.orgStores = Array.isArray(stores) ? stores : [];
 };

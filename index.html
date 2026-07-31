@@ -245,6 +245,12 @@
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(20,24,80,0.92); z-index: 260; align-items: flex-start; justify-content: center; padding: 8px; }
     .modal-backdrop.open { display: flex; }
     .modal { background: #1e2870; border-radius: 10px; border: 1.5px solid #98d4e3; width: 500px; max-width: calc(100vw - 16px); padding: 16px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); height: calc(100vh - 16px); max-height: calc(100vh - 16px); display: flex; flex-direction: column; overflow: hidden; }
+    /* 100vh on iOS Safari includes the space the address bar reclaims when collapsed,
+       so a modal sized to it can render taller than what's actually visible, cutting
+       off the footer. 100dvh tracks the real visible viewport — use it where supported. */
+    @supports (height: 100dvh) {
+      .modal { height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
+    }
     .modal h2 { font-family: 'Raiders', 'Impact', sans-serif; font-size: 18px; color: #ffffff; margin-bottom: 10px; border-bottom: 2px solid #d72627; padding-bottom: 8px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.04em; }
     .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-shrink: 0; }
     .btn-primary { background: #d72627; border-color: #d72627; color: #fff; }
@@ -365,7 +371,7 @@
       <div id="syncStatus" style="font-size:12px;margin-top:4px;color:#8fa3be;padding-left:0;border-left:2px solid transparent;transition:border-color 0.2s;">⏳ Connecting...</div>
     </div>
     <div class="header-right">
-      <button class="btn btn-primary" id="dashboardBtn" onclick="openDashboard()">Dashboard</button>
+      <button class="btn btn-primary" id="dashboardBtn" onclick="openDashboard()" style="display:none">Dashboard</button>
       <button class="btn btn-green" id="authBtn" onclick="openAuthModal()" style="display:none">Sign In</button>
       <button class="btn" id="pwaInstallBtn" onclick="triggerPwaInstall()" style="display:none" title="Install this app on your device for offline use">&#11015; Install App</button>
     </div>

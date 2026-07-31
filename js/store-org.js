@@ -79,6 +79,7 @@ function applyData(data) {
   inventoryCatalog = data?.inventoryCatalog || [];
   _inventoryLastCountedAt = data?.inventoryLastCountedAt || null;
   _managerPin = data?.managerPin || null;
+  if (typeof loadCabinetPref === 'function') loadCabinetPref(); // store-wide default may have just changed (switch, live sync)
 }
 
 function _applyRunData(runData) {
@@ -323,7 +324,7 @@ async function showStorePicker(skipWelcomeBack = false) {
 
   // Welcome-back: if returning to a known store, confirm before showing full list
   const savedId = window.getCurrentStoreId();
-  const savedLabel = localStorage.getItem('car_store_label') || savedId;
+  const savedLabel = savedId ? _storeDisplayLabel(savedId) : null;
   if (!skipWelcomeBack && savedId && savedLabel) {
     _renderWelcomeBack(list, savedId, savedLabel);
     return;
@@ -373,7 +374,7 @@ async function showStorePicker(skipWelcomeBack = false) {
     stores.forEach(store => {
       const btn = document.createElement('button');
       btn.className = 'store-btn';
-      btn.textContent = store.label || store.id;
+      btn.textContent = _storeLabelFor(store);
       btn.onclick = () => selectStore(store.id);
       list.appendChild(btn);
     });
@@ -605,8 +606,7 @@ function selectStore(id) {
   if (typeof switchTab === 'function') switchTab('Run');
   const store = findStoreById(id);
   if (store) {
-    const displayName = store.label || store.id;
-    localStorage.setItem('car_store_label', displayName);
+    const displayName = _storeDisplayLabel(id, store.label);
     window.logOrgEvent('store_selected', { storeId: id, label: displayName });
   }
   _updateHeaderSub();

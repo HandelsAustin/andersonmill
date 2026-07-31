@@ -1,8 +1,9 @@
-// Manager Settings: store profile, roster management entry, bulk flavor import,
-// user/role management (CORPORATE_ADMIN only), order/inventory config, theme preference.
+// Manager Settings: store name/switcher, roster management entry, bulk flavor
+// import (corporate-only), manager PIN, cabinet numbering default, data export,
+// user/role management (CORPORATE_ADMIN only), theme preference.
 // New page — data lives at store.settings (merged onto the existing store doc).
 
-let _storeSettings = {}; // populated by applyData() in store-org.js: { profile, inventory, theme }
+let _storeSettings = {}; // populated by applyData() in store-org.js: { theme, cabinetNumbersEnabled }
 
 // Settings is now a bottom-tab panel rather than a popup overlay — these wrappers
 // stay so existing internal call sites (e.g. the roster-management button below)
@@ -52,76 +53,42 @@ function _settingsInput(label, value, type = 'text') {
   return { wrap, input };
 }
 
-function _settingsSaveButton(onClick) {
-  const btn = document.createElement('button');
-  btn.className = 'btn btn-green';
-  btn.style.cssText = 'margin-top:4px;align-self:flex-start;';
-  btn.textContent = '✓ Save';
-  btn.onclick = async () => {
-    btn.disabled = true;
-    await onClick();
-    btn.disabled = false;
-  };
-  return btn;
-}
-
 function renderSettingsPage() {
   const content = document.getElementById('settingsContent');
   if (!content) return;
   content.innerHTML = '';
 
-  // ── Switch Store ─────────────────────────────────────────────────────────
+  // ── Store Name ───────────────────────────────────────────────────────────
   // Same email can be assigned to multiple stores (or, for CORPORATE_ADMIN, every
   // store in the org) — window.getOrgStores() is already scoped accordingly.
+  // One store: just displays its name. Multiple: becomes a picker — selecting
+  // a different store reloads everything (selectStore() already handles this).
+  const nameSection = _settingsSection('Store Name');
   const accessibleStores = window.getOrgStores();
-  if (accessibleStores.length > 1) {
-    const switchSection = _settingsSection('Switch Store');
-    const currentId = window.getCurrentStoreId();
-    accessibleStores.forEach(store => {
-      const isCurrent = store.id === currentId;
-      const row = document.createElement('div');
-      row.className = 'settings-card';
-      row.style.cssText += 'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
-      const nameEl = document.createElement('span');
-      nameEl.style.cssText = 'font-size:13px;font-weight:600;';
-      nameEl.textContent = store.label || store.id;
-      row.appendChild(nameEl);
-      if (isCurrent) {
-        const tag = document.createElement('span');
-        tag.style.cssText = 'font-size:11px;color:var(--text-dim);';
-        tag.textContent = 'Current';
-        row.appendChild(tag);
-      } else {
-        const switchBtn = document.createElement('button');
-        switchBtn.className = 'btn';
-        switchBtn.style.cssText = 'font-size:12px;padding:6px 12px;';
-        switchBtn.textContent = 'Switch';
-        switchBtn.onclick = () => selectStore(store.id);
-        row.appendChild(switchBtn);
-      }
-      switchSection.appendChild(row);
-    });
-    content.appendChild(switchSection);
-  }
+  const currentId = window.getCurrentStoreId();
+  const currentStore = accessibleStores.find(s => s.id === currentId);
+  const currentLabel = currentId ? _storeDisplayLabel(currentId, currentStore?.label) : 'No store selected';
 
-  // ── Store Profile ──────────────────────────────────────────────────────────
-  const profileSection = _settingsSection('Store Profile');
-  const profile = _storeSettings.profile || {};
-  const phoneRow  = _settingsInput('Phone', profile.phone || '');
-  const emailRow  = _settingsInput('Contact Email', profile.email || '');
-  const hoursRow  = _settingsInput('Hours', profile.hours || '');
-  const profileForm = document.createElement('div');
-  profileForm.style.cssText = 'display:flex;flex-direction:column;';
-  profileForm.append(phoneRow.wrap, emailRow.wrap, hoursRow.wrap);
-  profileForm.appendChild(_settingsSaveButton(() => saveStoreSettings({
-    profile: {
-      phone: phoneRow.input.value.trim(),
-      email: emailRow.input.value.trim(),
-      hours: hoursRow.input.value.trim()
-    }
-  })));
-  profileSection.appendChild(profileForm);
-  content.appendChild(profileSection);
+  if (accessibleStores.length > 1) {
+    const picker = document.createElement('select');
+    picker.className = 'settings-input';
+    picker.style.width = 'auto';
+    accessibleStores.forEach(store => {
+      const opt = document.createElement('option');
+      opt.value = store.id;
+      opt.textContent = _storeLabelFor(store);
+      if (store.id === currentId) opt.selected = true;
+      picker.appendChild(opt);
+    });
+    picker.onchange = () => selectStore(picker.value);
+    nameSection.appendChild(picker);
+  } else {
+    const nameDisplay = document.createElement('div');
+    nameDisplay.style.cssText = 'font-size:18px;font-weight:700;color:var(--text-primary);';
+    nameDisplay.textContent = currentLabel;
+    nameSection.appendChild(nameDisplay);
+  }
+  content.appendChild(nameSection);
 
   // ── Flavor Roster ─────────────────────────────────────────────────────────
   const rosterSection = _settingsSection('Flavor Roster');
@@ -138,12 +105,13 @@ function renderSettingsPage() {
   manageBtn.className = 'btn';
   manageBtn.textContent = '☰ Manage Flavor Roster';
   manageBtn.onclick = () => { closeSettings(); openAddModal(); };
-  const bulkBtn = document.createElement('button');
-  bulkBtn.className = 'btn';
-  bulkBtn.textContent = '⇪ Bulk Import Flavors';
-  bulkBtn.onclick = () => openBulkImport();
-  rosterBtnRow.append(manageBtn, bulkBtn);
+  rosterBtnRow.appendChild(manageBtn);
   if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+    const bulkBtn = document.createElement('button');
+    bulkBtn.className = 'btn';
+    bulkBtn.textContent = '⇪ Bulk Import Flavors';
+    bulkBtn.onclick = () => openBulkImport();
+    rosterBtnRow.appendChild(bulkBtn);
     const masterBtn = document.createElement('button');
     masterBtn.className = 'btn';
     masterBtn.textContent = '✏️ Edit Master Flavor List';
@@ -152,18 +120,93 @@ function renderSettingsPage() {
   }
   rosterSection.appendChild(rosterBtnRow);
 
-  const bulkPanel = document.createElement('div');
-  bulkPanel.id = 'bulkImportPanel';
-  bulkPanel.style.cssText = 'display:none;margin-top:10px;';
-  rosterSection.appendChild(bulkPanel);
-
   if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+    const bulkPanel = document.createElement('div');
+    bulkPanel.id = 'bulkImportPanel';
+    bulkPanel.style.cssText = 'display:none;margin-top:10px;';
+    rosterSection.appendChild(bulkPanel);
+
     const masterPanel = document.createElement('div');
     masterPanel.id = 'masterFlavorPanel';
     masterPanel.style.cssText = 'display:none;margin-top:10px;';
     rosterSection.appendChild(masterPanel);
   }
   content.appendChild(rosterSection);
+
+  // ── Manager PIN (not relevant to CORPORATE_ADMIN — they bypass it entirely) ─
+  if (!userHasRole(ROLES.CORPORATE_ADMIN)) {
+    const pinSection = _settingsSection('Manager PIN');
+    const pinNote = document.createElement('div');
+    pinNote.className = 'settings-note';
+    pinNote.style.marginBottom = '10px';
+    pinNote.textContent = 'Shared across every device signed into this store.';
+    pinSection.appendChild(pinNote);
+    const changePinBtn = document.createElement('button');
+    changePinBtn.className = 'btn';
+    changePinBtn.textContent = '🔒 Change Manager PIN';
+    changePinBtn.onclick = () => openPinModal('set', () => {});
+    pinSection.appendChild(changePinBtn);
+    content.appendChild(pinSection);
+  }
+
+  // ── Cabinet Numbering ─────────────────────────────────────────────────────
+  const cabinetSection = _settingsSection('Cabinet Numbering');
+  const cabinetNote = document.createElement('div');
+  cabinetNote.className = 'settings-note';
+  cabinetNote.style.marginBottom = '10px';
+  cabinetNote.textContent = 'Store-wide default — applies to every device at this store, not just this one.';
+  cabinetSection.appendChild(cabinetNote);
+  const cabinetBtn = document.createElement('button');
+  cabinetBtn.className = 'btn';
+  cabinetBtn.textContent = _cabinetSortEnabled ? '✕ Turn Off Cabinet Numbers' : '✚ Turn On Cabinet Numbers';
+  cabinetBtn.onclick = () => { toggleCabinetNumbers(); renderSettingsPage(); };
+  cabinetSection.appendChild(cabinetBtn);
+  content.appendChild(cabinetSection);
+
+  // ── Export Data ───────────────────────────────────────────────────────────
+  const exportSection = _settingsSection('Export Data');
+  const exportNote = document.createElement('div');
+  exportNote.className = 'settings-note';
+  exportNote.style.marginBottom = '10px';
+  exportNote.textContent = "Download this store's recorded history as CSV files.";
+  exportSection.appendChild(exportNote);
+
+  const exportBtnRow = document.createElement('div');
+  exportBtnRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;';
+  const runsBtn = document.createElement('button');
+  runsBtn.className = 'btn';
+  runsBtn.textContent = '⬇ Export Runs (CSV)';
+  runsBtn.onclick = () => exportRunsCsv();
+  const noveltiesBtn = document.createElement('button');
+  noveltiesBtn.className = 'btn';
+  noveltiesBtn.textContent = '⬇ Export Novelties (CSV)';
+  noveltiesBtn.onclick = () => exportNoveltiesCsv();
+  const inventoryBtn = document.createElement('button');
+  inventoryBtn.className = 'btn';
+  inventoryBtn.textContent = '⬇ Export Inventory (CSV)';
+  inventoryBtn.onclick = () => exportInventoryCsv();
+  exportBtnRow.append(runsBtn, noveltiesBtn, inventoryBtn);
+  exportSection.appendChild(exportBtnRow);
+
+  const monthLabel = document.createElement('div');
+  monthLabel.className = 'settings-label';
+  monthLabel.style.marginBottom = '4px';
+  monthLabel.textContent = 'Batches Made per Flavor, by Month';
+  exportSection.appendChild(monthLabel);
+  const monthRow = document.createElement('div');
+  monthRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+  const monthInput = document.createElement('input');
+  monthInput.type = 'month';
+  monthInput.className = 'settings-input';
+  monthInput.style.width = 'auto';
+  monthInput.value = todayStr().slice(0, 7);
+  const monthBtn = document.createElement('button');
+  monthBtn.className = 'btn btn-green';
+  monthBtn.textContent = '⬇ Download Report';
+  monthBtn.onclick = () => exportMonthlyBatchReport(monthInput.value);
+  monthRow.append(monthInput, monthBtn);
+  exportSection.appendChild(monthRow);
+  content.appendChild(exportSection);
 
   // ── Users & Roles (CORPORATE_ADMIN only) ─────────────────────────────────
   if (userHasRole(ROLES.CORPORATE_ADMIN)) {
@@ -178,23 +221,6 @@ function renderSettingsPage() {
     content.appendChild(usersSection);
     _loadMembersIntoSettings(usersList);
   }
-
-  // ── Order & Inventory Config ─────────────────────────────────────────────
-  const invSection = _settingsSection('Order & Inventory Config');
-  const invCfg = _storeSettings.inventory || {};
-  const leadRow     = _settingsInput('Order Lead Time (days)', invCfg.orderLeadTimeDays ?? 3, 'number');
-  const intervalRow = _settingsInput('Inventory Count Interval (days)', invCfg.inventoryCountIntervalDays ?? 14, 'number');
-  const invForm = document.createElement('div');
-  invForm.style.cssText = 'display:flex;flex-direction:column;';
-  invForm.append(leadRow.wrap, intervalRow.wrap);
-  invForm.appendChild(_settingsSaveButton(() => saveStoreSettings({
-    inventory: {
-      orderLeadTimeDays: parseInt(leadRow.input.value) || 3,
-      inventoryCountIntervalDays: parseInt(intervalRow.input.value) || 14
-    }
-  })));
-  invSection.appendChild(invForm);
-  content.appendChild(invSection);
 
   // ── App Preferences ───────────────────────────────────────────────────────
   const prefSection = _settingsSection('App Preferences');
@@ -381,7 +407,7 @@ async function _renderMemberStoresEditor(panel, member, storesBtn) {
       }
     };
     const text = document.createElement('span');
-    text.textContent = store.label || store.id;
+    text.textContent = _storeLabelFor(store);
     label.append(checkbox, text);
     panel.appendChild(label);
   });
@@ -566,4 +592,121 @@ function _renderMasterFlavorList(listWrap, query) {
 
     listWrap.appendChild(row);
   });
+}
+
+// ── Export Data ──────────────────────────────────────────────────────────────
+// CSV export helper — triggers a browser download of the given rows.
+function _downloadCsv(filename, headers, rows) {
+  const escape = v => {
+    const s = String(v ?? '');
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csv = [headers, ...rows].map(row => row.map(escape).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// One row per (date, flavor) with daily + catering quantities made, sourced
+// from the runs/{date} subcollection — unlike storeEvents (capped at the last
+// 10 entries), every day's run doc persists indefinitely, so this reflects
+// full history since runMade/cateringMade started being recorded.
+async function exportRunsCsv() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — export needs a connection', 3000); return; }
+  showStatusMessage('Preparing export…', 2000);
+  try {
+    const q = window._query(window.getStoreRunLogCollectionRef(), window._orderBy('__name__', 'desc'), window._limit(400));
+    const snap = await window._getDocs(q);
+    const rows = [];
+    snap.docs.forEach(d => {
+      const data = d.data();
+      const runMade = data.runMade || {};
+      const cateringMade = data.cateringMade || {};
+      const names = new Set([...Object.keys(runMade), ...Object.keys(cateringMade)]);
+      names.forEach(name => rows.push([d.id, name, runMade[name] || 0, cateringMade[name] || 0]));
+    });
+    if (!rows.length) { showStatusMessage('No run history to export yet', 2500); return; }
+    _downloadCsv(`runs-${todayStr()}.csv`, ['Date', 'Flavor', 'Made', 'Catering Made'], rows);
+  } catch (e) {
+    console.error('Export runs error:', e);
+    showStatusMessage('⚠ Could not export runs', 2500);
+  }
+}
+
+// One row per (date, item) from the noveltiesLog/{date} subcollection.
+async function exportNoveltiesCsv() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — export needs a connection', 3000); return; }
+  showStatusMessage('Preparing export…', 2000);
+  try {
+    const q = window._query(window.getStoreNoveltiesLogCollectionRef(), window._orderBy('__name__', 'desc'), window._limit(400));
+    const snap = await window._getDocs(q);
+    const rows = [];
+    snap.docs.forEach(d => {
+      (d.data().items || []).forEach(item => rows.push([d.id, item.category, item.name, item.onHand || 0, item.madeQty || 0]));
+    });
+    if (!rows.length) { showStatusMessage('No novelties history to export yet', 2500); return; }
+    _downloadCsv(`novelties-${todayStr()}.csv`, ['Date', 'Category', 'Item', 'On Hand', 'Made'], rows);
+  } catch (e) {
+    console.error('Export novelties error:', e);
+    showStatusMessage('⚠ Could not export novelties', 2500);
+  }
+}
+
+// One row per (date, item) from the inventoryLog/{date} subcollection.
+async function exportInventoryCsv() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — export needs a connection', 3000); return; }
+  showStatusMessage('Preparing export…', 2000);
+  try {
+    const q = window._query(window.getStoreInventoryLogCollectionRef(), window._orderBy('__name__', 'desc'), window._limit(400));
+    const snap = await window._getDocs(q);
+    const rows = [];
+    snap.docs.forEach(d => {
+      (d.data().items || []).forEach(item => rows.push([d.id, item.name, item.onHand || 0]));
+    });
+    if (!rows.length) { showStatusMessage('No inventory history to export yet', 2500); return; }
+    _downloadCsv(`inventory-${todayStr()}.csv`, ['Date', 'Item', 'On Hand'], rows);
+  } catch (e) {
+    console.error('Export inventory error:', e);
+    showStatusMessage('⚠ Could not export inventory', 2500);
+  }
+}
+
+// Total batches made per flavor for one calendar month — reads each day's run
+// doc directly (at most 31 reads) rather than a range query, since doc IDs
+// are already plain YYYY-MM-DD strings. Only reflects days that have runMade
+// data recorded (i.e. run since the Made-stepper workflow shipped) — earlier
+// history recorded under the old checkbox system won't have per-flavor totals.
+async function exportMonthlyBatchReport(monthStr) {
+  if (!window._firebaseReady) { showStatusMessage('Offline — export needs a connection', 3000); return; }
+  if (!monthStr) { showStatusMessage('Pick a month first', 2000); return; }
+  showStatusMessage('Preparing monthly report…', 2000);
+  const [year, month] = monthStr.split('-').map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const dates = Array.from({ length: daysInMonth }, (_, i) =>
+    `${year}-${String(month).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`
+  );
+  try {
+    const docs = await Promise.all(dates.map(date =>
+      window._getDoc(window.getStoreRunLogRef(date)).catch(() => null)
+    ));
+    const totals = {};
+    docs.forEach(snap => {
+      if (!snap || !snap.exists()) return;
+      Object.entries(snap.data().runMade || {}).forEach(([name, qty]) => {
+        totals[name] = (totals[name] || 0) + (qty || 0);
+      });
+    });
+    const rows = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    if (!rows.length) { showStatusMessage(`No production recorded for ${monthStr}`, 3000); return; }
+    _downloadCsv(`batches-by-flavor-${monthStr}.csv`, ['Flavor', 'Batches Made'], rows);
+  } catch (e) {
+    console.error('Monthly batch report error:', e);
+    showStatusMessage('⚠ Could not generate monthly report', 2500);
+  }
 }

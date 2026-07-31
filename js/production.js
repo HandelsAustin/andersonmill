@@ -171,94 +171,11 @@ function buildRow(f, runIndex, runTotal) {
 
     const tdHold = document.createElement('td');
     tdHold.style.cssText = 'text-align:center;white-space:nowrap;';
-    const holdWrap = document.createElement('div');
-    holdWrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
-
-    const holdMinus = document.createElement('button');
-    holdMinus.textContent = '−';
-    holdMinus.style.cssText = 'width:44px;height:44px;font-size:20px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;-webkit-tap-highlight-color:transparent;';
-
-    const holdVal = document.createElement('span');
-    holdVal.textContent = parseInt(f.holding) || 0;
-    holdVal.style.cssText = 'min-width:28px;text-align:center;font-size:15px;font-weight:600;color:#f5f0e8;cursor:pointer;user-select:none;';
-    holdVal.title = 'Tap to enter value';
-
-    const holdPlus = document.createElement('button');
-    holdPlus.textContent = '+';
-    holdPlus.style.cssText = 'width:44px;height:44px;font-size:20px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;-webkit-tap-highlight-color:transparent;';
-
-    // Rapid-fire long-press: increments immediately on press, accelerates on hold, saves once on release
-    const _attachRapidPress = (btn, delta) => {
-      let timerId = null, delay = 400, pressing = false;
-      const tick = () => {
-        if (!pressing) return;
-        const cur = parseInt(activeFlavors[idx].holding) || 0;
-        const next = Math.min(99, Math.max(0, cur + delta));
-        activeFlavors[idx].holding = next;
-        holdVal.textContent = next;
-        delay = Math.max(60, delay * 0.85);
-        timerId = setTimeout(tick, delay);
-      };
-      const start = (e) => {
-        e.preventDefault();
-        pressing = true;
-        delay = 400;
-        const cur = parseInt(activeFlavors[idx].holding) || 0;
-        const next = Math.min(99, Math.max(0, cur + delta));
-        activeFlavors[idx].holding = next;
-        holdVal.textContent = next;
-        timerId = setTimeout(tick, delay);
-      };
-      const stop = () => {
-        if (!pressing) return;
-        pressing = false;
-        clearTimeout(timerId);
-        saveAll(); renderTable();
-      };
-      btn.addEventListener('pointerdown', start);
-      btn.addEventListener('pointerup',   stop);
-      btn.addEventListener('pointercancel', stop);
-      btn.addEventListener('pointerleave', stop);
-    };
-    _attachRapidPress(holdMinus, -1);
-    _attachRapidPress(holdPlus, +1);
-
-    // Tap-to-type: click the value display to enter a number directly
-    holdVal.addEventListener('click', () => {
-      let settled = false;
-      const inp = document.createElement('input');
-      inp.type = 'text';
-      inp.inputMode = 'numeric';
-      inp.pattern = '[0-9]*';
-      inp.value = parseInt(activeFlavors[idx].holding) || 0;
-      inp.style.cssText = 'width:52px;font-size:15px;font-weight:600;text-align:center;background:#12223a;border:1.5px solid #98d4e3;border-radius:6px;color:#f5f0e8;padding:4px 2px;';
-      holdWrap.replaceChild(inp, holdVal);
-      inp.focus();
-      inp.select();
-      const commit = () => {
-        if (settled) return;
-        settled = true;
-        const val = Math.max(0, parseInt(inp.value) || 0);
-        activeFlavors[idx].holding = val;
-        holdWrap.replaceChild(holdVal, inp);
-        holdVal.textContent = val;
-        saveAll(); renderTable();
-      };
-      inp.addEventListener('blur', commit);
-      inp.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { inp.blur(); }
-        if (e.key === 'Escape') {
-          if (settled) return;
-          settled = true;
-          holdWrap.replaceChild(holdVal, inp);
-        }
-      });
-    });
-
-    holdWrap.appendChild(holdMinus);
-    holdWrap.appendChild(holdVal);
-    holdWrap.appendChild(holdPlus);
-    tdHold.appendChild(holdWrap);
+    tdHold.appendChild(buildQuantityStepper({
+      value: f.holding,
+      max: 99,
+      onChange: val => { activeFlavors[idx].holding = val; saveAll(); renderTable(); }
+    }));
     tr.appendChild(tdHold);
 
     const tdTM = document.createElement('td');
@@ -629,7 +546,10 @@ function _startProductionRun(dailyNeeded) {
   // immediately but not blocking run mode from starting — awaited internally
   // so a failure can still be surfaced instead of silently swallowed.
   (async () => {
-    if (!window._firebaseReady) return;
+    if (!window._firebaseReady) {
+      showStatusMessage('📴 Offline — this run will save once you\'re back online', 4000);
+      return;
+    }
     try {
       await window._setDoc(window.getStoreRunLogRef(_workingRunDate || todayStr()), {
         activeFlavors, cateringItems: _cateringItems, runMade, cateringMade,

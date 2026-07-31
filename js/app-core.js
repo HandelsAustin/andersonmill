@@ -21,10 +21,13 @@ function switchTab(name) {
   });
   document.getElementById(target.panel)?.classList.add('active');
   document.getElementById(target.btn)?.classList.add('active');
-  // Sign Out only lives in the header on Store Settings — every other tab
-  // keeps the header clear of account actions during production work.
+  // Sign Out and Dashboard only live in the header on Store Settings — every
+  // other tab keeps the header clear of account/manager actions during
+  // production work.
   const authBtn = document.getElementById('authBtn');
   if (authBtn) authBtn.style.display = name === 'Settings' ? '' : 'none';
+  const dashboardBtn = document.getElementById('dashboardBtn');
+  if (dashboardBtn) dashboardBtn.style.display = name === 'Settings' ? '' : 'none';
   window.scrollTo(0, 0);
   target.render();
 }
@@ -220,9 +223,7 @@ function bootstrap() {
     window.setStoreId(savedId);
     loadOrgStores().then(() => {
       const store = findStoreById(savedId);
-      if (store && !localStorage.getItem('car_store_label')) {
-        localStorage.setItem('car_store_label', store.label || store.id);
-      }
+      _storeDisplayLabel(savedId, store?.label);
       _updateHeaderSub();
       init();
     }).catch(() => {
@@ -269,6 +270,22 @@ if ('serviceWorker' in navigator) {
     });
   }).catch(err => {
     console.warn('[SW] Registration failed:', err);
+  });
+
+  // sw.js calls skipWaiting()/clients.claim(), so a new version takes control of
+  // already-open tabs almost immediately — but the JS already running in memory
+  // doesn't update itself. Auto-reload once the new SW takes over so a deploy
+  // actually takes effect without the operator having to notice/act on the toast
+  // above. Skipped mid-run with unsaved progress (existing beforeunload guard
+  // would just interrupt it anyway) — the toast still shows as a fallback there.
+  let _reloadingForUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (_reloadingForUpdate) return;
+    if (typeof runMode !== 'undefined' && runMode && typeof _totalBucketsMade !== 'undefined' && _totalBucketsMade > 0) {
+      return;
+    }
+    _reloadingForUpdate = true;
+    window.location.reload();
   });
 }
 

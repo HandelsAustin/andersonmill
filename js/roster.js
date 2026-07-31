@@ -232,23 +232,123 @@ function makeSelect(options, currentVal, fn) {
   return sel;
 }
 
+// Shared −/value/+ quantity stepper with tap-to-type and rapid-fire long-press —
+// used by the Run tab's Holding column and the Novelties tab's On Hand column.
+// onChange fires once per commit (button release or tap-to-type blur/Enter),
+// not on every intermediate tick, so callers can save/re-render just once.
+function buildQuantityStepper({ value, max = 99, onChange }) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px;';
+
+  const btnStyle = 'width:44px;height:44px;font-size:20px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:6px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;-webkit-tap-highlight-color:transparent;';
+
+  const minusBtn = document.createElement('button');
+  minusBtn.textContent = '−';
+  minusBtn.style.cssText = btnStyle;
+
+  const val = document.createElement('span');
+  let current = Math.max(0, parseInt(value) || 0);
+  val.textContent = current;
+  val.style.cssText = 'min-width:28px;text-align:center;font-size:15px;font-weight:600;color:#f5f0e8;cursor:pointer;user-select:none;';
+  val.title = 'Tap to enter value';
+
+  const plusBtn = document.createElement('button');
+  plusBtn.textContent = '+';
+  plusBtn.style.cssText = btnStyle;
+
+  // Rapid-fire long-press: increments immediately on press, accelerates on hold, commits on release
+  const _attachRapidPress = (btn, delta) => {
+    let timerId = null, delay = 400, pressing = false;
+    const tick = () => {
+      if (!pressing) return;
+      current = Math.min(max, Math.max(0, current + delta));
+      val.textContent = current;
+      delay = Math.max(60, delay * 0.85);
+      timerId = setTimeout(tick, delay);
+    };
+    const start = (e) => {
+      e.preventDefault();
+      pressing = true;
+      delay = 400;
+      current = Math.min(max, Math.max(0, current + delta));
+      val.textContent = current;
+      timerId = setTimeout(tick, delay);
+    };
+    const stop = () => {
+      if (!pressing) return;
+      pressing = false;
+      clearTimeout(timerId);
+      onChange(current);
+    };
+    btn.addEventListener('pointerdown', start);
+    btn.addEventListener('pointerup',   stop);
+    btn.addEventListener('pointercancel', stop);
+    btn.addEventListener('pointerleave', stop);
+  };
+  _attachRapidPress(minusBtn, -1);
+  _attachRapidPress(plusBtn, +1);
+
+  // Tap-to-type: click the value display to enter a number directly
+  val.addEventListener('click', () => {
+    let settled = false;
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.inputMode = 'numeric';
+    inp.pattern = '[0-9]*';
+    inp.value = current;
+    inp.style.cssText = 'width:52px;font-size:15px;font-weight:600;text-align:center;background:#12223a;border:1.5px solid #98d4e3;border-radius:6px;color:#f5f0e8;padding:4px 2px;';
+    wrap.replaceChild(inp, val);
+    inp.focus();
+    inp.select();
+    const commit = () => {
+      if (settled) return;
+      settled = true;
+      current = Math.min(max, Math.max(0, parseInt(inp.value) || 0));
+      wrap.replaceChild(val, inp);
+      val.textContent = current;
+      onChange(current);
+    };
+    inp.addEventListener('blur', commit);
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { inp.blur(); }
+      if (e.key === 'Escape') {
+        if (settled) return;
+        settled = true;
+        wrap.replaceChild(val, inp);
+      }
+    });
+  });
+
+  wrap.appendChild(minusBtn);
+  wrap.appendChild(val);
+  wrap.appendChild(plusBtn);
+  return wrap;
+}
+
 // ── TABLE ──────────────────────────────────────────────────────────────────
+// Cabinet-numbering is a store-wide default (Firestore, store.settings.cabinetNumbersEnabled)
+// so every device at a store agrees on it, not a per-device toggle. localStorage
+// is kept only as an offline-load fallback before store settings have arrived.
 let _cabinetSortEnabled = false;
 let _cabinetCallback    = null;
 function loadCabinetPref() {
-  const val = localStorage.getItem('car_cabinet_sort');
-  _cabinetSortEnabled = val === 'true';
+  if (typeof _storeSettings !== 'undefined' && _storeSettings && _storeSettings.cabinetNumbersEnabled !== undefined) {
+    _cabinetSortEnabled = !!_storeSettings.cabinetNumbersEnabled;
+  } else {
+    _cabinetSortEnabled = localStorage.getItem('car_cabinet_sort') === 'true';
+  }
+  try { localStorage.setItem('car_cabinet_sort', _cabinetSortEnabled ? 'true' : 'false'); } catch (e) {}
 }
 
 function saveCabinetPref(val) {
   _cabinetSortEnabled = val;
-  localStorage.setItem('car_cabinet_sort', val ? 'true' : 'false');
+  try { localStorage.setItem('car_cabinet_sort', val ? 'true' : 'false'); } catch (e) {}
+  if (typeof saveStoreSettings === 'function') saveStoreSettings({ cabinetNumbersEnabled: val });
 }
 
 function resetCabinetSort() {
   if (!confirm('Turn off cabinet assignments? This will clear all cabinet numbers.')) return;
-  localStorage.setItem('car_cabinet_sort', 'false');
-  _cabinetSortEnabled = false;
+  saveCabinetPref(false);
   activeFlavors.forEach(f => { delete f.cabinet; });
   saveAll();
   updateSortToggleUI();
@@ -358,7 +458,9 @@ function openAddModal() {
   updateSortToggleUI();
   renderPicker();
   setTimeout(() => document.getElementById('pickerSearch').focus(), 10);
-  if (localStorage.getItem('car_cabinet_sort') === null) {
+  // Ask once per STORE (not per device) — once anyone sets the default, every
+  // device just follows it via _storeSettings.cabinetNumbersEnabled.
+  if (typeof _storeSettings !== 'undefined' && _storeSettings && _storeSettings.cabinetNumbersEnabled === undefined) {
     setTimeout(() => askCabinetPreference(), 200);
   }
 }

@@ -100,9 +100,8 @@ function updateRoleUIVisibility() {
 }
 
 function _updateHeaderSub() {
-  const raw = localStorage.getItem('car_store_label') || (window.getCurrentStoreId && window.getCurrentStoreId());
-  // Guard against the literal string "undefined" being stored from a prior session
-  const storeLabel = (raw && raw !== 'undefined') ? raw : null;
+  const storeId = window.getCurrentStoreId && window.getCurrentStoreId();
+  const storeLabel = storeId ? _storeDisplayLabel(storeId) : null;
   if (!storeLabel) return;
   const sub = document.querySelector('.header-sub');
   if (!sub) return;

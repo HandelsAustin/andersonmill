@@ -274,10 +274,20 @@ function renderNoveltiesPage() {
         renderTargetCell();
         tr.appendChild(tdTarget);
 
-        // On Hand
+        // On Hand — freely editable running count (same −/value/+ stepper as
+        // the Run tab's Holding column), independent of the Made/completion status.
         const tdOnHand = document.createElement('td');
-        tdOnHand.style.cssText = 'text-align:center;padding:9px 4px;font-weight:600;';
-        tdOnHand.textContent = entry.onHand;
+        tdOnHand.style.cssText = 'text-align:center;padding:9px 4px;';
+        tdOnHand.appendChild(buildQuantityStepper({
+          value: entry.onHand,
+          max: 999,
+          onChange: val => {
+            entry.onHand = val;
+            saveNoveltiesLog();
+            renderToMakeCell();
+            checkNoveltiesComplete();
+          }
+        }));
         tr.appendChild(tdOnHand);
 
         // To Make
@@ -421,8 +431,12 @@ async function submitNoveltiesSummary() {
     if (totalMade > 0) {
       try {
         const userName = _currentUserName();
+        const categories = {};
+        madeItems.forEach(item => {
+          categories[item.category] = (categories[item.category] || 0) + (_getLogEntry(item).madeQty || 0);
+        });
         const newEntry = {
-          type: 'novelties_completed', items: totalMade, at: Date.now(),
+          type: 'novelties_completed', items: totalMade, categories, at: Date.now(),
           ...(userName ? { by: userName } : {}),
         };
         _storeEvents = [..._storeEvents, newEntry].slice(-10);
