@@ -1,11 +1,58 @@
 # Changelog
 
 ## Current Version
-v0.1
+v0.2
 
 ---
 
 ## Recent Changes
+
+### Master Flavor List Management, Store Assignment, PWA Icons (2026-07-30)
+Rounds out the corporate-admin tooling and closes a couple of long-standing gaps found while reviewing outstanding work.
+
+- **Added:** Corporate-only "Edit Master Flavor List" panel in Store Settings → Flavor Roster (`js/settings.js`: `_toggleMasterFlavorPanel()`/`_renderMasterFlavorPanel()`/`_renderMasterFlavorList()`) — searchable list of every roster flavor with inline code/type editing and permanent removal, applied org-wide.
+- **Added:** `organizations/{orgId}.flavorEdits` (`{[name]: {category?, type?}}`) and `.flavorRemovals` (`[name, ...]`) — new org-level overlay fields, applied on top of `MASTER_ROSTER` + `customFlavors` by `_applyOrgFlavorOverrides()` in `js/store-org.js`. Renaming a flavor's display name is intentionally not supported — name is the primary key used throughout the app (activeFlavors matching, storeEvents flavor tallies), so changing it would silently break historical data linkage.
+- **Added:** `editOrgFlavor(name, changes)` / `removeOrgFlavor(name, onDone)` in `js/roster.js` — corporate-gated; removal includes an undo toast and purges the flavor from every store's `activeFlavors` in memory.
+- **Added:** Store-assignment editor in Settings → Users & Roles (`_renderMemberStoresEditor()`) — corporate can now add/remove which store(s) an existing STORE_MANAGER-tier account can sign into (checkbox list, per-store, saved to `members/{uid}.stores[]`). Previously the only way to grant store access was the original account-bootstrap flow, which only worked for brand-new emails.
+- **Added:** `icons/icon-192.png` + `icons/icon-512.png` (rendered from the existing `icon.svg` via headless Chromium, no new build tooling) and registered in `manifest.json` — closes a long-open gap that degraded the Android "Add to Home Screen" install prompt (iOS was unaffected, SVG-only works there).
+- **Fixed:** the undo toast (`showUndoToast()`) and the iOS install hint banner were both `position:fixed` near the bottom of the viewport with a lower `z-index` than the bottom tab bar — same root cause as the modal issue below, just missed in the first pass since they're dynamically-created elements, not overlay classes. Both now sit above the tab bar with a matching `z-index` and a `bottom` offset that clears it.
+- **Removed:** dead code — `removeFromRoster()`/`commitRosterDelete()`/`undoRosterDelete()`/`pendingRosterDelete` in `js/roster.js` had no remaining caller since the roster picker's trash icon was repurposed to "unselect" (see below). `resetDay()` in `js/production.js` had a defensive reference to the now-deleted `undoTimer`, which would have thrown a `ReferenceError` — removed along with it.
+- **Housekeeping:** consolidated this session's sprawling `TODO.md` "in progress" logs into this changelog and reset `TODO.md` to a clean current-state list.
+
+### Post-Tab-Bar Cleanup Pass (2026-07-30)
+- **Fixed:** `.modal-backdrop` (the Edit Flavors modal) had `z-index: 100`, below the new bottom tab bar's `z-index: 250` — its Done button and bottom content were visually covered. Bumped to `260`.
+- **Changed:** adding a flavor to the roster is now corporate-only and org-wide (`organizations/{orgId}.customFlavors`, populated into `_orgCustomFlavors` by `loadOrgMetadata()`) instead of a per-store addition any signed-in account could make. Non-corporate accounts can still toggle which existing flavors are active today.
+- **Changed:** the roster picker's trash icon now only appears on flavors already selected for today, and just unselects them (same as tapping the name) — it no longer permanently deletes from the roster.
+- **Fixed:** `MASTER_ROSTER` entries used "Oreo®️" — the ® followed by U+FE0F (variation selector-16), which forces emoji-style presentation and made the symbol render gray regardless of the surrounding text color. Removed the trailing U+FE0F from all 5 affected entries.
+- **Changed:** Sign Out (`#authBtn`) hidden while the Store Settings tab is active; removed the standalone "☰ Edit Flavors" toolbar button from the Ice Cream Run tab (reachable via Settings → Manage Flavor Roster now, already PIN-gated by the Settings tab itself).
+- **Changed:** Novelties redesigned to mirror the Ice Cream Run's flavor table — Item / Target (PIN-gated, same as the flavor Target column) / On Hand / To Make / Made columns. Removed the ability to add/remove items (fixed preset catalog now); "Made" prompts for a quantity and adds it to on-hand, replacing the old boolean done/checked-off model.
+
+### Login/PIN Rework: Store Accounts + Shared Manager PIN (2026-07-30)
+Replaces the anonymous "Continue as Employee" mode with mandatory sign-in, and replaces role-based feature hiding with a per-store PIN.
+
+- **Removed:** anonymous employee mode entirely — `enterEmployeeMode()`, `car_employee_session`, the standalone `#authOverlay` modal. The entry screen (`#entryOverlay`) is now the login form itself; every session signs in with a shared per-store email/password.
+- **Fixed:** the store picker was never actually scoped by `members/{uid}.stores[]` despite that field being written on account creation — any org member could see/pick every store in the org. `_scopedStores()` in `js/store-org.js` now filters to the signed-in account's own stores unless `CORPORATE_ADMIN` (sees all).
+- **Changed:** all four bottom tabs + the Dashboard button are always visible to any signed-in account. Dashboard/Inventory/Store Settings/Edit Flavors are gated instead by a shared 4-digit manager PIN per store (`store.managerPin`, Firestore-backed — not per-device like the previous, never-wired-up localStorage version). `requireManager()`/`openPinModal()` are properly connected for the first time.
+- **Added:** `CORPORATE_ADMIN` bypasses the PIN entirely (already a personally-authenticated, elevated account) — gets the corporate dashboard and any individual store's manager dashboard with no prompt.
+- **Added:** "Forgot PIN" — re-confirms the store login's password via Firebase `reauthenticateWithCredential`, then lets the manager set a new PIN. No email step (no backend/Cloud Functions exist in this app to send one).
+- **Added:** Switch Store section in Store Settings — lists the account's accessible stores, one-tap switch via the existing `selectStore()`.
+- **Fixed:** switching stores didn't reset `_managerUnlocked`, so unlocking the PIN at one store silently unlocked manager features at another store too, without ever entering its PIN. `selectStore()` now locks manager mode and returns to the Run tab on every switch.
+
+### Bottom Tab Navigation + Date-Recallable History + Inventory Overhaul (2026-07-29)
+Replaces the header-button/popup-overlay pattern with a persistent bottom tab bar, and makes the Ice Cream Run, Novelties, and Inventory date-recallable.
+
+- **Added:** 4 fixed bottom tabs — Ice Cream Run, Novelties, Inventory, Store Settings (`switchTab()` in `js/app-core.js`). `#settingsOverlay`/`#noveltiesOverlay`/`#inventoryOverlay` no longer exist as popups — their content lives directly in the corresponding tab panel.
+- **Added:** date-recallable Ice Cream Run — `organizations/{orgId}/stores/{storeId}/runs/{date}` holds `activeFlavors`/`cateringItems` per day (roster stays on the store doc, persistent, not per-day). `loadRunForDate(date)` swaps the working date; a "📅 Today ▾" picker lists recent dates. `resetDay()` always snaps back to today first.
+- **Changed:** Novelties pivoted from a live on-hand tracker to a daily make-checklist — `novelties` is the persistent catalog (category/name/parLevel), `noveltiesLog/{date}` holds that day's counts. Make qty = `max(0, parLevel - onHand)`.
+- **Changed:** Inventory catalog renamed `inventoryItems` → `inventoryCatalog`, extended with `pricePerUnit`/`locationOrder`/`distributorOrder`; per-date counts live in `inventoryLog/{date}`. Added CSV import with flexible column-mapping (`_parseCSV()`, since distributor export formats vary and aren't known in advance), a dual sort toggle (store location vs. distributor site order), and a running Total Inventory Value.
+- **Added:** `firestore.rules` for the three new subcollections (`runs`, `noveltiesLog`, `inventoryLog`), verified against a real Firestore emulator with `@firebase/rules-unit-testing` — deployed to production by the user.
+
+### Modularization, Settings/Novelties/Inventory v1, Forgot Password (2026-07-29)
+- **Changed:** split `index.html`'s ~3,500-line inline script into `js/auth.js`, `roster.js`, `production.js`, `manager-lock.js`, `store-org.js`, `dashboard.js`, `app-core.js` — mechanical extraction, no logic changes, verified via a line-coverage script (all 177 top-level declarations accounted for exactly once).
+- **Fixed:** `getOrgDocRef()`/`getStoreDocRef()`/`getOrgMemberRef()` were redeclared as local wrapper functions that called `window.<same name>()` — since a top-level function declaration overwrites the `window.*` property of the same name, each wrapper recursed into itself infinitely, silently breaking nearly every real Firestore read/write. Present in the pre-split monolith too, not introduced by the modularization; masked in production by the offline-first fallback to localStorage.
+- **Fixed:** `saveAll()` used a non-merge `setDoc`, so any routine save could wipe `label`/`lastRunDate`/`storeEvents` from the store doc. Now uses `{ merge: true }`.
+- **Added:** Manager Settings page (store profile, roster management, bulk flavor import, Users & Roles, order/inventory config, theme toggle for the new pages), Novelties page (37-item preset catalog, on-hand tracking), Inventory page (par-level tracking, order qty = par − on-hand).
+- **Added:** "Forgot password?" on the Manager Login modal (`sendPasswordResetEmail`), with a non-committal message for a nonexistent email so the flow can't be used to enumerate manager accounts.
 
 ### Catering Production Support (2026-05-29)
 Integrates catering bucket tracking into the existing production run workflow — operationally distinct but visually and structurally unified with regular production.

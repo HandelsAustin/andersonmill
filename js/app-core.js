@@ -307,7 +307,7 @@ function _showInstallHint() {
 
   const banner = document.createElement('div');
   banner.id = 'iosInstallBanner';
-  banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:420px;background:#1a2f52;border:1.5px solid #4a7ab5;border-radius:10px;padding:14px 16px;z-index:150;display:flex;align-items:flex-start;gap:12px;box-shadow:0 6px 28px rgba(0,0,0,0.55);';
+  banner.style.cssText = 'position:fixed;bottom:calc(74px + env(safe-area-inset-bottom, 0px));left:50%;transform:translateX(-50%);width:calc(100% - 32px);max-width:420px;background:#1a2f52;border:1.5px solid #4a7ab5;border-radius:10px;padding:14px 16px;z-index:260;display:flex;align-items:flex-start;gap:12px;box-shadow:0 6px 28px rgba(0,0,0,0.55);';
   banner.innerHTML = `
     <span style="font-size:22px;flex-shrink:0;line-height:1.3;">📲</span>
     <div style="flex:1;min-width:0;">

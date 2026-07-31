@@ -29,6 +29,8 @@ async function loadOrgMetadata() {
       window._orgName = meta.name;
     }
     _orgCustomFlavors = meta?.customFlavors || [];
+    _orgFlavorEdits = meta?.flavorEdits || {};
+    _orgFlavorRemovals = meta?.flavorRemovals || [];
   } catch (e) {
     console.error('Org metadata load error:', e);
   }
@@ -43,13 +45,28 @@ function _getOrgDisplayName() {
 // see _applyRunData()/loadRunForDate() below. applyData() re-derives category/type
 // on the already-loaded activeFlavors in case the roster changed (e.g. another
 // device edited it), but is not the source of activeFlavors itself.
+// Applies corporate's org-wide edits (code/type changes) and removals to the
+// combined MASTER_ROSTER + org custom-flavor list. Store-level legacy customAdded
+// entries are intentionally left untouched by these — they're a separate,
+// per-store mechanism predating org-wide flavor management.
+function _applyOrgFlavorOverrides(list) {
+  return list
+    .filter(f => !_orgFlavorRemovals.includes(f.name))
+    .map(f => {
+      const edit = _orgFlavorEdits[f.name];
+      return edit ? { ...f, ...edit } : f;
+    });
+}
+
 function applyData(data) {
   _storeDoc = data || null;
   const removed = data?.removedNames || [];
   const custom  = data?.customAdded  || []; // legacy per-store custom flavors, kept for backward-compat
   roster = [
-    ...MASTER_ROSTER.filter(m => !removed.includes(m.name)),
-    ..._orgCustomFlavors, // corporate-added, shared across every store — see loadOrgMetadata()
+    ..._applyOrgFlavorOverrides([
+      ...MASTER_ROSTER.filter(m => !removed.includes(m.name)),
+      ..._orgCustomFlavors, // corporate-added, shared across every store — see loadOrgMetadata()
+    ]),
     ...custom
   ];
   activeFlavors = (activeFlavors || []).map(f => {

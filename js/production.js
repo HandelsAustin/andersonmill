@@ -843,8 +843,6 @@ async function resetDay() {
     await loadRunForDate(todayStr());
   }
 
-  // Commit any pending roster delete — two undoable actions can't coexist
-  if (undoTimer) { clearTimeout(undoTimer); commitRosterDelete(); }
   // Commit any pending prior reset before starting a new one
   if (_resetUndoTimer) { clearTimeout(_resetUndoTimer); _resetSnapshot = null; _resetUndoTimer = null; }
 

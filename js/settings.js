@@ -143,12 +143,26 @@ function renderSettingsPage() {
   bulkBtn.textContent = '⇪ Bulk Import Flavors';
   bulkBtn.onclick = () => openBulkImport();
   rosterBtnRow.append(manageBtn, bulkBtn);
+  if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+    const masterBtn = document.createElement('button');
+    masterBtn.className = 'btn';
+    masterBtn.textContent = '✏️ Edit Master Flavor List';
+    masterBtn.onclick = () => _toggleMasterFlavorPanel();
+    rosterBtnRow.appendChild(masterBtn);
+  }
   rosterSection.appendChild(rosterBtnRow);
 
   const bulkPanel = document.createElement('div');
   bulkPanel.id = 'bulkImportPanel';
   bulkPanel.style.cssText = 'display:none;margin-top:10px;';
   rosterSection.appendChild(bulkPanel);
+
+  if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+    const masterPanel = document.createElement('div');
+    masterPanel.id = 'masterFlavorPanel';
+    masterPanel.style.cssText = 'display:none;margin-top:10px;';
+    rosterSection.appendChild(masterPanel);
+  }
   content.appendChild(rosterSection);
 
   // ── Users & Roles (CORPORATE_ADMIN only) ─────────────────────────────────
@@ -245,18 +259,24 @@ async function _loadMembersIntoSettings(container) {
     }
     const currentUid = window._auth && window._auth.currentUser ? window._auth.currentUser.uid : null;
     members.forEach(m => {
+      const wrap = document.createElement('div');
+      wrap.style.marginBottom = '6px';
+
       const row = document.createElement('div');
       row.className = 'settings-card';
-      row.style.cssText += 'display:flex;align-items:center;justify-content:space-between;gap:10px;';
+      row.style.cssText += 'display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;';
 
       const info = document.createElement('div');
       info.style.cssText = 'font-size:12px;word-break:break-word;flex:1;min-width:0;';
       info.textContent = m.email || m.uid;
       row.appendChild(info);
 
+      const controlsWrap = document.createElement('div');
+      controlsWrap.style.cssText = 'display:flex;gap:6px;flex-shrink:0;';
+
       const roleSelect = document.createElement('select');
       roleSelect.className = 'settings-input';
-      roleSelect.style.cssText = 'width:auto;flex-shrink:0;font-size:12px;padding:6px 8px;';
+      roleSelect.style.cssText = 'width:auto;font-size:12px;padding:6px 8px;';
       [ROLES.STORE_MANAGER, ROLES.CORPORATE_ADMIN].forEach(r => {
         const opt = document.createElement('option');
         opt.value = r;
@@ -269,17 +289,44 @@ async function _loadMembersIntoSettings(container) {
         roleSelect.disabled = true;
         roleSelect.title = "You can't change your own role.";
       }
+
+      // Store-tier accounts are scoped to members/{uid}.stores[] (see _scopedStores()
+      // in store-org.js) — corporate accounts see every store regardless, so the
+      // stores editor is only meaningful (and only shown) for STORE_MANAGER members.
+      const storesBtn = document.createElement('button');
+      storesBtn.className = 'btn';
+      storesBtn.style.cssText = 'font-size:11px;padding:6px 10px;';
+      storesBtn.textContent = `Stores (${(m.stores || []).length})`;
+      storesBtn.style.display = m.role === ROLES.CORPORATE_ADMIN ? 'none' : '';
+
       roleSelect.onchange = async () => {
         try {
           await window._setDoc(window.getOrgMemberRef(m.uid), { role: roleSelect.value }, { merge: true });
           showStatusMessage(`✓ Role updated for ${m.email || m.uid}`, 2000);
+          m.role = roleSelect.value;
+          storesBtn.style.display = m.role === ROLES.CORPORATE_ADMIN ? 'none' : '';
+          storesPanel.style.display = 'none';
         } catch (e) {
           console.error('Role update error:', e);
           showStatusMessage('⚠ Could not update role', 2500);
         }
       };
-      row.appendChild(roleSelect);
-      container.appendChild(row);
+      controlsWrap.append(roleSelect, storesBtn);
+      row.appendChild(controlsWrap);
+      wrap.appendChild(row);
+
+      const storesPanel = document.createElement('div');
+      storesPanel.style.cssText = 'display:none;margin-top:6px;padding:10px;';
+      storesPanel.classList.add('settings-card');
+      wrap.appendChild(storesPanel);
+
+      storesBtn.onclick = async () => {
+        const willShow = storesPanel.style.display === 'none';
+        storesPanel.style.display = willShow ? '' : 'none';
+        if (willShow) await _renderMemberStoresEditor(storesPanel, m, storesBtn);
+      };
+
+      container.appendChild(wrap);
     });
   } catch (e) {
     console.error('Members load error:', e);
@@ -289,6 +336,55 @@ async function _loadMembersIntoSettings(container) {
     msg.textContent = 'Could not load users.';
     container.appendChild(msg);
   }
+}
+
+// Lets a corporate admin add/remove which store(s) a STORE_MANAGER-tier account
+// can sign into — extends what account creation already does (a brand-new email
+// signing in while a store is selected auto-scopes to that one store) to existing
+// accounts needing a 2nd/3rd store added later.
+async function _renderMemberStoresEditor(panel, member, storesBtn) {
+  panel.innerHTML = '';
+  const loading = document.createElement('div');
+  loading.className = 'settings-note';
+  loading.textContent = 'Loading stores…';
+  panel.appendChild(loading);
+
+  const allStores = await loadOrgStores(); // refresh — viewer is corporate, so this is the full org list
+  panel.innerHTML = '';
+  if (!allStores.length) {
+    const empty = document.createElement('div');
+    empty.className = 'settings-note';
+    empty.textContent = 'No stores in this org yet.';
+    panel.appendChild(empty);
+    return;
+  }
+
+  const assigned = new Set(member.stores || []);
+  allStores.forEach(store => {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 0;cursor:pointer;';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = assigned.has(store.id);
+    checkbox.onchange = async () => {
+      if (checkbox.checked) assigned.add(store.id); else assigned.delete(store.id);
+      const stores = [...assigned];
+      try {
+        await window._setDoc(window.getOrgMemberRef(member.uid), { stores }, { merge: true });
+        member.stores = stores;
+        storesBtn.textContent = `Stores (${stores.length})`;
+        showStatusMessage(`✓ Store access updated for ${member.email || member.uid}`, 2000);
+      } catch (e) {
+        console.error('Member store update error:', e);
+        showStatusMessage('⚠ Could not update store access', 2500);
+        checkbox.checked = !checkbox.checked; // revert on failure
+      }
+    };
+    const text = document.createElement('span');
+    text.textContent = store.label || store.id;
+    label.append(checkbox, text);
+    panel.appendChild(label);
+  });
 }
 
 // ── Bulk Flavor Import ───────────────────────────────────────────────────────
@@ -377,4 +473,97 @@ function _buildBulkImportPanel(panel) {
     const rosterInfo = document.getElementById('settingsRosterInfo');
     if (rosterInfo) rosterInfo.textContent = `${roster.length} flavors in roster · ${activeFlavors.length} active today`;
   };
+}
+
+// ── Edit Master Flavor List (CORPORATE_ADMIN only) ──────────────────────────
+// Corporate-wide code/type edits and permanent removals — org.js's editOrgFlavor()/
+// removeOrgFlavor() apply the change to every store's roster, not just this one.
+// Renaming a flavor's display name isn't supported (name is the primary key used
+// throughout the app), only its code (category) and type.
+function _toggleMasterFlavorPanel() {
+  const panel = document.getElementById('masterFlavorPanel');
+  if (!panel) return;
+  const willShow = panel.style.display === 'none';
+  panel.style.display = willShow ? '' : 'none';
+  if (willShow) _renderMasterFlavorPanel();
+}
+
+function _renderMasterFlavorPanel() {
+  const panel = document.getElementById('masterFlavorPanel');
+  if (!panel) return;
+  panel.innerHTML = '';
+
+  const searchInput = document.createElement('input');
+  searchInput.className = 'settings-input';
+  searchInput.placeholder = 'Search flavors…';
+  searchInput.style.marginBottom = '8px';
+
+  const listWrap = document.createElement('div');
+  listWrap.style.cssText = 'max-height:360px;overflow-y:auto;display:grid;gap:6px;';
+
+  searchInput.oninput = () => _renderMasterFlavorList(listWrap, searchInput.value);
+  panel.append(searchInput, listWrap);
+  _renderMasterFlavorList(listWrap, '');
+}
+
+function _renderMasterFlavorList(listWrap, query) {
+  listWrap.innerHTML = '';
+  const q = (query || '').toLowerCase();
+  const items = [...roster].filter(r => r.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
+
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'settings-note';
+    empty.textContent = 'No matches.';
+    listWrap.appendChild(empty);
+    return;
+  }
+
+  items.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'settings-card';
+    row.style.cssText += 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
+
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = 'flex:1;min-width:140px;font-size:13px;font-weight:600;';
+    nameEl.textContent = item.name;
+    row.appendChild(nameEl);
+
+    const codeInput = document.createElement('input');
+    codeInput.type = 'text';
+    codeInput.className = 'settings-input';
+    codeInput.value = item.category;
+    codeInput.placeholder = 'Code';
+    codeInput.style.cssText = 'width:100px;padding:6px;';
+    codeInput.onchange = () => editOrgFlavor(item.name, { category: codeInput.value.trim() });
+    row.appendChild(codeInput);
+
+    const typeSelect = document.createElement('select');
+    typeSelect.className = 'settings-input';
+    typeSelect.style.cssText = 'width:96px;padding:6px;';
+    [{ v: '', l: 'Regular' }, { v: 'WO', l: 'WO' }, { v: 'TD', l: 'TD' }].forEach(({ v, l }) => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = l;
+      if ((item.type || '') === v) opt.selected = true;
+      typeSelect.appendChild(opt);
+    });
+    typeSelect.onchange = () => editOrgFlavor(item.name, { type: typeSelect.value });
+    row.appendChild(typeSelect);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '🗑';
+    removeBtn.title = "Remove from every store's roster";
+    removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:6px;';
+    removeBtn.onclick = () => {
+      removeOrgFlavor(item.name, () => {
+        _renderMasterFlavorList(listWrap, query);
+        const rosterInfo = document.getElementById('settingsRosterInfo');
+        if (rosterInfo) rosterInfo.textContent = `${roster.length} flavors in roster · ${activeFlavors.length} active today`;
+      });
+    };
+    row.appendChild(removeBtn);
+
+    listWrap.appendChild(row);
+  });
 }

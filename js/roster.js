@@ -2,6 +2,8 @@
 // Extracted from index.html — no logic changes.
 
 let _orgCustomFlavors = []; // [{name, category, type}] — corporate-added, shared across every store in the org; populated by loadOrgMetadata() in store-org.js
+let _orgFlavorEdits = {}; // { [name]: {category?, type?} } — corporate code/type edits to any existing flavor, org-wide
+let _orgFlavorRemovals = []; // [name, ...] — corporate permanent removals, org-wide (distinct from a store's own removedNames)
 
 const MASTER_ROSTER = [
   {category:"90301", name:"Banana (BAN)", type:"TD"},
@@ -383,48 +385,16 @@ function toggleFlavor(name) {
   }
 }
 
-let pendingRosterDelete = null;
-let undoTimer = null;
-
-function removeFromRoster(name) {
-  // Stage deletion — show undo toast for 5 seconds
-  if (undoTimer) { clearTimeout(undoTimer); commitRosterDelete(); }
-  // Also commit any pending day-reset undo so the two don't conflict
-  if (_resetUndoTimer) { clearTimeout(_resetUndoTimer); _resetSnapshot = null; _resetUndoTimer = null; }
-  pendingRosterDelete = { name, roster: [...roster], active: [...activeFlavors] };
-  roster = roster.filter(r => r.name !== name);
-  activeFlavors = activeFlavors.filter(f => f.name !== name);
-  saveAll(); renderPicker();
-  showUndoToast(`"${name}" removed.`, undoRosterDelete);
-  undoTimer = setTimeout(() => { commitRosterDelete(); }, 5000);
-}
-
-function commitRosterDelete() {
-  pendingRosterDelete = null;
-  undoTimer = null;
-  hideUndoToast();
-}
-
-function undoRosterDelete() {
-  if (!pendingRosterDelete) return;
-  clearTimeout(undoTimer);
-  roster = pendingRosterDelete.roster;
-  activeFlavors = pendingRosterDelete.active;
-  pendingRosterDelete = null;
-  undoTimer = null;
-  saveAll(); renderPicker();
-  hideUndoToast();
-}
-
 // Generic undo toast — undoFn is stored globally so the inline onclick can call it.
-// Defaults to undoRosterDelete for backward compatibility.
+// No default fallback: every caller (roster bulk-import, org flavor removal,
+// novelties, inventory, day reset) passes its own undoFn.
 function showUndoToast(msg, undoFn) {
-  window._undoToastHandler = undoFn || undoRosterDelete;
+  window._undoToastHandler = undoFn || (() => {});
   let t = document.getElementById('undoToast');
   if (!t) {
     t = document.createElement('div');
     t.id = 'undoToast';
-    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a2f52;border:1.5px solid #4a7ab5;color:#c5d8f0;padding:12px 18px;border-radius:8px;display:flex;align-items:center;gap:14px;z-index:200;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
+    t.style.cssText = 'position:fixed;bottom:calc(74px + env(safe-area-inset-bottom, 0px));left:50%;transform:translateX(-50%);background:#1a2f52;border:1.5px solid #4a7ab5;color:#c5d8f0;padding:12px 18px;border-radius:8px;display:flex;align-items:center;gap:14px;z-index:260;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
     document.body.appendChild(t);
   }
   t.innerHTML = `<span>${msg}</span><button onclick="window._undoToastHandler && window._undoToastHandler()" style="background:#d72627;border:none;color:#fff;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;touch-action:manipulation;">Undo</button>`;
@@ -541,6 +511,55 @@ async function addNewToRoster() {
     console.error('Org custom flavor save error:', e);
     showStatusMessage('⚠ Could not save flavor', 2500);
   }
+}
+
+async function saveOrgFlavorOverrides() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — changes saved locally only', 3000); return; }
+  try {
+    await window._setDoc(getOrgDocRef(), { flavorEdits: _orgFlavorEdits, flavorRemovals: _orgFlavorRemovals }, { merge: true });
+  } catch (e) {
+    console.error('Org flavor overrides save error:', e);
+    showStatusMessage('⚠ Could not save changes', 2500);
+  }
+}
+
+// Corporate-only: change a flavor's code/type org-wide. Renaming the display name
+// isn't supported here — name is used as the primary key throughout the app
+// (activeFlavors matching, storeEvents flavor tallies, etc.), so changing it would
+// silently break historical data linkage.
+function editOrgFlavor(name, changes) {
+  if (!userHasRole(ROLES.CORPORATE_ADMIN)) return;
+  _orgFlavorEdits[name] = { ..._orgFlavorEdits[name], ...changes };
+  const idx = roster.findIndex(r => r.name === name);
+  if (idx >= 0) roster[idx] = { ...roster[idx], ...changes };
+  saveOrgFlavorOverrides();
+}
+
+// Corporate-only: permanently remove a flavor from every store's roster.
+// Data-only (no page re-render) — onDone(), if given, runs after the removal and
+// again after an undo, so the caller can refresh just its own list/count in place
+// instead of a full page re-render collapsing whatever panel the manager has open.
+function removeOrgFlavor(name, onDone) {
+  if (!userHasRole(ROLES.CORPORATE_ADMIN)) return;
+  const prevEdits    = { ..._orgFlavorEdits };
+  const prevRemovals = [..._orgFlavorRemovals];
+  const prevRoster   = [...roster];
+  const prevActive   = [...activeFlavors];
+  _orgFlavorRemovals.push(name);
+  roster = roster.filter(r => r.name !== name);
+  activeFlavors = activeFlavors.filter(f => f.name !== name);
+  saveOrgFlavorOverrides();
+  saveAll();
+  if (onDone) onDone();
+  showUndoToast(`"${name}" removed from every store's roster.`, () => {
+    _orgFlavorEdits    = prevEdits;
+    _orgFlavorRemovals = prevRemovals;
+    roster       = prevRoster;
+    activeFlavors = prevActive;
+    saveOrgFlavorOverrides();
+    saveAll();
+    if (onDone) onDone();
+  });
 }
 
 // ── VARIEGATES ──────────────────────────────────────────────────────────────
