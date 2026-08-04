@@ -5,7 +5,7 @@
  * To deploy a new app version that busts the old cache, bump CACHE_VERSION below.
  */
 
-const CACHE_VERSION = 'v17';
+const CACHE_VERSION = 'v18';
 const CACHE_NAME    = `count-and-run-${CACHE_VERSION}`;
 
 // App shell — precached on SW install; served from cache immediately on all subsequent loads.

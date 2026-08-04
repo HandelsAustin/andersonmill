@@ -7,6 +7,12 @@ v0.2
 
 ## Recent Changes
 
+### Follow-up: Novelties Fraction Picker Moved to On Hand (2026-08-03)
+- **Fixed:** corrects the previous entry below — the Empty/1/4/1/2/3/4/Full picker belonged on **On Hand**, not Target. Target is a free-typed number for all eight categories now (same widget everywhere, `TARGET_OPTIONS`/`FRACTION_OPTIONS` dropdown fully removed); stores that picked up the brief bad version self-heal any non-numeric Target back to the default (5) the first time the page renders.
+- **Changed:** Hurricane Toppings' On Hand is the single-container fill picker (`HURRICANE_FILL_OPTIONS`): Empty/1/4/1/2/3/4/Full.
+- **Changed:** Ice Cream Maker Cambros' On Hand is a compact whole-count number input plus a quarter-fraction select (`_buildCambroOnHandWidget()`), so staff can enter e.g. "1 1/2" — more than one cambro can be on hand at once, unlike a single topping bin.
+- Both store On Hand as a plain decimal internally, so `_toMakeNovelty()` is back to one generic `target − onHand` formula for every category (no more special-cased "Fill" flag) — `_formatQty()` turns the decimal back into a "1 1/2"-style string for the To Make column and the print view.
+
 ### Cabinet Numbers 1–6, Novelties Target Rework (2026-08-03)
 - **Changed:** the dipping-cabinet picker now offers 1–6 instead of 1–4 (`.cabinet-btns` moved to a 3-column grid so it stays touch-friendly with two rows of three; `index.html` static picker and `js/roster.js`'s `restoreCabinetBox()` both updated).
 - **Changed:** Novelties tab — categories reordered to Waffle Cones, Waffle Bowls, Handel Pops, Ice Cream Sandwiches, Chocolate Bananas, Sundae Bases, Hurricane Toppings, Ice Cream Maker Cambros.

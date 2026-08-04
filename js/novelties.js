@@ -25,13 +25,73 @@ const NOVELTY_CATALOG = [
 ];
 const NOVELTY_DEFAULT_PAR = 5;
 
-// These two categories track a bulk container's fill level rather than a
-// countable target — Target uses the Empty/1/4/1/2/3/4/Full picker (FRACTION_OPTIONS,
-// js/roster.js) instead of a typed number. Every other category gets a free-typed
-// numeric Target (no upper limit, unlike the old shared 0–10 TARGET_OPTIONS dropdown).
-const NOVELTY_FRACTION_CATEGORIES = ['Hurricane Toppings', 'Ice Cream Maker Cambros'];
-function _isFractionNovelty(item) {
-  return NOVELTY_FRACTION_CATEGORIES.includes(item.category);
+// Target is the same free-typed number for every category (no upper limit,
+// unlike the old shared 0–10 TARGET_OPTIONS dropdown). On Hand is where these
+// two categories differ from the rest — they track a bulk container, not a
+// simple count, so they get their own input widget in renderNoveltiesPage():
+//  - Hurricane Toppings: one container's fill level (Empty/1/4/1/2/3/4/Full).
+//  - Ice Cream Maker Cambros: whole cambros *and* a fraction of one more, e.g.
+//    "1 1/2" — a whole-count input plus a quarter-fraction select.
+// Both store onHand as a plain decimal (0.25 increments), so _toMakeNovelty()
+// stays one generic numeric formula for every category; _formatQty() below
+// turns the decimal back into a "1 1/2"-style string for display.
+const NOVELTY_HURRICANE_CATEGORY = 'Hurricane Toppings';
+const NOVELTY_CAMBRO_CATEGORY    = 'Ice Cream Maker Cambros';
+const HURRICANE_FILL_OPTIONS = [
+  {label:'Empty', value:0},
+  {label:'1/4',   value:0.25},
+  {label:'1/2',   value:0.5},
+  {label:'3/4',   value:0.75},
+  {label:'Full',  value:1},
+];
+const CAMBRO_FRACTION_OPTIONS = [
+  {label:'—',   value:0},
+  {label:'1/4', value:0.25},
+  {label:'1/2', value:0.5},
+  {label:'3/4', value:0.75},
+];
+
+// Formats a decimal quantity (whole numbers, or quarters like 1.25/1.5/1.75)
+// as a mixed-number string, e.g. 0.5 → "1/2", 1.5 → "1 1/2", 3 → "3". Plain
+// integers (every category besides the two above) pass through unchanged.
+const _QUARTER_LABELS = { 1: '1/4', 2: '1/2', 3: '3/4' };
+function _formatQty(n) {
+  if (n === undefined || n === null || isNaN(n)) return n;
+  const whole = Math.floor(n);
+  const quarters = Math.round((n - whole) * 4);
+  if (quarters === 0) return String(whole);
+  if (quarters === 4) return String(whole + 1);
+  const fracStr = _QUARTER_LABELS[quarters];
+  return whole > 0 ? `${whole} ${fracStr}` : fracStr;
+}
+
+// Ice Cream Maker Cambros' On Hand widget — a compact whole-count number input
+// plus a quarter-fraction select, so staff can enter e.g. "1 1/2" (1 whole
+// cambro + a half of another). onChange always receives the combined decimal.
+function _buildCambroOnHandWidget(value, onChange) {
+  const whole = Math.floor(value || 0);
+  const frac  = Math.round(((value || 0) - whole) * 4) / 4;
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+  const wholeInput = document.createElement('input');
+  wholeInput.type = 'number';
+  wholeInput.inputMode = 'numeric';
+  wholeInput.min = '0';
+  wholeInput.value = whole;
+  wholeInput.className = 'settings-input';
+  wholeInput.style.cssText = 'width:38px;text-align:center;padding:6px 2px;';
+  const fracSelect = makeSelect(CAMBRO_FRACTION_OPTIONS, frac, commit);
+  fracSelect.style.cssText = 'padding:5px 2px;font-size:12px;';
+  function commit() {
+    const w = Math.max(0, parseInt(wholeInput.value, 10) || 0);
+    const f = Number(fracSelect.value);
+    onChange(w + f);
+  }
+  wholeInput.onchange = commit;
+  wholeInput.onblur = commit;
+  wrap.appendChild(wholeInput);
+  wrap.appendChild(fracSelect);
+  return wrap;
 }
 
 // Shared column widths — same <colgroup> (fixed px, not %) on every category's
@@ -55,11 +115,7 @@ const NOVELTY_COLGROUP = `
 function _seedNoveltiesIfEmpty() {
   if (novelties.length) return false;
   novelties = NOVELTY_CATALOG.flatMap(group =>
-    group.items.map(name => ({
-      category: group.category,
-      name,
-      parLevel: NOVELTY_FRACTION_CATEGORIES.includes(group.category) ? 'Full' : NOVELTY_DEFAULT_PAR
-    }))
+    group.items.map(name => ({ category: group.category, name, parLevel: NOVELTY_DEFAULT_PAR }))
   );
   return true;
 }
@@ -128,14 +184,7 @@ function _getLogEntry(item) {
   return entry;
 }
 
-// For fraction categories (bulk-container fill level, not a count) there's no
-// numeric target to subtract On Hand from — "needs attention" instead just
-// means today's checklist hasn't marked this item Made yet. Returns a 1/0
-// proxy so every existing `> 0` / `=== 0` caller (summary count, print,
-// checkNoveltiesComplete) keeps working unchanged; render code turns the 1
-// into a "Fill" label instead of a literal quantity.
 function _toMakeNovelty(item, entry) {
-  if (_isFractionNovelty(item)) return entry.madeQty === undefined ? 1 : 0;
   return Math.max(0, (item.parLevel || 0) - (entry.onHand || 0));
 }
 
@@ -185,13 +234,12 @@ function printNovelties() {
   const rows = novelties.map(item => {
     const entry = _getLogEntry(item);
     const need  = _toMakeNovelty(item, entry);
-    const needCell = need > 0 ? (_isFractionNovelty(item) ? 'Fill' : need) : '—';
     return `<tr>
       <td>${item.category}</td>
       <td>${item.name}</td>
       <td style="text-align:center">${item.parLevel}</td>
-      <td style="text-align:center">${entry.onHand}</td>
-      <td style="text-align:center;font-weight:bold">${needCell}</td>
+      <td style="text-align:center">${_formatQty(entry.onHand)}</td>
+      <td style="text-align:center;font-weight:bold">${need > 0 ? _formatQty(need) : '—'}</td>
     </tr>`;
   }).join('');
 
@@ -286,12 +334,11 @@ function renderNoveltiesPage() {
 
       items.forEach(item => {
         const entry = _getLogEntry(item);
-        const isFraction = _isFractionNovelty(item);
-        // Self-heal: stores that already had a numeric parLevel here (from before
-        // Hurricane Toppings/Cambros switched to the fill-level picker) get bumped
-        // to 'Full' once, so the dropdown always has a valid selection.
-        if (isFraction && !FRACTION_OPTIONS.some(o => o.value === item.parLevel)) {
-          item.parLevel = 'Full';
+        // Self-heal: stores that had the (now-reverted) Hurricane/Cambros fill-word
+        // Target ('Full', '1/2', etc.) get bumped back to a plain number once, so
+        // the free-typed input below always starts from a valid value.
+        if (typeof item.parLevel !== 'number') {
+          item.parLevel = NOVELTY_DEFAULT_PAR;
           saveNoveltiesCatalog();
         }
         const tr = document.createElement('tr');
@@ -302,44 +349,36 @@ function renderNoveltiesPage() {
         tdName.textContent = item.name;
         tr.appendChild(tdName);
 
-        // Target — a fill-level picker (Empty…Full) for the two bulk-container
-        // categories, otherwise a free-typed number (no upper limit). Persists on
-        // the store doc via saveNoveltiesCatalog() either way, same as before.
+        // Target — free-typed number, same widget for every category (no upper
+        // limit, unlike the old shared 0–10 TARGET_OPTIONS dropdown). Persists on
+        // the store doc via saveNoveltiesCatalog(), same as before.
         const tdTarget = document.createElement('td');
         tdTarget.style.cssText = 'text-align:center;padding:9px 4px;';
         const renderTargetCell = () => {
           tdTarget.innerHTML = '';
           if (_managerUnlocked) {
-            if (isFraction) {
-              tdTarget.appendChild(makeStringSelect(FRACTION_OPTIONS, item.parLevel, val => {
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.inputMode = 'numeric';
+            input.min = '0';
+            input.value = item.parLevel || 0;
+            input.className = 'settings-input';
+            input.style.cssText = 'width:60px;text-align:center;padding:6px 4px;margin:0 auto;';
+            const commit = () => {
+              const val = Math.max(0, parseInt(input.value, 10) || 0);
+              input.value = val;
+              if (val !== item.parLevel) {
                 item.parLevel = val;
                 saveNoveltiesCatalog();
                 renderToMakeCell();
-              }));
-            } else {
-              const input = document.createElement('input');
-              input.type = 'number';
-              input.inputMode = 'numeric';
-              input.min = '0';
-              input.value = item.parLevel || 0;
-              input.className = 'settings-input';
-              input.style.cssText = 'width:60px;text-align:center;padding:6px 4px;margin:0 auto;';
-              const commit = () => {
-                const val = Math.max(0, parseInt(input.value, 10) || 0);
-                input.value = val;
-                if (val !== item.parLevel) {
-                  item.parLevel = val;
-                  saveNoveltiesCatalog();
-                  renderToMakeCell();
-                }
-              };
-              input.onchange = commit;
-              input.onblur = commit;
-              tdTarget.appendChild(input);
-            }
+              }
+            };
+            input.onchange = commit;
+            input.onblur = commit;
+            tdTarget.appendChild(input);
           } else {
             const span = document.createElement('span');
-            span.textContent = item.parLevel || (isFraction ? 'Full' : '—');
+            span.textContent = item.parLevel || '—';
             span.style.cssText = 'color:var(--text-muted);cursor:pointer;';
             span.title = 'Manager access required';
             span.onclick = () => requireManager(renderTargetCell);
@@ -349,20 +388,26 @@ function renderNoveltiesPage() {
         renderTargetCell();
         tr.appendChild(tdTarget);
 
-        // On Hand — freely editable running count (same −/value/+ stepper as
-        // the Run tab's Holding column), independent of the Made/completion status.
+        // On Hand — a plain −/value/+ stepper for most categories, but the two
+        // bulk-container categories get their own widget instead:
+        //  - Hurricane Toppings: single container fill level (Empty…Full).
+        //  - Ice Cream Maker Cambros: whole cambros + a quarter-fraction of one
+        //    more (e.g. "1 1/2"), since more than one can be on hand at once.
         const tdOnHand = document.createElement('td');
         tdOnHand.style.cssText = 'text-align:center;padding:9px 4px;';
-        tdOnHand.appendChild(buildQuantityStepper({
-          value: entry.onHand,
-          max: 999,
-          onChange: val => {
-            entry.onHand = val;
-            saveNoveltiesLog();
-            renderToMakeCell();
-            checkNoveltiesComplete();
-          }
-        }));
+        const onChangeOnHand = val => {
+          entry.onHand = val;
+          saveNoveltiesLog();
+          renderToMakeCell();
+          checkNoveltiesComplete();
+        };
+        if (item.category === NOVELTY_HURRICANE_CATEGORY) {
+          tdOnHand.appendChild(makeSelect(HURRICANE_FILL_OPTIONS, entry.onHand || 0, onChangeOnHand));
+        } else if (item.category === NOVELTY_CAMBRO_CATEGORY) {
+          tdOnHand.appendChild(_buildCambroOnHandWidget(entry.onHand, onChangeOnHand));
+        } else {
+          tdOnHand.appendChild(buildQuantityStepper({ value: entry.onHand, max: 999, onChange: onChangeOnHand }));
+        }
         tr.appendChild(tdOnHand);
 
         // To Make
@@ -370,7 +415,7 @@ function renderNoveltiesPage() {
         tdMake.style.cssText = 'text-align:center;padding:9px 4px;font-weight:700;';
         const renderToMakeCell = () => {
           const need = _toMakeNovelty(item, entry);
-          tdMake.textContent = need > 0 ? (isFraction ? 'Fill' : need) : '—';
+          tdMake.textContent = need > 0 ? _formatQty(need) : '—';
           tdMake.style.color = need > 0 ? '#f0a500' : '#22a05a';
           _updateNoveltiesSummary();
         };
@@ -405,9 +450,9 @@ function renderNoveltiesPage() {
           madeBtn.textContent = 'Made';
           madeBtn.onclick = () => openMadeStepper({
             title: item.name,
-            // For fraction categories _toMakeNovelty() is a 1/0 "needs attention"
-            // proxy, not a real quantity — don't prefill the stepper with it.
-            value: isFraction ? 0 : _toMakeNovelty(item, entry),
+            // openMadeStepper() floors via parseInt(), so a fractional need (e.g.
+            // Hurricane Toppings/Cambros) just prefills with its whole-number part.
+            value: _toMakeNovelty(item, entry),
             onSubmit: qty => setNoveltyMade(item, entry, qty)
           });
           tdMadeBtn.appendChild(madeBtn);
