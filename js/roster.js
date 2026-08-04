@@ -218,6 +218,16 @@ const HOLDING_OPTIONS = [
   {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
   {label:'8',value:8},{label:'9',value:9},{label:'10',value:10},
 ];
+// Fill-level Target picker for Novelties categories that track a bulk container
+// (Hurricane Toppings, Ice Cream Maker Cambros) instead of a countable target —
+// js/novelties.js: NOVELTY_FRACTION_CATEGORIES.
+const FRACTION_OPTIONS = [
+  {label:'Empty', value:'Empty'},
+  {label:'1/4',   value:'1/4'},
+  {label:'1/2',   value:'1/2'},
+  {label:'3/4',   value:'3/4'},
+  {label:'Full',  value:'Full'},
+];
 
 function makeSelect(options, currentVal, fn) {
   const sel = document.createElement('select');
@@ -229,6 +239,22 @@ function makeSelect(options, currentVal, fn) {
     sel.appendChild(o);
   });
   sel.onchange = e => fn(Number(e.target.value));
+  return sel;
+}
+
+// Same as makeSelect() but for string-valued options (e.g. FRACTION_OPTIONS) —
+// makeSelect() forces Number() on both the match check and the change handler,
+// which would turn every fraction label into NaN.
+function makeStringSelect(options, currentVal, fn) {
+  const sel = document.createElement('select');
+  options.forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (currentVal === opt.value) o.selected = true;
+    sel.appendChild(o);
+  });
+  sel.onchange = e => fn(e.target.value);
   return sel;
 }
 
@@ -429,6 +455,8 @@ function restoreCabinetBox() {
       <button class="cabinet-btn" onclick="selectCabinet(2)">2</button>
       <button class="cabinet-btn" onclick="selectCabinet(3)">3</button>
       <button class="cabinet-btn" onclick="selectCabinet(4)">4</button>
+      <button class="cabinet-btn" onclick="selectCabinet(5)">5</button>
+      <button class="cabinet-btn" onclick="selectCabinet(6)">6</button>
     </div>`;
 }
 

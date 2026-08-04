@@ -14,21 +14,52 @@ let _noveltiesLog = []; // working date's data: [{ category, name, onHand }]
 let _workingNoveltiesDate = null;
 
 const NOVELTY_CATALOG = [
-  { category: 'Ice Cream Sandwiches',     items: ['Vanilla', 'Chocolate', 'Mint Chocolate Chip', 'Flavor of the Month'] },
-  { category: 'Handel Pops',              items: ['Vanilla', 'Chocolate', 'Mint Chocolate Chip', 'Flavor of the Month'] },
-  { category: 'Hurricane Toppings',       items: ['Cookie Dough', 'Heath', "Reese's Peanut Butter Cups", 'Oreos', 'Cheesecake Pieces', 'Brownies', 'Chocolate Chips', 'Butterfinger', 'Snickers'] },
-  { category: 'Waffle Bowls',             items: ['Chocolate', 'Sprinkles', 'Oreo Crumbs', 'Peanuts'] },
   { category: 'Waffle Cones',             items: ['Chocolate', 'Sprinkles', 'Oreo Crumbs', 'Peanuts'] },
-  { category: 'Ice Cream Maker Cambros',  items: ['Oreos', 'Chips Ahoy', 'Coconut Dream', 'Animal Cookie', 'Gingerbread', 'Biscoff'] },
+  { category: 'Waffle Bowls',             items: ['Chocolate', 'Sprinkles', 'Oreo Crumbs', 'Peanuts'] },
+  { category: 'Handel Pops',              items: ['Vanilla', 'Chocolate', 'Mint Chocolate Chip', 'Flavor of the Month'] },
+  { category: 'Ice Cream Sandwiches',     items: ['Vanilla', 'Chocolate', 'Mint Chocolate Chip', 'Flavor of the Month'] },
   { category: 'Chocolate Bananas',        items: ['Chocolate', 'Sprinkles', 'Peanuts'] },
   { category: 'Sundae Bases',             items: ['Brownies', 'Blondies', 'Apple Dumplings'] },
+  { category: 'Hurricane Toppings',       items: ['Cookie Dough', 'Heath', "Reese's Peanut Butter Cups", 'Oreos', 'Cheesecake Pieces', 'Brownies', 'Chocolate Chips', 'Butterfinger', 'Snickers'] },
+  { category: 'Ice Cream Maker Cambros',  items: ['Oreos', 'Chips Ahoy', 'Coconut Dream', 'Animal Cookie', 'Gingerbread', 'Biscoff'] },
 ];
 const NOVELTY_DEFAULT_PAR = 5;
+
+// These two categories track a bulk container's fill level rather than a
+// countable target — Target uses the Empty/1/4/1/2/3/4/Full picker (FRACTION_OPTIONS,
+// js/roster.js) instead of a typed number. Every other category gets a free-typed
+// numeric Target (no upper limit, unlike the old shared 0–10 TARGET_OPTIONS dropdown).
+const NOVELTY_FRACTION_CATEGORIES = ['Hurricane Toppings', 'Ice Cream Maker Cambros'];
+function _isFractionNovelty(item) {
+  return NOVELTY_FRACTION_CATEGORIES.includes(item.category);
+}
+
+// Shared column widths — same <colgroup> (fixed px, not %) on every category's
+// table (see renderNoveltiesPage()) so Item/Target/On Hand/To Make/Made line up
+// down the page regardless of category. Fixed px rather than percentages because
+// On Hand's stepper (~128px) and the Made/Undo pair (~140px done-state) need a
+// guaranteed minimum in actual pixels — percentages of a narrow phone width would
+// squeeze them below that and cause overflow instead of alignment. Item gets
+// whatever's left (no declared width); on a screen too narrow for all five to
+// fit it falls back to the existing tableWrap horizontal-scroll, same pattern
+// already used elsewhere in the app rather than clipping content.
+const NOVELTY_COLGROUP = `
+  <colgroup>
+    <col>
+    <col style="width:100px">
+    <col style="width:140px">
+    <col style="width:56px">
+    <col style="width:150px">
+  </colgroup>`;
 
 function _seedNoveltiesIfEmpty() {
   if (novelties.length) return false;
   novelties = NOVELTY_CATALOG.flatMap(group =>
-    group.items.map(name => ({ category: group.category, name, parLevel: NOVELTY_DEFAULT_PAR }))
+    group.items.map(name => ({
+      category: group.category,
+      name,
+      parLevel: NOVELTY_FRACTION_CATEGORIES.includes(group.category) ? 'Full' : NOVELTY_DEFAULT_PAR
+    }))
   );
   return true;
 }
@@ -97,7 +128,14 @@ function _getLogEntry(item) {
   return entry;
 }
 
+// For fraction categories (bulk-container fill level, not a count) there's no
+// numeric target to subtract On Hand from — "needs attention" instead just
+// means today's checklist hasn't marked this item Made yet. Returns a 1/0
+// proxy so every existing `> 0` / `=== 0` caller (summary count, print,
+// checkNoveltiesComplete) keeps working unchanged; render code turns the 1
+// into a "Fill" label instead of a literal quantity.
 function _toMakeNovelty(item, entry) {
+  if (_isFractionNovelty(item)) return entry.madeQty === undefined ? 1 : 0;
   return Math.max(0, (item.parLevel || 0) - (entry.onHand || 0));
 }
 
@@ -147,12 +185,13 @@ function printNovelties() {
   const rows = novelties.map(item => {
     const entry = _getLogEntry(item);
     const need  = _toMakeNovelty(item, entry);
+    const needCell = need > 0 ? (_isFractionNovelty(item) ? 'Fill' : need) : '—';
     return `<tr>
       <td>${item.category}</td>
       <td>${item.name}</td>
       <td style="text-align:center">${item.parLevel}</td>
       <td style="text-align:center">${entry.onHand}</td>
-      <td style="text-align:center;font-weight:bold">${need > 0 ? need : '—'}</td>
+      <td style="text-align:center;font-weight:bold">${needCell}</td>
     </tr>`;
   }).join('');
 
@@ -228,7 +267,12 @@ function renderNoveltiesPage() {
       tableWrap.style.cssText = 'overflow-x:auto;-webkit-overflow-scrolling:touch;';
 
       const table = document.createElement('table');
-      table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+      // table-layout:fixed + an identical <colgroup> on every category's table is
+      // what makes the columns line up all the way down the page — without it each
+      // table auto-sizes its own columns from its own content (e.g. longer item
+      // names), so Target/On Hand/To Make land at different x-positions per category.
+      table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;';
+      table.innerHTML = NOVELTY_COLGROUP;
       const thead = document.createElement('thead');
       thead.innerHTML = `<tr>
         <th style="text-align:left;padding:6px 4px;color:var(--text-accent);font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-family:'Arial Narrow',Arial,sans-serif;">Item</th>
@@ -242,6 +286,14 @@ function renderNoveltiesPage() {
 
       items.forEach(item => {
         const entry = _getLogEntry(item);
+        const isFraction = _isFractionNovelty(item);
+        // Self-heal: stores that already had a numeric parLevel here (from before
+        // Hurricane Toppings/Cambros switched to the fill-level picker) get bumped
+        // to 'Full' once, so the dropdown always has a valid selection.
+        if (isFraction && !FRACTION_OPTIONS.some(o => o.value === item.parLevel)) {
+          item.parLevel = 'Full';
+          saveNoveltiesCatalog();
+        }
         const tr = document.createElement('tr');
         tr.style.cssText = 'border-bottom:1px solid var(--panel-border);';
 
@@ -250,21 +302,44 @@ function renderNoveltiesPage() {
         tdName.textContent = item.name;
         tr.appendChild(tdName);
 
-        // Target — dropdown, same as the flavor Target column in the Run tab
-        // (TARGET_OPTIONS is shared, defined in roster.js).
+        // Target — a fill-level picker (Empty…Full) for the two bulk-container
+        // categories, otherwise a free-typed number (no upper limit). Persists on
+        // the store doc via saveNoveltiesCatalog() either way, same as before.
         const tdTarget = document.createElement('td');
         tdTarget.style.cssText = 'text-align:center;padding:9px 4px;';
         const renderTargetCell = () => {
           tdTarget.innerHTML = '';
           if (_managerUnlocked) {
-            tdTarget.appendChild(makeSelect(TARGET_OPTIONS, item.parLevel, val => {
-              item.parLevel = val;
-              saveNoveltiesCatalog();
-              renderToMakeCell();
-            }));
+            if (isFraction) {
+              tdTarget.appendChild(makeStringSelect(FRACTION_OPTIONS, item.parLevel, val => {
+                item.parLevel = val;
+                saveNoveltiesCatalog();
+                renderToMakeCell();
+              }));
+            } else {
+              const input = document.createElement('input');
+              input.type = 'number';
+              input.inputMode = 'numeric';
+              input.min = '0';
+              input.value = item.parLevel || 0;
+              input.className = 'settings-input';
+              input.style.cssText = 'width:60px;text-align:center;padding:6px 4px;margin:0 auto;';
+              const commit = () => {
+                const val = Math.max(0, parseInt(input.value, 10) || 0);
+                input.value = val;
+                if (val !== item.parLevel) {
+                  item.parLevel = val;
+                  saveNoveltiesCatalog();
+                  renderToMakeCell();
+                }
+              };
+              input.onchange = commit;
+              input.onblur = commit;
+              tdTarget.appendChild(input);
+            }
           } else {
             const span = document.createElement('span');
-            span.textContent = item.parLevel || '—';
+            span.textContent = item.parLevel || (isFraction ? 'Full' : '—');
             span.style.cssText = 'color:var(--text-muted);cursor:pointer;';
             span.title = 'Manager access required';
             span.onclick = () => requireManager(renderTargetCell);
@@ -295,7 +370,7 @@ function renderNoveltiesPage() {
         tdMake.style.cssText = 'text-align:center;padding:9px 4px;font-weight:700;';
         const renderToMakeCell = () => {
           const need = _toMakeNovelty(item, entry);
-          tdMake.textContent = need > 0 ? need : '—';
+          tdMake.textContent = need > 0 ? (isFraction ? 'Fill' : need) : '—';
           tdMake.style.color = need > 0 ? '#f0a500' : '#22a05a';
           _updateNoveltiesSummary();
         };
@@ -330,7 +405,9 @@ function renderNoveltiesPage() {
           madeBtn.textContent = 'Made';
           madeBtn.onclick = () => openMadeStepper({
             title: item.name,
-            value: _toMakeNovelty(item, entry),
+            // For fraction categories _toMakeNovelty() is a 1/0 "needs attention"
+            // proxy, not a real quantity — don't prefill the stepper with it.
+            value: isFraction ? 0 : _toMakeNovelty(item, entry),
             onSubmit: qty => setNoveltyMade(item, entry, qty)
           });
           tdMadeBtn.appendChild(madeBtn);
