@@ -114,6 +114,13 @@
     .settings-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
     .settings-label { font-size: 11px; color: var(--text-muted); font-family: 'Arial Narrow', Arial, sans-serif; }
     .settings-input { padding: 10px; border-radius: 8px; border: 1.5px solid var(--panel-border); background: var(--panel-bg-alt); color: var(--text-primary); font-family: 'Tw Cen MT', 'Century Gothic', Arial, sans-serif; font-size: 13px; width: 100%; }
+    /* Novelties Target/On-Hand number inputs (js/novelties.js) — hides the native
+       up/down spinner Chrome/Firefox/Edge draw inside type=number inputs, which
+       has no room in these compact boxes and isn't shown on Safari/mobile anyway.
+       Pseudo-elements can only be reached from a stylesheet, not inline styles. */
+    .novelty-num-input::-webkit-outer-spin-button,
+    .novelty-num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .novelty-num-input { -moz-appearance: textfield; appearance: textfield; }
     .settings-card { background: var(--panel-bg-alt); border: 1px solid var(--panel-border); border-radius: 8px; padding: 10px 12px; color: var(--text-primary); }
     .settings-note { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-family: 'Arial Narrow', Arial, sans-serif; }
 

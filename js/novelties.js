@@ -78,10 +78,19 @@ function _buildCambroOnHandWidget(value, onChange) {
   wholeInput.inputMode = 'numeric';
   wholeInput.min = '0';
   wholeInput.value = whole;
-  wholeInput.className = 'settings-input';
-  wholeInput.style.cssText = 'width:38px;text-align:center;padding:6px 2px;';
+  wholeInput.className = 'settings-input novelty-num-input';
+  // font-size must stay ≥16px or iOS Safari auto-zooms the whole page on focus.
+  // Colors are set inline (not left to the .settings-input class) so they win
+  // over the older `td input[type=number]` rule (index.html) that would
+  // otherwise force a hardcoded Run-tab color regardless of the Novelties tab's
+  // light/dark theme — inline always wins the cascade, and var(--...) still
+  // resolves theme-aware even when set inline.
+  wholeInput.style.cssText = 'width:40px;text-align:center;padding:6px 2px;margin:0;font-size:16px;min-height:40px;background:var(--panel-bg-alt);color:var(--text-primary);border:1.5px solid var(--panel-border);border-radius:8px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
   const fracSelect = makeSelect(CAMBRO_FRACTION_OPTIONS, frac, commit);
-  fracSelect.style.cssText = 'padding:5px 2px;font-size:12px;';
+  // `td select` (index.html) sets width:100%, which — unlike a lone select
+  // filling its own cell — fights the adjacent wholeInput for space inside this
+  // flex row. Pin an explicit width so the two sit side by side predictably.
+  fracSelect.style.cssText = 'width:56px;padding:6px 2px;font-size:13px;';
   function commit() {
     const w = Math.max(0, parseInt(wholeInput.value, 10) || 0);
     const f = Number(fracSelect.value);
@@ -379,8 +388,12 @@ function renderNoveltiesPage() {
               input.inputMode = 'numeric';
               input.min = '0';
               input.value = item.parLevel || 0;
-              input.className = 'settings-input';
-              input.style.cssText = 'width:60px;text-align:center;padding:6px 4px;margin:0 auto;';
+              input.className = 'settings-input novelty-num-input';
+              // See _buildCambroOnHandWidget() for why font-size/colors are set
+              // inline: keeps this ≥16px (no iOS auto-zoom on focus) and wins
+              // over the older `td input[type=number]` rule that would otherwise
+              // force a hardcoded color regardless of the current theme.
+              input.style.cssText = 'width:60px;text-align:center;padding:6px 4px;margin:0 auto;font-size:16px;min-height:40px;background:var(--panel-bg-alt);color:var(--text-primary);border:1.5px solid var(--panel-border);border-radius:8px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;';
               const commit = () => {
                 const val = Math.max(0, parseInt(input.value, 10) || 0);
                 input.value = val;
