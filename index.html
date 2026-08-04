@@ -57,9 +57,17 @@
         await loadCurrentUserRole();
         updateAuthButton();
         if (!_authBootstrapped) {
-          // First auth event on page load — trigger bootstrap now that auth is known
           _authBootstrapped = true;
-          if (window._bootstrapWaiting) { const fn = window._bootstrapWaiting; window._bootstrapWaiting = null; fn(); }
+          if (window._bootstrapWaiting) {
+            // First auth event on page load, still within the safety window — trigger bootstrap now that auth is known
+            const fn = window._bootstrapWaiting; window._bootstrapWaiting = null; fn();
+          } else if (window.bootstrap) {
+            // The safety-timeout fallback already ran bootstrap() once with no user (auth
+            // restore was slower than the fallback), possibly showing the login screen even
+            // though this is really a persisted, still-valid session. Now that the real auth
+            // state has landed, re-run bootstrap() so it clears that screen and loads the store.
+            window.bootstrap();
+          }
         } else if (window.init && window.getCurrentStoreId && window.getCurrentStoreId()) {
           window.init();
         }

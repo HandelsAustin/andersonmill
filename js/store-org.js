@@ -79,6 +79,7 @@ function applyData(data) {
   inventoryCatalog = data?.inventoryCatalog || [];
   _inventoryLastCountedAt = data?.inventoryLastCountedAt || null;
   _managerPin = data?.managerPin || null;
+  _storeCurrentFlavorList = data?.currentFlavorList || [];
   if (typeof loadCabinetPref === 'function') loadCabinetPref(); // store-wide default may have just changed (switch, live sync)
 }
 
@@ -97,6 +98,17 @@ async function saveAll() {
   const customAdded  = roster.filter(r => !MASTER_ROSTER.find(m => m.name === r.name));
   const removedNames = MASTER_ROSTER.filter(m => !roster.find(r => r.name === m.name)).map(m => m.name);
   const rosterPayload = { customAdded, removedNames, updatedAt: Date.now() };
+  // Today's flavor list + target numbers double as the persistent store-level default —
+  // carried forward into any new day (loadRunForDate()) until a manager changes it again.
+  // Only captured while editing *today*, so recalling/correcting a past date never
+  // overwrites tomorrow's starting list.
+  if ((_workingRunDate || todayStr()) === todayStr()) {
+    rosterPayload.currentFlavorList = activeFlavors.map(f => {
+      const entry = { name: f.name, target: f.target || 0 };
+      if (f.cabinet != null) entry.cabinet = f.cabinet; // carry forward too, else it'd silently vanish each day while target survives
+      return entry;
+    });
+  }
   // Note: submitted is never written here — only writeRunSummary() sets it, so
   // an in-progress run's regular autosaves never accidentally clear the flag.
   const runPayload = { activeFlavors, cateringItems: _cateringItems, runMade, cateringMade, updatedAt: Date.now() };
@@ -178,6 +190,16 @@ async function loadRunForDate(date, offlineFallback) {
     }
   } else if (offlineFallback && date === todayStr()) {
     runData = offlineFallback;
+  }
+  // Brand-new day, nothing saved for it yet — start from the store's persistent
+  // flavor list/targets (set by a manager on a previous day) instead of blank.
+  // Only for *today*; a past date with no doc genuinely had no run, so it stays empty.
+  if (!runData && date === todayStr() && _storeCurrentFlavorList.length) {
+    runData = { activeFlavors: _storeCurrentFlavorList.map(f => {
+      const entry = { name: f.name, target: f.target || 0, dipping: 0, holding: 0 };
+      if (f.cabinet != null) entry.cabinet = f.cabinet;
+      return entry;
+    }) };
   }
   _applyRunData(runData);
   renderTable();

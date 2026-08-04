@@ -57,6 +57,11 @@ organizations/{orgId}/stores/{storeId}
   id, label, createdAt, createdBy
   managerPin                                           ← shared 4-digit PIN, gates manager features (js/manager-lock.js)
   customAdded, removedNames, updatedAt                 ← flavor roster (persistent; NOT per-day)
+  currentFlavorList: [{name, target, cabinet?}]         ← persistent default Today's Flavor List + target numbers;
+                                                           written by saveAll() whenever today's list/targets change,
+                                                           seeded into any new day's run doc that doesn't exist yet
+                                                           (js/store-org.js: loadRunForDate()) so the list survives
+                                                           day rollover until a manager edits it again
   lastRunDate, lastRunBuckets, lastRunAt               ← written on run completion
   storeEvents: [{type, buckets, at, by?}]               ← activity log, max 10 entries, trimmed on write; by = first-name attribution (optional, signed-in users only)
   settings: { profile: {phone, email, hours}, inventory: {orderLeadTimeDays, inventoryCountIntervalDays}, theme }

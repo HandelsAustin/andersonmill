@@ -6,6 +6,7 @@ let activeFlavors = []; // flavors on today's list
 let runMode = false;
 let _storeEvents = [];  // recent activity log for current store (max 10, from storeEvents field)
 let _storeDoc    = null; // raw store doc data from last Firestore load (for manager dashboard fallbacks)
+let _storeCurrentFlavorList = []; // [{name, target}] — persistent store-level default list, carried forward into any new day until a manager changes it (see applyData()/loadRunForDate() in store-org.js)
 let _lastSyncAt  = null; // timestamp of last successful cloud sync (saved or loaded)
 let _wasOffline  = false; // tracks previous connectivity state for reconnect detection
 let _resetSnapshot  = null; // activeFlavors snapshot before resetDay() — enables 5s undo

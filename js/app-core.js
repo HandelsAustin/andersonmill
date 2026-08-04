@@ -206,6 +206,12 @@ function bootstrap() {
     return;
   }
 
+  // A signed-in user reaching this point means the entry screen (if it was ever
+  // shown — e.g. by the safety-timeout fallback below racing ahead of a slow
+  // auth-state restore) no longer reflects reality. Always clear it here so a
+  // persisted session never gets stuck looking like a sign-out.
+  hideEntryScreen();
+
   // Self-heal: clear corrupted car_store_label (stored as the literal string "undefined")
   if (localStorage.getItem('car_store_label') === 'undefined') {
     localStorage.removeItem('car_store_label');
@@ -240,8 +246,12 @@ function waitForFirebaseAndBootstrap() {
     // Firebase ready but auth state not yet known — defer bootstrap until
     // onAuthStateChanged fires so Firestore reads go out with valid credentials.
     window._bootstrapWaiting = bootstrap;
-    // Safety: if onAuthStateChanged hasn't fired within 3s (e.g. no network), bootstrap anyway
-    setTimeout(() => { if (window._bootstrapWaiting) { window._bootstrapWaiting = null; bootstrap(); } }, 3000);
+    // Safety: if onAuthStateChanged hasn't fired within 6s (e.g. no network), bootstrap anyway.
+    // 6s (not 3s) gives a persisted session more room to restore from IndexedDB on a slow/cold
+    // device before we give up and show the login screen — restoring a persisted session should
+    // never look like a sign-out. If onAuthStateChanged does still land afterward with a user,
+    // index.html's handler re-runs bootstrap() to recover regardless of which branch won the race.
+    setTimeout(() => { if (window._bootstrapWaiting) { window._bootstrapWaiting = null; bootstrap(); } }, 6000);
   } else {
     window._bootstrapWaiting = bootstrap;
     setTimeout(() => { if (!window._STORE_ID) bootstrap(); }, 4000);
