@@ -463,7 +463,7 @@ function _renderWelcomeBack(list, savedId, savedLabel) {
 // opts.onSuccess(storeId, storeLabel) — called after createOrgAndStore() resolves
 // Returns { nameInput } so callers can auto-focus if needed.
 function renderStoreForm(containerEl, opts) {
-  const { submitLabel = '✓ Create Store', onSuccess } = opts || {};
+  const { submitLabel = '✓ Create Store', onSuccess, showRegion = false } = opts || {};
   const INPUT_STYLE = 'width:100%;padding:14px 12px;border-radius:10px;border:1.5px solid #98d4e3;background:#1e2870;color:#ffffff;font-family:\'Tw Cen MT\',\'Century Gothic\',Arial,sans-serif;font-size:14px;';
 
   function toSlug(s) {
@@ -490,6 +490,21 @@ function renderStoreForm(containerEl, opts) {
   hint.textContent = 'Store ID: lowercase, numbers, hyphens only. Auto-filled from store name.';
   wrap.appendChild(hint);
 
+  // Region — optional, skipped for the very-first-store onboarding form (showRegion
+  // defaults false there) since a brand-new org has nothing to group yet. A <datalist>
+  // of every region already in use elsewhere in the org offers autocomplete without
+  // forcing a fixed list — regions are just a free-text tag on the store doc.
+  let regionInput = null;
+  if (showRegion) {
+    regionInput = document.createElement('input');
+    regionInput.type = 'text';
+    regionInput.placeholder = 'Region (optional, e.g. Pacific Northwest)';
+    regionInput.style.cssText = INPUT_STYLE;
+    regionInput.setAttribute('list', 'storeRegionOptions');
+    _ensureRegionDatalist();
+    wrap.appendChild(regionInput);
+  }
+
   const errEl = document.createElement('div');
   errEl.style.cssText = 'color:#d72627;font-size:12px;min-height:18px;font-family:\'Arial Narrow\',Arial,sans-serif;';
   wrap.appendChild(errEl);
@@ -505,6 +520,7 @@ function renderStoreForm(containerEl, opts) {
   submitBtn.addEventListener('click', async () => {
     const storeLabel = nameInput.value.trim();
     const storeId    = idInput.value.trim();
+    const region     = regionInput ? regionInput.value.trim() : '';
     errEl.textContent = '';
 
     if (!storeLabel) { errEl.textContent = 'Store name is required.'; return; }
@@ -519,7 +535,7 @@ function renderStoreForm(containerEl, opts) {
     submitBtn.textContent = 'Creating…';
     submitBtn.disabled = true;
     try {
-      await createOrgAndStore(storeLabel, storeId);
+      await createOrgAndStore(storeLabel, storeId, region);
       if (onSuccess) onSuccess(storeId, storeLabel);
     } catch (e) {
       console.error('Store creation error:', e);
@@ -581,6 +597,7 @@ function renderAddStoreSection(content) {
 
   renderStoreForm(formWrap, {
     submitLabel: '+ Add Store',
+    showRegion: true,
     onSuccess: (storeId, storeLabel) => {
       // Show success banner, hide form, then re-render dashboard with updated store count
       successEl.textContent = `✓ "${storeLabel}" added. Refreshing…`;
@@ -591,7 +608,7 @@ function renderAddStoreSection(content) {
   });
 }
 
-async function createOrgAndStore(storeLabel, storeId) {
+async function createOrgAndStore(storeLabel, storeId, region = '') {
   const orgId = window.getCurrentOrgId();
   const user  = window._auth.currentUser;
   const now   = Date.now();
@@ -603,15 +620,25 @@ async function createOrgAndStore(storeLabel, storeId) {
     await window._setDoc(orgRef, { name: orgId, createdAt: now, createdBy: user.uid });
   }
 
-  // 2. Create the first store document
+  // 2. Create the store document
   const storeRef = window._doc(window._db, 'organizations', orgId, 'stores', storeId);
-  await window._setDoc(storeRef, { id: storeId, label: storeLabel, createdAt: now, createdBy: user.uid });
+  const storePayload = { id: storeId, label: storeLabel, createdAt: now, createdBy: user.uid };
+  if (region) storePayload.region = region;
+  await window._setDoc(storeRef, storePayload);
 
-  // 3. Assign the creator as CORPORATE_ADMIN for this org
-  const memberRef = window.getOrgMemberRef(user.uid);
+  // 3. Assign the creator as CORPORATE_ADMIN for this org — merged into whatever
+  // stores[] they may already have. This function also runs for "Add Another
+  // Store" on an org the admin is already a member of; overwriting stores[]
+  // outright (as this used to) would silently drop every other store they
+  // already had (harmless for CORPORATE_ADMIN's own access, since role-based
+  // scoping bypasses stores[] for that role, but still wrong data to leave
+  // sitting in Firestore).
+  const memberRef      = window.getOrgMemberRef(user.uid);
+  const memberSnap     = await window._getDoc(memberRef);
+  const existingStores = memberSnap.exists() ? (memberSnap.data().stores || []) : [];
   await window._setDoc(memberRef, {
     uid: user.uid, email: user.email || '', role: ROLES.CORPORATE_ADMIN,
-    stores: [storeId], createdAt: now
+    stores: [...new Set([...existingStores, storeId])], createdAt: now
   }, { merge: true });
 
   // 4. Update local role state immediately so UI reflects CORPORATE_ADMIN
@@ -622,7 +649,7 @@ async function createOrgAndStore(storeLabel, storeId) {
   updateRoleUIVisibility();
 
   // 5. Add store to in-memory list so selectStore() can find it without a reload
-  window.setOrgStores([...window.getOrgStores(), { id: storeId, label: storeLabel }]);
+  window.setOrgStores([...window.getOrgStores(), storePayload]);
 
   // 6. Log the event
   await window.logOrgEvent('org_initialized', { orgId, storeId, storeLabel });

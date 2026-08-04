@@ -101,6 +101,27 @@ window.getStoreInventoryLogCollectionRef = function(orgId = window.getCurrentOrg
   return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'inventoryLog');
 };
 
+// Lazily creates (once) and refreshes the shared <datalist> of every region
+// currently in use in the org, so both the "Add Store" form (js/store-org.js:
+// renderStoreForm()) and the store detail panel's region editor (js/dashboard.js:
+// _editStoreRegion()) offer the same autocomplete regardless of which one
+// happens to run first in a given session.
+function _ensureRegionDatalist() {
+  let datalist = document.getElementById('storeRegionOptions');
+  if (!datalist) {
+    datalist = document.createElement('datalist');
+    datalist.id = 'storeRegionOptions';
+    document.body.appendChild(datalist);
+  }
+  datalist.innerHTML = '';
+  [...new Set(window.getOrgStores().map(s => s.region).filter(Boolean))].forEach(region => {
+    const opt = document.createElement('option');
+    opt.value = region;
+    datalist.appendChild(opt);
+  });
+  return datalist;
+}
+
 // Coalescing async-write wrapper — used by saveAll() (store-org.js),
 // saveNoveltiesCatalog()/saveNoveltiesLog() (novelties.js), and
 // saveInventoryCatalog()/saveInventoryLog() (inventory.js).

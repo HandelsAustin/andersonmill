@@ -23,6 +23,17 @@
     const firebaseApp = initializeApp(FIREBASE_CONFIG);
     const db = getFirestore(firebaseApp);
     const auth = getAuth(firebaseApp);
+    // Secondary, unrelated Firebase App instance used ONLY for corporate-admin-side
+    // account provisioning (js/settings.js: createStoreOwnerAccount()). The client
+    // SDK's createUserWithEmailAndPassword() always signs the CALLER into the new
+    // account on whichever Auth instance it's called against — on the primary
+    // `auth` that would sign the corporate admin out of their own session. Running
+    // it against this separate instance instead creates the new Auth user without
+    // touching the admin's real, signed-in session at all. No onAuthStateChanged
+    // listener is attached here — it's purely transactional, never left signed in.
+    const secondaryApp  = initializeApp(FIREBASE_CONFIG, 'Secondary');
+    const secondaryAuth = getAuth(secondaryApp);
+    window._secondaryAuth = secondaryAuth;
     window._db = db;
     window._doc = doc;
     window._setDoc = setDoc;

@@ -90,6 +90,58 @@ function _activityLabel(ev) {
   return (ev.type || 'event').replace(/_/g, ' ') + attr;
 }
 
+// ── Region (lightweight — a free-text tag on the store doc, not a separate
+// collection) ────────────────────────────────────────────────────────────────
+function _renderStoreRegionDisplay(store, regionRow) {
+  regionRow.innerHTML = '';
+  const label = document.createElement('span');
+  label.style.cssText = 'font-size:11px;color:#8fa3be;font-family:\'Arial Narrow\',Arial,sans-serif;';
+  label.textContent = store.region ? `Region: ${store.region}` : 'No region assigned';
+  const editBtn = document.createElement('button');
+  editBtn.textContent = '✎ Edit';
+  editBtn.title = 'Edit region';
+  editBtn.style.cssText = 'background:none;border:none;color:#98d4e3;font-size:11px;cursor:pointer;padding:2px 4px;font-family:\'Arial Narrow\',Arial,sans-serif;';
+  editBtn.onclick = () => _editStoreRegion(store, regionRow);
+  regionRow.append(label, editBtn);
+}
+
+function _editStoreRegion(store, regionRow) {
+  regionRow.innerHTML = '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = store.region || '';
+  input.placeholder = 'Region (e.g. Pacific Northwest)';
+  input.setAttribute('list', 'storeRegionOptions');
+  _ensureRegionDatalist(); // shared with renderStoreForm() (js/store-org.js) — see appHelpers.js
+  input.style.cssText = 'font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid #98d4e3;background:#1e2870;color:#ffffff;width:170px;';
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = '✓ Save';
+  saveBtn.style.cssText = 'background:none;border:1px solid #22a05a;color:#22a05a;font-size:11px;font-weight:700;cursor:pointer;padding:5px 8px;border-radius:5px;';
+  saveBtn.onclick = async () => {
+    const region = input.value.trim();
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    try {
+      await window._setDoc(getStoreDocRef(window.getCurrentOrgId(), store.id), { region }, { merge: true });
+      store.region = region;
+      _renderStoreRegionDisplay(store, regionRow);
+      showStatusMessage('✓ Region updated', 1800);
+      if (typeof _refreshRegionChips === 'function') _refreshRegionChips();
+    } catch (e) {
+      console.error('Region update error:', e);
+      showStatusMessage('⚠ Could not update region', 2500);
+      saveBtn.disabled = false;
+      saveBtn.textContent = '✓ Save';
+    }
+  };
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.cssText = 'background:none;border:none;color:#8fa3be;font-size:11px;cursor:pointer;padding:5px 6px;';
+  cancelBtn.onclick = () => _renderStoreRegionDisplay(store, regionRow);
+  regionRow.append(input, saveBtn, cancelBtn);
+  setTimeout(() => input.focus(), 10);
+}
+
 function _buildStoreDetailPanel(store, anchorEl) {
   const isActive     = storeIsActiveToday(store);
   const shortages    = storeShortagesCount(store);
@@ -115,6 +167,14 @@ function _buildStoreDetailPanel(store, anchorEl) {
     detailTrend.style.marginTop = '8px';
     titleBlock.appendChild(detailTrend);
   }
+  // Region — editable inline (corporate-only surface, this whole panel already is).
+  // `store` here is the same object reference held in window.APP_STATE.orgStores
+  // (loadOrgStores()'s result), so mutating store.region also updates the region
+  // filter/chips in renderMultiStoreOverview() without a full store-list reload.
+  const regionRow = document.createElement('div');
+  regionRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap;';
+  titleBlock.appendChild(regionRow);
+  _renderStoreRegionDisplay(store, regionRow);
 
   const closeBtn = document.createElement('button');
   closeBtn.textContent = '×';
@@ -294,79 +354,134 @@ async function renderMultiStoreOverview(content) {
   overviewHeading.textContent = 'Store Overview';
   section.appendChild(overviewHeading);
 
-  // ── Aggregate summary ──
-  const activeCount    = stores.filter(s => storeIsActiveToday(s)).length;
-  const totalShortages = stores.reduce((n, s) => n + storeShortagesCount(s), 0);
-  const totalBuckets   = stores.reduce((n, s) => n + storeProductionToday(s), 0);
+  // ── Region chips ── click one to scope everything below (aggregate chips,
+  // store cards, Top Flavors) to that region; "All Regions" resets. Regions are
+  // a free-text tag on the store doc (js/dashboard.js: _editStoreRegion()), so
+  // this is purely a client-side grouping of `stores` — no extra Firestore
+  // reads. Hidden entirely until there's more than one region in use, so a
+  // single-region (or not-yet-tagged) org doesn't see an empty filter row.
+  let _selectedRegion = null; // null = All Regions
+  const regionChipsRow = document.createElement('div');
+  regionChipsRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;';
+  section.appendChild(regionChipsRow);
 
-  // Summary chips
-  const chips = document.createElement('div');
-  chips.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;';
-  [
-    { label: 'Active Today',      value: `${activeCount} / ${stores.length}`, warn: false },
-    { label: 'Shortages',         value: totalShortages || '—',               warn: totalShortages > 0 },
-    { label: 'Buckets Made Today',value: totalBuckets   || '—',               warn: false },
-  ].forEach(({ label, value, warn }) => {
-    const chip = document.createElement('div');
-    chip.style.cssText = `flex:1;min-width:110px;padding:10px 14px;border-radius:10px;border:1px solid ${warn ? '#d72627' : '#2e4a70'};background:${warn ? 'rgba(215,38,39,0.12)' : '#162053'};`;
-    chip.innerHTML = `<div style="font-size:10px;color:#98d4e3;font-family:'Arial Narrow',Arial,sans-serif;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">${label}</div><div style="font-size:20px;font-weight:700;color:${warn ? '#ff8080' : '#ffffff'};">${value}</div>`;
-    chips.appendChild(chip);
-  });
-  section.appendChild(chips);
+  const filteredWrap = document.createElement('div');
+  section.appendChild(filteredWrap);
+  const topFlavorsWrap = document.createElement('div');
+  content.appendChild(topFlavorsWrap);
 
-  // ── Per-store cards ──
-  const storeGrid = document.createElement('div');
-  storeGrid.style.cssText = 'display:grid;gap:8px;';
-
-  stores.forEach(store => {
-    const isActive    = storeIsActiveToday(store);
-    const shortages   = storeShortagesCount(store);
-    const buckets     = storeProductionToday(store);
-    const flavorCount = (store.activeFlavors || []).length;
-    const lastActive  = relativeTime(store.updatedAt);
-
-    const card = document.createElement('div');
-    card.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 16px;border-radius:10px;border:1px solid ${isActive ? '#1e5c33' : '#2e4a70'};background:${isActive ? 'rgba(34,160,90,0.07)' : '#162053'};cursor:pointer;`;
-    card.title = 'Tap to view store details';
-    card.onclick = () => showStoreDetail(store, card);
-
-    // Left: name + status
-    const nameBlock = document.createElement('div');
-    nameBlock.style.cssText = 'flex:1;min-width:140px;';
-    const cardSyncColor = _syncAgeColor(store.updatedAt);
-    nameBlock.innerHTML = `<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:8px;color:${isActive ? '#22a05a' : '#5a7a9a'};">●</span><span style="font-size:14px;font-weight:700;color:#ffffff;">${_storeLabelFor(store)}</span><span style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;">${isActive ? 'Active' : 'Inactive'}</span></div><div style="font-size:11px;color:${cardSyncColor};margin-top:4px;font-family:'Arial Narrow',Arial,sans-serif;padding-left:16px;">last updated ${lastActive}</div>`;
-    card.appendChild(nameBlock);
-
-    // Right: metric pills + expand indicator
-    const metrics = document.createElement('div');
-    metrics.style.cssText = 'display:flex;gap:16px;flex-shrink:0;align-items:center;';
-    [
-      { label: 'Flavors',    value: flavorCount,           warn: false },
-      { label: 'Shortages',  value: shortages || '—',      warn: shortages > 0 },
-      { label: 'Made Today', value: buckets   || '—',      warn: false },
-    ].forEach(({ label, value, warn }) => {
-      const m = document.createElement('div');
-      m.style.cssText = 'text-align:center;min-width:44px;';
-      m.innerHTML = `<div style="font-size:16px;font-weight:700;color:${warn ? '#ff8080' : '#c5d8f0'};">${value}</div><div style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;text-transform:uppercase;letter-spacing:0.04em;">${label}</div>`;
-      metrics.appendChild(m);
+  function _regionGroups() {
+    const groups = {};
+    stores.forEach(s => {
+      const key = s.region || 'Unassigned';
+      (groups[key] = groups[key] || []).push(s);
     });
-    // Trend badge — shown only when ≥3 run_completed events exist
-    const cardTrend = _renderTrendBadge(calcStoreTrend(store));
-    if (cardTrend) metrics.appendChild(cardTrend);
-    // Expand chevron
-    const chevron = document.createElement('span');
-    chevron.className = 'store-card-chevron';
-    chevron.style.cssText = 'font-size:16px;color:#5a7a9a;flex-shrink:0;padding-left:4px;transition:transform 0.15s;user-select:none;';
-    chevron.textContent = '›';
-    metrics.appendChild(chevron);
-    card.appendChild(metrics);
+    return groups;
+  }
 
-    storeGrid.appendChild(card);
-  });
-  section.appendChild(storeGrid);
+  function _renderRegionChips() {
+    regionChipsRow.innerHTML = '';
+    const groups = Object.keys(_regionGroups());
+    if (groups.length <= 1) return; // nothing meaningful to filter by yet
+    const sorted = groups.sort((a, b) => a === 'Unassigned' ? 1 : b === 'Unassigned' ? -1 : a.localeCompare(b));
+    const makeChip = (label, count, isActive) => {
+      const chip = document.createElement('button');
+      chip.style.cssText = `padding:6px 12px;border-radius:20px;font-size:12px;font-family:'Arial Narrow',Arial,sans-serif;cursor:pointer;border:1px solid ${isActive ? '#98d4e3' : '#2e4a70'};background:${isActive ? '#2c3691' : '#162053'};color:${isActive ? '#ffffff' : '#8fa3be'};font-weight:${isActive ? '700' : '400'};`;
+      chip.textContent = `${label} · ${count}`;
+      chip.onclick = () => { _selectedRegion = (label === 'All Regions') ? null : label; _renderRegionChips(); _renderFiltered(); };
+      regionChipsRow.appendChild(chip);
+    };
+    makeChip('All Regions', stores.length, _selectedRegion === null);
+    sorted.forEach(name => makeChip(name, _regionGroups()[name].length, _selectedRegion === name));
+  }
+  // Exposed so _editStoreRegion() (store detail panel) can refresh chip counts
+  // immediately after a region is renamed, without tearing down the store grid
+  // (and any currently-open detail panel) underneath the admin mid-edit.
+  window._refreshRegionChips = _renderRegionChips;
 
-  // ── Top Flavors — uses flavor data from storeEvents entries
-  renderTopFlavors(content, stores);
+  function _renderFiltered() {
+    filteredWrap.innerHTML = '';
+    const scoped = _selectedRegion === null ? stores : stores.filter(s => (s.region || 'Unassigned') === _selectedRegion);
+
+    // ── Aggregate summary ──
+    const activeCount    = scoped.filter(s => storeIsActiveToday(s)).length;
+    const totalShortages = scoped.reduce((n, s) => n + storeShortagesCount(s), 0);
+    const totalBuckets   = scoped.reduce((n, s) => n + storeProductionToday(s), 0);
+
+    const chips = document.createElement('div');
+    chips.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;';
+    [
+      { label: 'Active Today',      value: `${activeCount} / ${scoped.length}`, warn: false },
+      { label: 'Shortages',         value: totalShortages || '—',               warn: totalShortages > 0 },
+      { label: 'Buckets Made Today',value: totalBuckets   || '—',               warn: false },
+    ].forEach(({ label, value, warn }) => {
+      const chip = document.createElement('div');
+      chip.style.cssText = `flex:1;min-width:110px;padding:10px 14px;border-radius:10px;border:1px solid ${warn ? '#d72627' : '#2e4a70'};background:${warn ? 'rgba(215,38,39,0.12)' : '#162053'};`;
+      chip.innerHTML = `<div style="font-size:10px;color:#98d4e3;font-family:'Arial Narrow',Arial,sans-serif;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;">${label}</div><div style="font-size:20px;font-weight:700;color:${warn ? '#ff8080' : '#ffffff'};">${value}</div>`;
+      chips.appendChild(chip);
+    });
+    filteredWrap.appendChild(chips);
+
+    // ── Per-store cards ──
+    const storeGrid = document.createElement('div');
+    storeGrid.style.cssText = 'display:grid;gap:8px;';
+
+    scoped.forEach(store => {
+      const isActive    = storeIsActiveToday(store);
+      const shortages   = storeShortagesCount(store);
+      const buckets     = storeProductionToday(store);
+      const flavorCount = (store.activeFlavors || []).length;
+      const lastActive  = relativeTime(store.updatedAt);
+
+      const card = document.createElement('div');
+      card.style.cssText = `display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 16px;border-radius:10px;border:1px solid ${isActive ? '#1e5c33' : '#2e4a70'};background:${isActive ? 'rgba(34,160,90,0.07)' : '#162053'};cursor:pointer;`;
+      card.title = 'Tap to view store details';
+      card.onclick = () => showStoreDetail(store, card);
+
+      // Left: name + status
+      const nameBlock = document.createElement('div');
+      nameBlock.style.cssText = 'flex:1;min-width:140px;';
+      const cardSyncColor = _syncAgeColor(store.updatedAt);
+      const regionTag = store.region ? `<span style="font-size:10px;color:#5a7a9a;font-family:'Arial Narrow',Arial,sans-serif;">· ${store.region}</span>` : '';
+      nameBlock.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="font-size:8px;color:${isActive ? '#22a05a' : '#5a7a9a'};">●</span><span style="font-size:14px;font-weight:700;color:#ffffff;">${_storeLabelFor(store)}</span><span style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;">${isActive ? 'Active' : 'Inactive'}</span>${regionTag}</div><div style="font-size:11px;color:${cardSyncColor};margin-top:4px;font-family:'Arial Narrow',Arial,sans-serif;padding-left:16px;">last updated ${lastActive}</div>`;
+      card.appendChild(nameBlock);
+
+      // Right: metric pills + expand indicator
+      const metrics = document.createElement('div');
+      metrics.style.cssText = 'display:flex;gap:16px;flex-shrink:0;align-items:center;';
+      [
+        { label: 'Flavors',    value: flavorCount,           warn: false },
+        { label: 'Shortages',  value: shortages || '—',      warn: shortages > 0 },
+        { label: 'Made Today', value: buckets   || '—',      warn: false },
+      ].forEach(({ label, value, warn }) => {
+        const m = document.createElement('div');
+        m.style.cssText = 'text-align:center;min-width:44px;';
+        m.innerHTML = `<div style="font-size:16px;font-weight:700;color:${warn ? '#ff8080' : '#c5d8f0'};">${value}</div><div style="font-size:10px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;text-transform:uppercase;letter-spacing:0.04em;">${label}</div>`;
+        metrics.appendChild(m);
+      });
+      // Trend badge — shown only when ≥3 run_completed events exist
+      const cardTrend = _renderTrendBadge(calcStoreTrend(store));
+      if (cardTrend) metrics.appendChild(cardTrend);
+      // Expand chevron
+      const chevron = document.createElement('span');
+      chevron.className = 'store-card-chevron';
+      chevron.style.cssText = 'font-size:16px;color:#5a7a9a;flex-shrink:0;padding-left:4px;transition:transform 0.15s;user-select:none;';
+      chevron.textContent = '›';
+      metrics.appendChild(chevron);
+      card.appendChild(metrics);
+
+      storeGrid.appendChild(card);
+    });
+    filteredWrap.appendChild(storeGrid);
+
+    // ── Top Flavors — uses flavor data from storeEvents entries, scoped to the
+    // selected region same as everything else above.
+    topFlavorsWrap.innerHTML = '';
+    renderTopFlavors(topFlavorsWrap, scoped);
+  }
+
+  _renderRegionChips();
+  _renderFiltered();
 }
 
 function renderDashboardCard(title, value, note) {

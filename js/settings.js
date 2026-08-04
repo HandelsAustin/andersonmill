@@ -218,6 +218,18 @@ function renderSettingsPage() {
   exportSection.appendChild(monthRow);
   content.appendChild(exportSection);
 
+  // ── Create Store Owner Account (CORPORATE_ADMIN only) ────────────────────
+  if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+    const createSection = _settingsSection('Create Store Owner Account');
+    const createNote = document.createElement('div');
+    createNote.className = 'settings-note';
+    createNote.style.marginBottom = '10px';
+    createNote.textContent = "Provisions a new login immediately, pre-assigned to whichever store(s) you pick below. There's no email invite — share the password shown after creating it with the store owner yourself; they can change it later via \"Forgot password?\" on the sign-in screen.";
+    createSection.appendChild(createNote);
+    _renderCreateAccountForm(createSection);
+    content.appendChild(createSection);
+  }
+
   // ── Users & Roles (CORPORATE_ADMIN only) ─────────────────────────────────
   if (userHasRole(ROLES.CORPORATE_ADMIN)) {
     const usersSection = _settingsSection('Users & Roles');
@@ -271,6 +283,171 @@ function _applyNewPagesTheme(theme) {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('theme-light', theme === 'light');
   });
+}
+
+// No ambiguous-looking characters (0/O, 1/l/I) — this gets read aloud or
+// retyped by whoever's relaying it to the new store owner.
+function _generateTempPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let pw = '';
+  for (let i = 0; i < 10; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+  return pw;
+}
+
+// Creates a brand-new Firebase Auth account + member doc, pre-assigned to the
+// given role/stores, without touching the corporate admin's own signed-in
+// session — see the secondary Firebase App set up in index.html for why a
+// plain createUserWithEmailAndPassword() against the primary auth instance
+// would otherwise sign the admin out and into the new account instead.
+async function createStoreOwnerAccount(email, password, role, storeIds) {
+  if (!window._secondaryAuth) throw new Error('Account creation is unavailable right now — try reloading the app.');
+  const cred = await window._createUserWithEmailAndPassword(window._secondaryAuth, email, password);
+  const newUid = cred.user.uid;
+  try { await window._signOut(window._secondaryAuth); } catch (e) { /* secondary session, never reused — not critical */ }
+  await window._setDoc(window.getOrgMemberRef(newUid), {
+    uid: newUid, email, role, stores: storeIds, createdAt: Date.now()
+  });
+  await window.logOrgEvent('store_owner_account_created', { email, role, stores: storeIds });
+  return newUid;
+}
+
+function _renderCreateAccountForm(container) {
+  const formFields = document.createElement('div');
+  formFields.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+
+  const emailInput = document.createElement('input');
+  emailInput.type = 'email';
+  emailInput.className = 'settings-input';
+  emailInput.placeholder = 'Store owner email';
+  formFields.appendChild(emailInput);
+
+  const pwRow = document.createElement('div');
+  pwRow.style.cssText = 'display:flex;gap:6px;';
+  const pwInput = document.createElement('input');
+  pwInput.type = 'text';
+  pwInput.className = 'settings-input';
+  pwInput.placeholder = 'Temporary password';
+  pwInput.value = _generateTempPassword();
+  const genBtn = document.createElement('button');
+  genBtn.type = 'button';
+  genBtn.className = 'btn';
+  genBtn.textContent = '↻ New';
+  genBtn.style.cssText = 'flex-shrink:0;font-size:12px;padding:8px 10px;';
+  genBtn.onclick = () => { pwInput.value = _generateTempPassword(); };
+  pwRow.append(pwInput, genBtn);
+  formFields.appendChild(pwRow);
+
+  const roleSelect = document.createElement('select');
+  roleSelect.className = 'settings-input';
+  [ROLES.STORE_MANAGER, ROLES.CORPORATE_ADMIN].forEach(r => {
+    const opt = document.createElement('option');
+    opt.value = r;
+    opt.textContent = r === ROLES.CORPORATE_ADMIN ? 'Corporate Admin' : 'Store Manager';
+    roleSelect.appendChild(opt);
+  });
+  formFields.appendChild(roleSelect);
+
+  const storesLabel = document.createElement('div');
+  storesLabel.className = 'settings-label';
+  storesLabel.style.marginTop = '4px';
+  storesLabel.textContent = 'Assign to store(s):';
+  formFields.appendChild(storesLabel);
+
+  const storesList = document.createElement('div');
+  storesList.style.cssText = 'display:grid;gap:4px;max-height:180px;overflow-y:auto;';
+  const storesLoading = document.createElement('div');
+  storesLoading.className = 'settings-note';
+  storesLoading.textContent = 'Loading stores…';
+  storesList.appendChild(storesLoading);
+  formFields.appendChild(storesList);
+
+  const selectedStores = new Set();
+  loadOrgStores().then(stores => {
+    storesList.innerHTML = '';
+    if (!stores.length) {
+      const empty = document.createElement('div');
+      empty.className = 'settings-note';
+      empty.textContent = 'No stores yet — create one first.';
+      storesList.appendChild(empty);
+      return;
+    }
+    stores.forEach(store => {
+      const label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 0;cursor:pointer;';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.onchange = () => { checkbox.checked ? selectedStores.add(store.id) : selectedStores.delete(store.id); };
+      const text = document.createElement('span');
+      text.textContent = _storeLabelFor(store);
+      label.append(checkbox, text);
+      storesList.appendChild(label);
+    });
+  });
+
+  // Store selection is meaningless for Corporate Admin — that role bypasses
+  // stores[] scoping entirely (see _scopedStores(), store-org.js) — so hide it
+  // for that role, same as the existing member list below already does.
+  const updateStoresVisibility = () => {
+    const show = roleSelect.value !== ROLES.CORPORATE_ADMIN;
+    storesLabel.style.display = show ? '' : 'none';
+    storesList.style.display  = show ? '' : 'none';
+  };
+  roleSelect.onchange = updateStoresVisibility;
+  updateStoresVisibility();
+
+  const errEl = document.createElement('div');
+  errEl.style.cssText = 'color:#d72627;font-size:12px;min-height:16px;';
+  formFields.appendChild(errEl);
+
+  const submitBtn = document.createElement('button');
+  submitBtn.className = 'btn btn-green';
+  submitBtn.textContent = '+ Create Account';
+  formFields.appendChild(submitBtn);
+
+  const resultEl = document.createElement('div');
+  resultEl.style.display = 'none';
+
+  submitBtn.onclick = async () => {
+    const email    = emailInput.value.trim();
+    const password = pwInput.value;
+    errEl.textContent = '';
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'Enter a valid email address.'; return; }
+    if (!password || password.length < 6) { errEl.textContent = 'Password must be at least 6 characters.'; return; }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating…';
+    try {
+      const role   = roleSelect.value;
+      const stores = role === ROLES.CORPORATE_ADMIN ? [] : [...selectedStores];
+      await createStoreOwnerAccount(email, password, role, stores);
+
+      formFields.style.display = 'none';
+      resultEl.style.cssText = 'display:block;padding:10px 12px;border-radius:8px;background:rgba(34,160,90,0.12);border:1px solid #1e5c33;font-size:12px;';
+      resultEl.innerHTML = `<div style="font-weight:700;color:#22a05a;margin-bottom:4px;">✓ Account created</div><div>Share these with the store owner — this won't be shown again:</div><div style="margin-top:6px;padding:8px;border-radius:6px;background:rgba(0,0,0,0.25);font-family:monospace;font-size:12px;word-break:break-all;">Email: ${email}<br>Password: ${password}</div>`;
+      const doneBtn = document.createElement('button');
+      doneBtn.className = 'btn';
+      doneBtn.style.cssText = 'margin-top:8px;font-size:12px;padding:6px 12px;';
+      doneBtn.textContent = "Done — I've saved this";
+      doneBtn.onclick = () => renderSettingsPage(); // refreshes Users & Roles below with the new account
+      resultEl.appendChild(doneBtn);
+    } catch (e) {
+      console.error('Create account error:', e);
+      if (e.code === 'auth/email-already-in-use') {
+        errEl.textContent = 'An account already exists for that email — use the "Stores" button next to it below to assign this store instead.';
+      } else if (e.code === 'auth/weak-password') {
+        errEl.textContent = 'That password is too weak — try a longer one.';
+      } else if (e.code === 'auth/invalid-email') {
+        errEl.textContent = 'That email address looks invalid.';
+      } else {
+        errEl.textContent = e.message || 'Could not create the account.';
+      }
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '+ Create Account';
+    }
+  };
+
+  container.append(formFields, resultEl);
 }
 
 async function _loadMembersIntoSettings(container) {

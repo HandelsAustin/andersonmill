@@ -43,6 +43,20 @@ A multi-store operational SaaS platform for ice cream and food production workfl
   **shared 4-digit PIN per store** (`store.managerPin`, `js/manager-lock.js`) gates
   Dashboard/Inventory/Store Settings/Edit Flavors instead.
 - `ROLES.EMPLOYEE` constant still exists (harmless) but is never assigned to a real session.
+- **Provisioning a new store owner** (Settings → Users & Roles → Create Store Owner Account,
+  CORPORATE_ADMIN only, `js/settings.js`): corporate types the new owner's email + a
+  temporary password (generated for them, editable) and picks a role/store(s) — the
+  account is created and pre-assigned immediately, no email invite. There's no backend
+  (no Cloud Functions), so this relies on a **secondary Firebase App instance**
+  (`index.html`: `secondaryApp`/`secondaryAuth`, `window._secondaryAuth`) purely to
+  avoid the client SDK's normal behavior of signing the *caller* into any account
+  `createUserWithEmailAndPassword()` creates — running that call against a separate,
+  never-listened-to Auth instance keeps the corporate admin's own primary session
+  untouched. The resulting member doc is written via the primary (already-authenticated)
+  Firestore connection, same as any other admin write. Corporate is responsible for
+  relaying the shown password to the owner themselves; they can change it later via
+  "Forgot password?". If the email already has an account, use the existing member's
+  "Stores" editor (same section) to assign the new store instead of creating a duplicate.
 
 ## Firestore Structure (Live)
 
@@ -55,6 +69,11 @@ organizations/{orgId}
 
 organizations/{orgId}/stores/{storeId}
   id, label, createdAt, createdBy
+  region                                                ← optional free-text tag (e.g. "Pacific Northwest"), not a
+                                                           separate collection — set at creation (renderStoreForm())
+                                                           or edited inline from a store's card in the corporate
+                                                           System Dashboard (js/dashboard.js: _editStoreRegion()).
+                                                           Drives the region chips/filter in renderMultiStoreOverview().
   managerPin                                           ← shared 4-digit PIN, gates manager features (js/manager-lock.js)
   customAdded, removedNames, updatedAt                 ← flavor roster (persistent; NOT per-day)
   currentFlavorList: [{name, target, cabinet?}]         ← persistent default Today's Flavor List + target numbers;
