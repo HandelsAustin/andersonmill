@@ -12,6 +12,8 @@
 let novelties = []; // catalog: [{ category, name, parLevel }] — populated by applyData() in store-org.js
 let _noveltiesLog = []; // working date's data: [{ category, name, onHand }]
 let _workingNoveltiesDate = null;
+let _noveltiesSaving = false; // suppresses the noveltiesLog snapshot listener's reaction to our own write
+let _unsubscribeNoveltiesSnapshot = null;
 
 const NOVELTY_CATALOG = [
   { category: 'Waffle Cones',             items: ['Chocolate', 'Sprinkles', 'Oreo Crumbs', 'Peanuts'] },
@@ -129,7 +131,15 @@ function _seedNoveltiesIfEmpty() {
   return true;
 }
 
-async function saveNoveltiesCatalog() {
+// See _makeCoalescedSaver() (appHelpers.js): every Target/On Hand/Made edit
+// fires its own save, so without coalescing an older-but-slower write can
+// land after a newer one (e.g. Reset) and silently overwrite it — which is
+// exactly what made another device's changes appear to vanish here. The
+// catalog write shares the Run tab's `_saving` flag since both land on the
+// same store doc and are watched by the same listener (loadAll()); the log
+// write gets its own `_noveltiesSaving` flag since noveltiesLog/{date} is a
+// separate doc with its own listener, wired up below.
+async function _saveNoveltiesCatalogOnce() {
   if (!window._firebaseReady) { showStatusMessage('Offline — catalog saved locally only', 3000); return; }
   try {
     await window._setDoc(getStoreDocRef(), { novelties }, { merge: true });
@@ -138,8 +148,12 @@ async function saveNoveltiesCatalog() {
     showStatusMessage('⚠ Could not save novelties catalog', 2500);
   }
 }
+const saveNoveltiesCatalog = _makeCoalescedSaver(_saveNoveltiesCatalogOnce, {
+  onStart:  () => { _saving = true; },
+  onSettle: () => { _saving = false; },
+});
 
-async function saveNoveltiesLog() {
+async function _saveNoveltiesLogOnce() {
   if (!window._firebaseReady) { showStatusMessage("Offline — today's checklist saved locally only", 3000); return; }
   try {
     await window._setDoc(window.getStoreNoveltiesLogRef(_workingNoveltiesDate || todayStr()), { items: _noveltiesLog, updatedAt: Date.now() }, { merge: true });
@@ -148,13 +162,18 @@ async function saveNoveltiesLog() {
     showStatusMessage('⚠ Could not save checklist', 2500);
   }
 }
+const saveNoveltiesLog = _makeCoalescedSaver(_saveNoveltiesLogOnce, {
+  onStart:  () => { _noveltiesSaving = true; },
+  onSettle: () => { _noveltiesSaving = false; },
+});
 
 // Loads (and switches the working date to) a specific date's checklist — this is
-// what "recall a past day" does. No live snapshot listener here (unlike the Run):
-// Novelties counting is typically single-device/single-session, so load-on-demand
-// keeps this simpler.
+// what "recall a past day" does, and also what a fresh tab-open runs on day one.
+// Now live: a matching onSnapshot keeps this date's checklist in sync with
+// whatever any other device does to it, the same way the Run tab already works.
 async function loadNoveltiesForDate(date) {
   _workingNoveltiesDate = date;
+  if (_unsubscribeNoveltiesSnapshot) { _unsubscribeNoveltiesSnapshot(); _unsubscribeNoveltiesSnapshot = null; }
   let logData = null;
   if (window._firebaseReady) {
     try {
@@ -166,6 +185,17 @@ async function loadNoveltiesForDate(date) {
   }
   _noveltiesLog = logData?.items || [];
   renderNoveltiesPage();
+  if (window._firebaseReady && window._onSnapshot) {
+    try {
+      _unsubscribeNoveltiesSnapshot = window._onSnapshot(window.getStoreNoveltiesLogRef(date), snap => {
+        if (_noveltiesSaving) return;
+        _noveltiesLog = snap.exists() ? (snap.data().items || []) : [];
+        renderNoveltiesPage();
+      }, err => console.error('Novelties snapshot listener error:', err));
+    } catch (e) {
+      console.error('Failed to start novelties snapshot listener:', e);
+    }
+  }
 }
 
 // Novelties is now a bottom-tab panel rather than a popup overlay — these wrappers

@@ -82,10 +82,15 @@ organizations/{orgId}/stores/{storeId}/runs/{date}                 (date = YYYY-
 organizations/{orgId}/stores/{storeId}/noveltiesLog/{date}
   items: [{category, name, onHand, done}], updatedAt
   ← One doc per day's Novelties checklist (js/novelties.js: loadNoveltiesForDate()).
+    Live onSnapshot follows whichever date is currently loaded, same as runs/{date} —
+    added so Target/On Hand/Made stay in sync across devices in real time instead of
+    only reflecting whatever was true at the moment the tab was opened.
 
 organizations/{orgId}/stores/{storeId}/inventoryLog/{date}
   items: [{name, onHand}], updatedAt
   ← One doc per inventory count session (js/inventory.js: loadInventoryForDate()).
+    No live listener — inventory counts are still a periodic, usually single-session
+    task, unlike the daily Run/Novelties checklists.
 
 All three date-log subcollections are covered by firestore.rules (isOrgMember() read /
 isStoreManager() write, same as the store doc) — deployed to production.

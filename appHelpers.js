@@ -101,6 +101,54 @@ window.getStoreInventoryLogCollectionRef = function(orgId = window.getCurrentOrg
   return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'inventoryLog');
 };
 
+// Coalescing async-write wrapper — used by saveAll() (store-org.js),
+// saveNoveltiesCatalog()/saveNoveltiesLog() (novelties.js), and
+// saveInventoryCatalog()/saveInventoryLog() (inventory.js).
+//
+// Every one of those functions fires its own unawaited Firestore write on
+// every single field edit (target change, dipping/holding change, a Reset,
+// an On Hand tap...). Two overlapping writes to the *same* doc are two
+// independent network requests that can complete in either order — if an
+// earlier-but-slower write (e.g. a dipping change from a few seconds ago,
+// delayed by a weak connection) finishes *after* a newer one (e.g. Reset),
+// it silently wins and the newer state is lost. That's what made Reset
+// look like it "didn't stick" across devices even though it ran correctly
+// on the writing device — the reset write went out fine, then got clobbered
+// moments later by a stale write that was still in flight.
+//
+// The fix: never let two writes for the same target be in flight at once.
+// If a write is already running when called again, just flag "run once
+// more after this one finishes" instead of firing a second overlapping
+// write — and since the eventual re-run reads whatever state is current
+// *at that time*, the very last write is always guaranteed to reflect the
+// latest state, however many edits landed while the first write was busy.
+//
+// Optional onStart/onSettle fire exactly once per *session* — when the first
+// caller starts a write, and again once every chained re-run has drained —
+// not once per call. That matters for callers like `_saving` (store-org.js),
+// which flags "ignore my own snapshot echo": if onStart/onSettle instead fired
+// per-call, a second overlapping caller settling first would clear that flag
+// while the first caller's write was still genuinely in flight, reopening the
+// exact same race this whole helper exists to close.
+function _makeCoalescedSaver(run, { onStart, onSettle } = {}) {
+  let inFlight = false;
+  let pending  = false;
+  return async function coalescedSave() {
+    if (inFlight) { pending = true; return; }
+    inFlight = true;
+    if (onStart) onStart();
+    try {
+      do {
+        pending = false;
+        await run();
+      } while (pending);
+    } finally {
+      inFlight = false;
+      if (onSettle) onSettle();
+    }
+  };
+}
+
 // Fallback display name for a raw store-id slug (e.g. "anderson-mill" ->
 // "Anderson Mill") — used wherever store.label isn't set.
 function _titleCaseSlug(id) {

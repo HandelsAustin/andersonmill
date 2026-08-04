@@ -30,7 +30,12 @@ function closeInventory() {
   switchTab('Run');
 }
 
-async function saveInventoryCatalog() {
+// See _makeCoalescedSaver() (appHelpers.js) — same rapid-edit race as the Run
+// and Novelties tabs. Catalog shares `_saving` since it lands on the store doc
+// alongside everything else that flag already guards; the log write doesn't
+// need its own flag since inventoryLog has no live listener (see
+// loadInventoryForDate() below).
+async function _saveInventoryCatalogOnce() {
   if (!window._firebaseReady) { showStatusMessage('Offline — catalog saved locally only', 3000); return; }
   try {
     await window._setDoc(getStoreDocRef(), { inventoryCatalog, inventoryLastCountedAt: _inventoryLastCountedAt }, { merge: true });
@@ -39,8 +44,12 @@ async function saveInventoryCatalog() {
     showStatusMessage('⚠ Could not save catalog', 2500);
   }
 }
+const saveInventoryCatalog = _makeCoalescedSaver(_saveInventoryCatalogOnce, {
+  onStart:  () => { _saving = true; },
+  onSettle: () => { _saving = false; },
+});
 
-async function saveInventoryLog() {
+async function _saveInventoryLogOnce() {
   if (!window._firebaseReady) { showStatusMessage("Offline — this count saved locally only", 3000); return; }
   try {
     await window._setDoc(window.getStoreInventoryLogRef(_workingInventoryDate || todayStr()), { items: _inventoryLog, updatedAt: Date.now() }, { merge: true });
@@ -49,6 +58,7 @@ async function saveInventoryLog() {
     showStatusMessage('⚠ Could not save count', 2500);
   }
 }
+const saveInventoryLog = _makeCoalescedSaver(_saveInventoryLogOnce);
 
 // Loads (and switches the working date to) a specific count session — same
 // recall pattern as the Run and Novelties. No live snapshot listener: inventory

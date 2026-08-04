@@ -94,7 +94,11 @@ function _applyRunData(runData) {
   cateringMade = rd.cateringMade || {};
 }
 
-async function saveAll() {
+// See _makeCoalescedSaver() (appHelpers.js) for why this can't just be a plain
+// async function — rapid target/dipping/holding edits (and Reset) each fire
+// their own save, and without coalescing, an older-but-slower write can land
+// after a newer one and silently overwrite it.
+async function _saveAllOnce() {
   const customAdded  = roster.filter(r => !MASTER_ROSTER.find(m => m.name === r.name));
   const removedNames = MASTER_ROSTER.filter(m => !roster.find(r => r.name === m.name)).map(m => m.name);
   const rosterPayload = { customAdded, removedNames, updatedAt: Date.now() };
@@ -115,7 +119,6 @@ async function saveAll() {
   localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify({ ...rosterPayload, ...runPayload }));
   if (!window._firebaseReady) { setSyncStatus('offline'); return; }
   setSyncStatus('saving');
-  _saving = true;
   try {
     await window._setDoc(getStoreDocRef(), rosterPayload, { merge: true });
     await window._setDoc(window.getStoreRunLogRef(_workingRunDate || todayStr()), runPayload, { merge: true });
@@ -123,12 +126,32 @@ async function saveAll() {
   } catch(e) {
     console.error('Firestore save error:', e);
     setSyncStatus('error');
-  } finally {
-    _saving = false;
   }
 }
+const saveAll = _makeCoalescedSaver(_saveAllOnce, {
+  onStart:  () => { _saving = true; },
+  onSettle: () => { _saving = false; },
+});
+
+let _loadedForStoreId = null; // which store the Run/Novelties/Inventory "working date" state below is valid for
 
 async function loadAll() {
+  // loadAll() also re-runs for reasons that AREN'T a store switch (e.g. an auth
+  // token refresh re-triggering init() while already on a store) — only reset
+  // the working dates when the store actually changed, so a manager reviewing
+  // a recalled past date doesn't get silently bounced back to today by an
+  // unrelated background event. On the very first load there's nothing to
+  // compare against yet, so this is naturally a no-op (everything's null already).
+  if (_loadedForStoreId !== null && _loadedForStoreId !== window.getCurrentStoreId()) {
+    _workingRunDate = null;
+    if (typeof _unsubscribeNoveltiesSnapshot !== 'undefined' && _unsubscribeNoveltiesSnapshot) {
+      _unsubscribeNoveltiesSnapshot();
+      _unsubscribeNoveltiesSnapshot = null;
+    }
+    if (typeof _workingNoveltiesDate !== 'undefined')  _workingNoveltiesDate = null;
+    if (typeof _workingInventoryDate !== 'undefined')  _workingInventoryDate = null;
+  }
+  _loadedForStoreId = window.getCurrentStoreId();
   if (_unsubscribeSnapshot) { _unsubscribeSnapshot(); _unsubscribeSnapshot = null; }
   if (!_workingRunDate) _workingRunDate = todayStr();
   let data = null;

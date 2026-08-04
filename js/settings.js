@@ -16,8 +16,10 @@ function closeSettings() {
   switchTab('Run');
 }
 
-async function saveStoreSettings(patch) {
-  _storeSettings = { ..._storeSettings, ...patch };
+// See _makeCoalescedSaver() (appHelpers.js) — same store-doc write race as
+// saveAll()/saveNoveltiesCatalog()/saveInventoryCatalog(), just lower-odds here
+// since settings changes are one tap at a time rather than rapid-fire.
+async function _saveStoreSettingsOnce() {
   if (!window._firebaseReady) { showStatusMessage('Offline — settings saved locally only', 3000); return; }
   try {
     await window._setDoc(getStoreDocRef(), { settings: _storeSettings }, { merge: true });
@@ -26,6 +28,14 @@ async function saveStoreSettings(patch) {
     console.error('Settings save error:', e);
     showStatusMessage('⚠ Could not save settings', 2500);
   }
+}
+const _saveStoreSettingsCoalesced = _makeCoalescedSaver(_saveStoreSettingsOnce, {
+  onStart:  () => { _saving = true; },
+  onSettle: () => { _saving = false; },
+});
+async function saveStoreSettings(patch) {
+  _storeSettings = { ..._storeSettings, ...patch };
+  await _saveStoreSettingsCoalesced();
 }
 
 function _settingsSection(title) {
