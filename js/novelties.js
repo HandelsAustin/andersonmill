@@ -184,7 +184,13 @@ function _getLogEntry(item) {
   return entry;
 }
 
+// Hurricane Toppings has no Target — each topping is one container, so "needs
+// filling" just means On Hand hasn't reached Full (1) yet. Every other category
+// still diffs against its numeric Target.
 function _toMakeNovelty(item, entry) {
+  if (item.category === NOVELTY_HURRICANE_CATEGORY) {
+    return (entry.onHand || 0) >= 1 ? 0 : 1;
+  }
   return Math.max(0, (item.parLevel || 0) - (entry.onHand || 0));
 }
 
@@ -234,12 +240,13 @@ function printNovelties() {
   const rows = novelties.map(item => {
     const entry = _getLogEntry(item);
     const need  = _toMakeNovelty(item, entry);
+    const isHurricane = item.category === NOVELTY_HURRICANE_CATEGORY;
     return `<tr>
       <td>${item.category}</td>
       <td>${item.name}</td>
-      <td style="text-align:center">${item.parLevel}</td>
+      <td style="text-align:center">${isHurricane ? '—' : item.parLevel}</td>
       <td style="text-align:center">${_formatQty(entry.onHand)}</td>
-      <td style="text-align:center;font-weight:bold">${need > 0 ? _formatQty(need) : '—'}</td>
+      <td style="text-align:center;font-weight:bold">${need > 0 ? (isHurricane ? 'Fill' : _formatQty(need)) : '—'}</td>
     </tr>`;
   }).join('');
 
@@ -334,10 +341,12 @@ function renderNoveltiesPage() {
 
       items.forEach(item => {
         const entry = _getLogEntry(item);
+        const isHurricane = item.category === NOVELTY_HURRICANE_CATEGORY;
         // Self-heal: stores that had the (now-reverted) Hurricane/Cambros fill-word
         // Target ('Full', '1/2', etc.) get bumped back to a plain number once, so
-        // the free-typed input below always starts from a valid value.
-        if (typeof item.parLevel !== 'number') {
+        // the free-typed input below always starts from a valid value. Skipped for
+        // Hurricane Toppings — it no longer has a Target at all (see below).
+        if (!isHurricane && typeof item.parLevel !== 'number') {
           item.parLevel = NOVELTY_DEFAULT_PAR;
           saveNoveltiesCatalog();
         }
@@ -349,43 +358,52 @@ function renderNoveltiesPage() {
         tdName.textContent = item.name;
         tr.appendChild(tdName);
 
-        // Target — free-typed number, same widget for every category (no upper
-        // limit, unlike the old shared 0–10 TARGET_OPTIONS dropdown). Persists on
-        // the store doc via saveNoveltiesCatalog(), same as before.
+        // Target — free-typed number, same widget for every category except
+        // Hurricane Toppings. Each topping only has one container, so there's
+        // nothing to set a target quantity for — On Hand reading Full already
+        // means nothing needs filling (see _toMakeNovelty()). Persists on the
+        // store doc via saveNoveltiesCatalog(), same as before.
         const tdTarget = document.createElement('td');
         tdTarget.style.cssText = 'text-align:center;padding:9px 4px;';
-        const renderTargetCell = () => {
-          tdTarget.innerHTML = '';
-          if (_managerUnlocked) {
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.inputMode = 'numeric';
-            input.min = '0';
-            input.value = item.parLevel || 0;
-            input.className = 'settings-input';
-            input.style.cssText = 'width:60px;text-align:center;padding:6px 4px;margin:0 auto;';
-            const commit = () => {
-              const val = Math.max(0, parseInt(input.value, 10) || 0);
-              input.value = val;
-              if (val !== item.parLevel) {
-                item.parLevel = val;
-                saveNoveltiesCatalog();
-                renderToMakeCell();
-              }
-            };
-            input.onchange = commit;
-            input.onblur = commit;
-            tdTarget.appendChild(input);
-          } else {
-            const span = document.createElement('span');
-            span.textContent = item.parLevel || '—';
-            span.style.cssText = 'color:var(--text-muted);cursor:pointer;';
-            span.title = 'Manager access required';
-            span.onclick = () => requireManager(renderTargetCell);
-            tdTarget.appendChild(span);
-          }
-        };
-        renderTargetCell();
+        if (isHurricane) {
+          const span = document.createElement('span');
+          span.textContent = '—';
+          span.style.color = 'var(--text-dim)';
+          tdTarget.appendChild(span);
+        } else {
+          const renderTargetCell = () => {
+            tdTarget.innerHTML = '';
+            if (_managerUnlocked) {
+              const input = document.createElement('input');
+              input.type = 'number';
+              input.inputMode = 'numeric';
+              input.min = '0';
+              input.value = item.parLevel || 0;
+              input.className = 'settings-input';
+              input.style.cssText = 'width:60px;text-align:center;padding:6px 4px;margin:0 auto;';
+              const commit = () => {
+                const val = Math.max(0, parseInt(input.value, 10) || 0);
+                input.value = val;
+                if (val !== item.parLevel) {
+                  item.parLevel = val;
+                  saveNoveltiesCatalog();
+                  renderToMakeCell();
+                }
+              };
+              input.onchange = commit;
+              input.onblur = commit;
+              tdTarget.appendChild(input);
+            } else {
+              const span = document.createElement('span');
+              span.textContent = item.parLevel || '—';
+              span.style.cssText = 'color:var(--text-muted);cursor:pointer;';
+              span.title = 'Manager access required';
+              span.onclick = () => requireManager(renderTargetCell);
+              tdTarget.appendChild(span);
+            }
+          };
+          renderTargetCell();
+        }
         tr.appendChild(tdTarget);
 
         // On Hand — a plain −/value/+ stepper for most categories, but the two
@@ -401,7 +419,7 @@ function renderNoveltiesPage() {
           renderToMakeCell();
           checkNoveltiesComplete();
         };
-        if (item.category === NOVELTY_HURRICANE_CATEGORY) {
+        if (isHurricane) {
           tdOnHand.appendChild(makeSelect(HURRICANE_FILL_OPTIONS, entry.onHand || 0, onChangeOnHand));
         } else if (item.category === NOVELTY_CAMBRO_CATEGORY) {
           tdOnHand.appendChild(_buildCambroOnHandWidget(entry.onHand, onChangeOnHand));
@@ -415,7 +433,7 @@ function renderNoveltiesPage() {
         tdMake.style.cssText = 'text-align:center;padding:9px 4px;font-weight:700;';
         const renderToMakeCell = () => {
           const need = _toMakeNovelty(item, entry);
-          tdMake.textContent = need > 0 ? _formatQty(need) : '—';
+          tdMake.textContent = need > 0 ? (isHurricane ? 'Fill' : _formatQty(need)) : '—';
           tdMake.style.color = need > 0 ? '#f0a500' : '#22a05a';
           _updateNoveltiesSummary();
         };
@@ -450,8 +468,8 @@ function renderNoveltiesPage() {
           madeBtn.textContent = 'Made';
           madeBtn.onclick = () => openMadeStepper({
             title: item.name,
-            // openMadeStepper() floors via parseInt(), so a fractional need (e.g.
-            // Hurricane Toppings/Cambros) just prefills with its whole-number part.
+            // openMadeStepper() floors via parseInt(), so a fractional need
+            // (Ice Cream Maker Cambros) just prefills with its whole-number part.
             value: _toMakeNovelty(item, entry),
             onSubmit: qty => setNoveltyMade(item, entry, qty)
           });

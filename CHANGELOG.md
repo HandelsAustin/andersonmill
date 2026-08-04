@@ -7,6 +7,9 @@ v0.2
 
 ## Recent Changes
 
+### Hurricane Toppings: Remove Target (2026-08-03)
+- **Removed:** Hurricane Toppings no longer has a Target — each topping only has one container, so On Hand reading Full already means nothing needs filling. Target column shows "—" for this category (no input, not manager-gated); every other category is unaffected. `_toMakeNovelty()` special-cases Hurricane Toppings to "needs fill" (`On Hand < Full`) instead of diffing against a target; To Make and the print view show a "Fill" flag for it the same way they briefly did before, just driven by fullness instead of a target now. Existing Hurricane Toppings items keep whatever `parLevel` they had in Firestore (unused, harmless) rather than being actively cleared.
+
 ### Follow-up: Novelties Fraction Picker Moved to On Hand (2026-08-03)
 - **Fixed:** corrects the previous entry below — the Empty/1/4/1/2/3/4/Full picker belonged on **On Hand**, not Target. Target is a free-typed number for all eight categories now (same widget everywhere, `TARGET_OPTIONS`/`FRACTION_OPTIONS` dropdown fully removed); stores that picked up the brief bad version self-heal any non-numeric Target back to the default (5) the first time the page renders.
 - **Changed:** Hurricane Toppings' On Hand is the single-container fill picker (`HURRICANE_FILL_OPTIONS`): Empty/1/4/1/2/3/4/Full.
