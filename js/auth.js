@@ -101,7 +101,19 @@ function updateRoleUIVisibility() {
 
 function _updateHeaderSub() {
   const storeId = window.getCurrentStoreId && window.getCurrentStoreId();
-  const storeLabel = storeId ? _storeDisplayLabel(storeId) : null;
+  // car_store_label (the fallback _storeDisplayLabel() reads when called with
+  // no freshLabel) is a single global cache key, not keyed per store — it only
+  // ever reflects whichever store last had its label explicitly passed in
+  // here, not necessarily the one currently selected. That's fine for a
+  // single-store device, but a corporate account switching between stores on
+  // one browser would see the PREVIOUS store's name stuck in the header until
+  // something else happened to pass the right one in and overwrite it (e.g.
+  // opening Store Settings, which does pass it). Look the current store's
+  // real label up from the already-loaded org store list first, same as
+  // Store Settings does, so the header is correct immediately on switch.
+  const stores = (window.getOrgStores && window.getOrgStores()) || [];
+  const freshLabel = storeId ? stores.find(s => s.id === storeId)?.label : null;
+  const storeLabel = storeId ? _storeDisplayLabel(storeId, freshLabel) : null;
   if (!storeLabel) return;
   const sub = document.querySelector('.header-sub');
   if (!sub) return;

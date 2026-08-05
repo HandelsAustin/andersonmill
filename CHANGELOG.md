@@ -7,6 +7,9 @@ v0.2
 
 ## Recent Changes
 
+### Fix: Header Showed the Wrong Store Name After Switching (2026-08-04)
+- **Fixed:** the header's store name could show a *previous* store's name after switching — e.g. a corporate account selecting Anderson Mill would see it correctly in Store Settings but "Tester Store" (whatever was last viewed on that device) still stuck in the header. `_updateHeaderSub()` (`js/auth.js`) was the one caller of `_storeDisplayLabel()` that never passed in the store's real label, so it could only ever fall back to a single global, not-keyed-per-store `car_store_label` cache — correct for a device that only ever shows one store, wrong the moment a corporate account (or anyone testing multiple stores on one browser) switches between stores, since nothing had necessarily refreshed that cache for the *new* selection yet. Now looks the current store's real label up from the already-loaded org store list first, same as Store Settings already does, so the header is correct immediately on switch.
+
 ### Added: Delete Account (Settings → Users & Roles) (2026-08-04)
 - **Added:** a "🗑 Delete" button next to each member in Settings → Users & Roles (corporate-only). Removes their member doc — role, `stores[]`, everything that actually controls access within the app. Can't delete someone else's underlying Firebase Auth login without a backend (only a user can delete their own account), so their email/password could technically still authenticate, but with no member doc they land on "not assigned to any store" with no real access — same state Anderson Mill's account was just in before its store got assigned. Disabled for your own account, and blocked with a message if it's the last remaining Corporate Admin (self-service sign-up only ever creates Store Manager accounts, so losing the last one would strand the org with no way to grant that role again). Confirms before deleting.
 
