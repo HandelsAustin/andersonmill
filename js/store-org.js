@@ -136,13 +136,29 @@ const saveAll = _makeCoalescedSaver(_saveAllOnce, {
 let _loadedForStoreId = null; // which store the Run/Novelties/Inventory "working date" state below is valid for
 
 async function loadAll() {
-  // loadAll() also re-runs for reasons that AREN'T a store switch (e.g. an auth
-  // token refresh re-triggering init() while already on a store) — only reset
-  // the working dates when the store actually changed, so a manager reviewing
-  // a recalled past date doesn't get silently bounced back to today by an
-  // unrelated background event. On the very first load there's nothing to
-  // compare against yet, so this is naturally a no-op (everything's null already).
-  if (_loadedForStoreId !== null && _loadedForStoreId !== window.getCurrentStoreId()) {
+  // Reset the Run/Novelties/Inventory "working date" state — and re-establish
+  // the Novelties listener — whenever either of two things happened, not just
+  // a store switch:
+  //  - The store actually changed (existing check).
+  //  - A genuine sign-out happened since the last load (window._authDropped,
+  //    set in index.html's onAuthStateChanged). A real sign-out makes every
+  //    active Firestore listener start failing permission-denied (the rules
+  //    require isOrgMember(), which a signed-out request can never satisfy) —
+  //    unlike a token refresh, which onAuthStateChanged doesn't even fire for.
+  //    The Run tab's listener already gets re-subscribed unconditionally by
+  //    loadRunForDate() below on every loadAll() call, which is why "the
+  //    flavor list stays saved" even on a device that keeps getting signed
+  //    out — but Novelties/Inventory only (re)subscribe when their working
+  //    date is unset, so without this they'd stay silently dead until the
+  //    store itself happened to change too.
+  // loadAll() can also re-run for reasons that are NEITHER of the above (e.g.
+  // window.init() being called again while nothing actually changed) — in
+  // that case skip the reset, so a manager reviewing a recalled past date
+  // doesn't get silently bounced back to today by an unrelated event. On the
+  // very first load there's nothing to compare against yet, so the store-id
+  // check is naturally a no-op then (everything's null already).
+  if (window._authDropped || (_loadedForStoreId !== null && _loadedForStoreId !== window.getCurrentStoreId())) {
+    window._authDropped = false;
     _workingRunDate = null;
     if (typeof _unsubscribeNoveltiesSnapshot !== 'undefined' && _unsubscribeNoveltiesSnapshot) {
       _unsubscribeNoveltiesSnapshot();

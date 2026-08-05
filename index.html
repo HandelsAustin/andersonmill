@@ -17,23 +17,30 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
     import { getFirestore, doc, setDoc, getDoc, getDocs, onSnapshot, collection, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getAuth, setPersistence, browserLocalPersistence, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import { FIREBASE_CONFIG, DEFAULT_ORG_ID, DEFAULT_ORG_META, ROLES, STORAGE_KEYS } from "./config.js";
 
     const firebaseApp = initializeApp(FIREBASE_CONFIG);
     const db = getFirestore(firebaseApp);
     const auth = getAuth(firebaseApp);
-    // Secondary, unrelated Firebase App instance used ONLY for corporate-admin-side
-    // account provisioning (js/settings.js: createStoreOwnerAccount()). The client
-    // SDK's createUserWithEmailAndPassword() always signs the CALLER into the new
-    // account on whichever Auth instance it's called against — on the primary
-    // `auth` that would sign the corporate admin out of their own session. Running
-    // it against this separate instance instead creates the new Auth user without
-    // touching the admin's real, signed-in session at all. No onAuthStateChanged
-    // listener is attached here — it's purely transactional, never left signed in.
-    const secondaryApp  = initializeApp(FIREBASE_CONFIG, 'Secondary');
-    const secondaryAuth = getAuth(secondaryApp);
-    window._secondaryAuth = secondaryAuth;
+    // Explicit persistence instead of trusting the SDK's own default (which,
+    // depending on environment, may pick IndexedDB-backed storage). IndexedDB
+    // inside an iOS "Add to Home Screen" standalone PWA has a long history of
+    // WebKit-specific reliability issues — sessions not restoring reliably
+    // after the app is fully closed and relaunched, which is exactly what was
+    // reported (device shows "Loaded from cloud" fine once signed in — the
+    // connection itself is fine — but never stays signed in between launches).
+    // localStorage-backed persistence is a much simpler, more battle-tested
+    // mechanism on WebKit, and this app never needs IndexedDB's multi-tab
+    // sync benefit (one shared login per store, not multiple simultaneous
+    // tabs coordinating). Not awaited at the top level — resolves in a few ms
+    // and the earliest anything could sign in is after a human has manually
+    // typed credentials, so there's no real race — but a top-level await here
+    // would mean any hang on some odd browser stalls the entire app's startup,
+    // which is a worse failure mode than the tiny theoretical race it'd avoid.
+    setPersistence(auth, browserLocalPersistence).catch(e => {
+      console.error('Failed to set explicit auth persistence — falling back to SDK default:', e);
+    });
     window._db = db;
     window._doc = doc;
     window._setDoc = setDoc;
@@ -90,6 +97,14 @@
         // No anonymous mode anymore — not signed in always means the login screen,
         // whether this is a cold start or the result of an explicit sign-out.
         if (window.showEntryScreen) window.showEntryScreen();
+        // Marks that live Firestore listeners active at this moment (Novelties/
+        // Inventory/Run) are about to start failing permission-denied — signed-out
+        // reads violate every rule requiring isOrgMember(). loadAll() (store-org.js)
+        // checks this flag to re-establish them once signed back in, even when the
+        // store itself didn't change (a genuine sign-out breaks listeners in a way
+        // a same-session token refresh never does, so it needs the same reset a
+        // store switch already gets).
+        window._authDropped = true;
         if (!_authBootstrapped) {
           _authBootstrapped = true;
           if (window._bootstrapWaiting) { const fn = window._bootstrapWaiting; window._bootstrapWaiting = null; fn(); }
@@ -103,6 +118,26 @@
     window._reauthenticateWithCredential = reauthenticateWithCredential;
     window._EmailAuthProvider = EmailAuthProvider;
     if (window._bootstrapWaiting) window._bootstrapWaiting();
+
+    // Secondary, unrelated Firebase App instance used ONLY for corporate-admin-side
+    // account provisioning (js/settings.js: createStoreOwnerAccount()). The client
+    // SDK's createUserWithEmailAndPassword() always signs the CALLER into the new
+    // account on whichever Auth instance it's called against — on the primary
+    // `auth` that would sign the corporate admin out of their own session. Running
+    // it against this separate instance instead creates the new Auth user without
+    // touching the admin's real, signed-in session at all. No onAuthStateChanged
+    // listener is attached here — it's purely transactional, never left signed in.
+    // Deliberately set up LAST and wrapped in try/catch: this only matters for one
+    // rare corporate action, so a failure here must never be able to stop any of
+    // the core wiring above (window._db/_auth/_firebaseReady) from completing —
+    // createStoreOwnerAccount() already checks for window._secondaryAuth and fails
+    // gracefully with a clear message if this didn't succeed.
+    try {
+      const secondaryApp = initializeApp(FIREBASE_CONFIG, 'Secondary');
+      window._secondaryAuth = getAuth(secondaryApp);
+    } catch (e) {
+      console.error('Secondary Firebase app init failed (store-owner account creation will be unavailable):', e);
+    }
   </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

@@ -330,10 +330,25 @@ async function renderMultiStoreOverview(content) {
 
   content.appendChild(section);
 
-  // Load full store data (includes activeFlavors, updatedAt, lastRunDate, etc.)
+  // Load store docs (updatedAt, lastRunDate, storeEvents, etc.), then hydrate
+  // each with today's activeFlavors — that field lives in runs/{date}, not on
+  // the store doc itself (moved there so a store's full run history doesn't
+  // bloat the doc read on every app load), so it has to be fetched separately
+  // per store. Without this, "Active Flavors"/"Shortages" here always read as
+  // 0 regardless of a store's real state, since store.activeFlavors was never
+  // actually a field the store doc had.
   let stores = [];
   try {
     stores = await loadOrgStores();
+    const orgId = window.getCurrentOrgId();
+    await Promise.all(stores.map(async store => {
+      try {
+        const snap = await window._getDoc(window.getStoreRunLogRef(todayStr(), orgId, store.id));
+        store.activeFlavors = snap.exists() ? (snap.data().activeFlavors || []) : [];
+      } catch (e) {
+        store.activeFlavors = []; // offline/denied — falls back to "no data" for this store, not a hard failure
+      }
+    }));
   } catch (e) {
     loadingEl.textContent = 'Could not load store data. Check your connection.';
     return;
