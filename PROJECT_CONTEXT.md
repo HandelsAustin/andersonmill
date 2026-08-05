@@ -43,6 +43,16 @@ A multi-store operational SaaS platform for ice cream and food production workfl
   **shared 4-digit PIN per store** (`store.managerPin`, `js/manager-lock.js`) gates
   Dashboard/Inventory/Store Settings/Edit Flavors instead.
 - `ROLES.EMPLOYEE` constant still exists (harmless) but is never assigned to a real session.
+- **The selected store is cached per device** (`localStorage` `car_store_id`), independent
+  of which account is signed in — so on a shared device, `_reconcileStoreForSignedInUser()`
+  (`js/store-org.js`) runs right after every sign-in (fresh sign-in via `signInManager()`,
+  `js/auth.js`, and session restore via `index.html`'s `onAuthStateChanged`) to make sure
+  the cached store actually belongs to whichever account just signed in — auto-selecting it
+  if that account has exactly one, otherwise clearing it so the store picker (scoped to that
+  account's `stores[]`) decides. Without this, signing into a different STORE_MANAGER
+  account on a device last used for another store silently kept showing the old store.
+  CORPORATE_ADMIN is exempt — every store is valid for that role, so its cached pick is
+  always left alone.
 - **Provisioning a new store owner** (Settings → Users & Roles → Create Store Owner Account,
   CORPORATE_ADMIN only, `js/settings.js`): corporate types the new owner's email + a
   temporary password (generated for them, editable) and picks a role/store(s) — the

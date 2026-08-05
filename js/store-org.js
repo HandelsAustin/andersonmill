@@ -363,6 +363,28 @@ function _scopedStores(allStores) {
   return allStores.filter(s => allowed.has(s.id));
 }
 
+// The currently-selected store is cached per DEVICE (localStorage car_store_id),
+// completely independent of which account is signed in — so on a shared device,
+// signing out of one store's login and into a different one (e.g. Anderson Mill's
+// credentials on a laptop last used for Tester Store) would silently keep showing
+// whatever store was cached, since nothing previously re-checked it belonged to
+// the account that just signed in. Call this right after loadCurrentUserRole()
+// resolves (window._USER_ROLE/_userStores are current at that point) — from both
+// signInManager() (auth.js) and the session-restore path (index.html's
+// onAuthStateChanged), so it's covered whether this is a fresh sign-in or a
+// persisted session picking back up.
+function _reconcileStoreForSignedInUser() {
+  if (userHasRole(ROLES.CORPORATE_ADMIN)) return; // any store is valid for corporate — keep whatever's cached
+  const current = window.getCurrentStoreId();
+  const allowed = window._userStores || [];
+  if (current && allowed.includes(current)) return; // still valid for this account
+  if (allowed.length === 1) {
+    window.setStoreId(allowed[0]); // exactly one option for this account — just use it, no picker needed
+  } else {
+    window.setStoreId(undefined); // 0 or 2+ options — clear the stale pick and let the store picker decide
+  }
+}
+
 async function loadOrgStores() {
   if (!window._firebaseReady || !window._getDocs) return [];
   try {

@@ -140,6 +140,7 @@ async function signInManager() {
   try {
     await window._signInWithEmailAndPassword(window._auth, email, password);
     await loadCurrentUserRole(true);
+    _reconcileStoreForSignedInUser();
     await window.logOrgEvent('signed_in', { email });
     hideEntryScreen();
     updateConnectivityStatus();

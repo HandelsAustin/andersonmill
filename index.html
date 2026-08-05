@@ -73,6 +73,7 @@
       window.setSignedInUser(user);
       if (user) {
         await loadCurrentUserRole();
+        _reconcileStoreForSignedInUser();
         updateAuthButton();
         if (!_authBootstrapped) {
           _authBootstrapped = true;
