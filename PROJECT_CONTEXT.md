@@ -67,6 +67,15 @@ A multi-store operational SaaS platform for ice cream and food production workfl
   relaying the shown password to the owner themselves; they can change it later via
   "Forgot password?". If the email already has an account, use the existing member's
   "Stores" editor (same section) to assign the new store instead of creating a duplicate.
+- **Removing an account** (Settings → Users & Roles → Delete, CORPORATE_ADMIN only): deletes
+  the member doc only, which is what actually controls access within the app — role,
+  `stores[]`, everything. Their underlying Firebase Auth login can't be deleted from the
+  client on someone else's behalf (only a user can delete their own account, no backend to
+  do it for them), but with no member doc their email/password just lands on "not assigned
+  to any store" — no real access, same as any account not yet assigned a store. Blocked for
+  a signed-in admin's own account, and blocked for the last remaining CORPORATE_ADMIN (self-
+  service sign-up only ever creates STORE_MANAGER accounts, so losing the last one would
+  strand the org with no way to ever grant that role again).
 
 ## Firestore Structure (Live)
 

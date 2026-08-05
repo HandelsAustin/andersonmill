@@ -7,6 +7,9 @@ v0.2
 
 ## Recent Changes
 
+### Added: Delete Account (Settings → Users & Roles) (2026-08-04)
+- **Added:** a "🗑 Delete" button next to each member in Settings → Users & Roles (corporate-only). Removes their member doc — role, `stores[]`, everything that actually controls access within the app. Can't delete someone else's underlying Firebase Auth login without a backend (only a user can delete their own account), so their email/password could technically still authenticate, but with no member doc they land on "not assigned to any store" with no real access — same state Anderson Mill's account was just in before its store got assigned. Disabled for your own account, and blocked with a message if it's the last remaining Corporate Admin (self-service sign-up only ever creates Store Manager accounts, so losing the last one would strand the org with no way to grant that role again). Confirms before deleting.
+
 ### Fix: Store Selection Followed the Device, Not the Account (2026-08-04)
 - **Fixed:** signing in with a different STORE_MANAGER account on a device previously used for another store silently kept showing the old store — e.g. signing in with Anderson Mill's credentials on a laptop last used for Tester Store opened Tester Store. Root cause: the selected store is cached per device (`localStorage` `car_store_id`), and nothing re-validated it against whichever account had just signed in. New `_reconcileStoreForSignedInUser()` (`js/store-org.js`) runs after every sign-in (`signInManager()` and session restore) and clears/replaces a cached store the newly-signed-in account doesn't actually have — auto-selecting their one store if they only have one, otherwise showing the store picker scoped to their actual `stores[]`. CORPORATE_ADMIN is unaffected (every store is valid for that role).
 

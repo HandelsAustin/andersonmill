@@ -524,7 +524,50 @@ async function _loadMembersIntoSettings(container) {
           showStatusMessage('⚠ Could not update role', 2500);
         }
       };
-      controlsWrap.append(roleSelect, storesBtn);
+
+      // Deletes the member doc only — that's what actually controls access
+      // within the app (role, stores[]). There's no client-side way to delete
+      // someone else's underlying Firebase Auth login (only a user can delete
+      // their own account) without a backend, so their email/password could
+      // technically still authenticate — but with no member doc they hit the
+      // "not assigned to any store" screen and can't do anything real, same
+      // as any account whose store assignment hasn't been set up yet.
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn';
+      deleteBtn.style.cssText = 'font-size:11px;padding:6px 10px;color:#ff8080;border-color:#d72627;';
+      deleteBtn.textContent = '🗑 Delete';
+      if (isSelf) {
+        deleteBtn.disabled = true;
+        deleteBtn.title = "You can't delete your own account while signed in as it.";
+      }
+      deleteBtn.onclick = async () => {
+        // Guard against locking the org out of corporate features entirely —
+        // self-service sign-up only ever creates STORE_MANAGER accounts, so
+        // once there's zero Corporate Admins left, nobody could ever grant
+        // that role to anyone again.
+        if (m.role === ROLES.CORPORATE_ADMIN && !members.some(x => x.uid !== m.uid && x.role === ROLES.CORPORATE_ADMIN)) {
+          showStatusMessage("⚠ Can't remove the last Corporate Admin — assign another account first", 3500);
+          return;
+        }
+        const label = m.email || m.uid;
+        if (!confirm(`Remove ${label}'s access to this organization? They won't be able to sign into any store or use corporate features anymore. This does not delete their login itself — just their access.`)) return;
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = 'Removing…';
+        try {
+          await window._deleteDoc(window.getOrgMemberRef(m.uid));
+          showStatusMessage(`✓ Removed ${label}`, 2000);
+          wrap.remove();
+          const idx = members.findIndex(x => x.uid === m.uid);
+          if (idx >= 0) members.splice(idx, 1);
+        } catch (e) {
+          console.error('Member delete error:', e);
+          showStatusMessage('⚠ Could not remove this account', 2500);
+          deleteBtn.disabled = false;
+          deleteBtn.textContent = '🗑 Delete';
+        }
+      };
+
+      controlsWrap.append(roleSelect, storesBtn, deleteBtn);
       row.appendChild(controlsWrap);
       wrap.appendChild(row);
 

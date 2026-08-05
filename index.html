@@ -16,7 +16,7 @@
   <!-- These fonts are expected to be installed on devices; system fallbacks provided -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, getDoc, getDocs, onSnapshot, collection, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, collection, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { getAuth, setPersistence, browserLocalPersistence, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import { FIREBASE_CONFIG, DEFAULT_ORG_ID, DEFAULT_ORG_META, ROLES, STORAGE_KEYS } from "./config.js";
 
@@ -46,6 +46,7 @@
     window._setDoc = setDoc;
     window._getDoc = getDoc;
     window._getDocs = getDocs;
+    window._deleteDoc = deleteDoc;
     window._onSnapshot = onSnapshot;
     window._collection = collection;
     window._query = query;
