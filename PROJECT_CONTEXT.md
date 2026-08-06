@@ -109,11 +109,21 @@ organizations/{orgId}/stores/{storeId}
                                                            an app/browser restart, or opening from another device,
                                                            until a manager edits it again
   lastRunDate, lastRunBuckets, lastRunAt               ← written on run completion
-  storeEvents: [{type, buckets, at, by?}]               ← activity log, max 10 entries, trimmed on write; by = first-name attribution (optional, signed-in users only)
+  storeEvents: [{type, buckets, at, by?}]               ← activity log, max 10 entries, trimmed on write; by = first-name attribution (optional, signed-in users only).
+                                                           Written by writeRunSummary() (js/production.js) — called from BOTH ways of
+                                                           ending a run (the always-visible run-banner "Done" button and the
+                                                           "Done — Review & Submit" footer that only appears once everything's
+                                                           made); the banner button used to skip this entirely, silently
+                                                           discarding the day's production instead of recording it.
   settings: { profile: {phone, email, hours}, inventory: {orderLeadTimeDays, inventoryCountIntervalDays}, theme }
     ← Manager Settings page (js/settings.js); merged onto the store doc, no new collection
   novelties: [{category, name, parLevel}]
-    ← Novelties catalog (js/novelties.js) — persistent; daily on-hand/done state lives in noveltiesLog/{date} below
+    ← Novelties catalog (js/novelties.js) — persistent; daily on-hand/done state lives in noveltiesLog/{date} below.
+      _seedNoveltiesIfEmpty() only creates fresh defaults when window._storeDataLoaded
+      (js/store-org.js) confirms the store's real data has actually loaded — an empty
+      in-memory array before that point means "hasn't loaded yet," not "never set up,"
+      and treating it as the latter used to silently overwrite real target numbers with
+      defaults on whichever device happened to tap the Novelties tab first.
   inventoryCatalog: [{name, unit, category, parLevel, pricePerUnit, locationOrder, distributorOrder, history}], inventoryLastCountedAt
     ← Inventory catalog (js/inventory.js) — persistent; per-count on-hand lives in inventoryLog/{date} below.
       pricePerUnit/locationOrder/distributorOrder support CSV import, dual sort, and $ valuation.

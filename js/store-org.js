@@ -134,8 +134,21 @@ const saveAll = _makeCoalescedSaver(_saveAllOnce, {
 });
 
 let _loadedForStoreId = null; // which store the Run/Novelties/Inventory "working date" state below is valid for
+// True once applyData() has run with the CURRENT store's real data (from
+// Firestore or the local backup fallback) at least once this session. Exists
+// specifically to guard _seedNoveltiesIfEmpty() (js/novelties.js): the tab
+// buttons have no loading gate at all, so a user tapping Novelties in the
+// brief window before loadAll() below finishes would previously find
+// `novelties` still at its initial empty value and read that as "this store
+// has never set up its catalog" — seeding fresh defaults (parLevel 5 for
+// everything) and IMMEDIATELY SAVING them, silently overwriting whatever
+// real target numbers a manager had actually set, on every device watching
+// this store's live listener. Reset false at the top of every loadAll() and
+// set true right after applyData() actually runs.
+let _storeDataLoaded = false;
 
 async function loadAll() {
+  _storeDataLoaded = false;
   // Reset the Run/Novelties/Inventory "working date" state — and re-establish
   // the Novelties listener — whenever either of two things happened, not just
   // a store switch:
@@ -192,6 +205,7 @@ async function loadAll() {
     } catch(e) {}
   }
   applyData(data);
+  _storeDataLoaded = true;
   await loadRunForDate(_workingRunDate, backupParsed);
   if (window._firebaseReady && window._onSnapshot) {
     try {

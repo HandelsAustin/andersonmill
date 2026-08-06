@@ -718,12 +718,24 @@ function doneRun() {
 // Guards against accidentally exiting a partially-complete run.
 // If no buckets have been made, exits freely. If work is in progress,
 // requires a second tap within 3 seconds to confirm early exit.
+//
+// This is the always-visible "Done" button in the run banner — separate from
+// runDoneFooter's "Done — Review & Submit", which only appears once every
+// needed flavor is made and goes through submitSummary() -> writeRunSummary().
+// This path used to skip writeRunSummary() entirely: doneRun() just cleared
+// runMade/cateringMade/_totalBucketsMade with no Firestore write of what had
+// actually been made, so anyone using this — the primary, obvious Done button,
+// the one this function's own confirmation message ("N buckets made, tap Done
+// again") explicitly acknowledges real production happened — got nothing
+// recorded on the Dashboard at all. writeRunSummary() already no-ops safely
+// if nothing was made, so it's always safe to call here.
 function confirmDoneRun() {
-  if (_totalBucketsMade === 0) { doneRun(); return; }
+  if (_totalBucketsMade === 0) { writeRunSummary(); doneRun(); return; }
   if (_doneRunPending) {
     clearTimeout(_doneRunTimer);
     _doneRunPending = false;
     _doneRunTimer = null;
+    writeRunSummary();
     doneRun();
     return;
   }

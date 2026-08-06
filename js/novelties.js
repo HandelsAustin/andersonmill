@@ -124,6 +124,17 @@ const NOVELTY_COLGROUP = `
   </colgroup>`;
 
 function _seedNoveltiesIfEmpty() {
+  // Guards against a real bug: the tab buttons have no loading gate, so
+  // tapping Novelties in the brief window before loadAll() (js/store-org.js)
+  // finishes would find `novelties` still at its initial empty value and
+  // read that as "this store has never set up its catalog" — seeding fresh
+  // defaults and IMMEDIATELY SAVING them over whatever real target numbers a
+  // manager had actually set, on this store's live listener for every device.
+  // window._storeDataLoaded (set by loadAll()) distinguishes "genuinely
+  // empty" from "hasn't loaded yet" — only proceed once we're sure it's the
+  // former. See _storeDataLoaded's declaration (js/store-org.js) for the
+  // full account of how this was discovered.
+  if (typeof _storeDataLoaded !== 'undefined' && !_storeDataLoaded) return false;
   if (novelties.length) return false;
   novelties = NOVELTY_CATALOG.flatMap(group =>
     group.items.map(name => ({ category: group.category, name, parLevel: NOVELTY_DEFAULT_PAR }))
@@ -323,6 +334,24 @@ function printNovelties() {
 function renderNoveltiesPage() {
   const content = document.getElementById('noveltiesContent');
   if (!content) return;
+  // Store data (including the real novelties catalog) hasn't loaded yet —
+  // show a loading state instead of rendering against the still-empty
+  // in-memory array, and check back shortly rather than staying stuck here
+  // if the user got to this tab before loadAll() finished. Nothing here
+  // writes anything, so this branch is purely a rendering concern — the
+  // actual data-safety fix is in _seedNoveltiesIfEmpty() not acting on an
+  // empty array until _storeDataLoaded confirms it's genuinely empty.
+  if (typeof _storeDataLoaded !== 'undefined' && !_storeDataLoaded) {
+    content.innerHTML = '';
+    const loading = document.createElement('div');
+    loading.className = 'settings-note';
+    loading.textContent = 'Loading…';
+    content.appendChild(loading);
+    setTimeout(() => {
+      if (document.getElementById('tabPanelNovelties')?.classList.contains('active')) renderNoveltiesPage();
+    }, 400);
+    return;
+  }
   const seeded = _seedNoveltiesIfEmpty();
   if (seeded) saveNoveltiesCatalog();
   if (!_workingNoveltiesDate) {
