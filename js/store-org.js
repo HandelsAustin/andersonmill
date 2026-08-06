@@ -216,6 +216,21 @@ async function loadAll() {
 // "recall a past day" switches to. offlineFallback is only used for *today* when
 // Firestore is unreachable (the local backup is a single most-recent-day cache,
 // not a full history, same limitation as before this feature existed).
+// Brand-new day, nothing saved for it yet — start from the store's persistent
+// flavor list/targets (set by a manager on a previous day) instead of blank.
+// Only for *today*; a past date with no doc genuinely had no run, so it stays
+// empty. Only kicks in when the doc doesn't exist AT ALL — a doc that exists
+// with an empty activeFlavors[] means a manager genuinely cleared today's list,
+// which must be left alone (that's a manual action, not a missing default).
+function _seedTodayRunData(runData, date) {
+  if (runData || date !== todayStr() || !_storeCurrentFlavorList.length) return runData;
+  return { activeFlavors: _storeCurrentFlavorList.map(f => {
+    const entry = { name: f.name, target: f.target || 0, dipping: 0, holding: 0 };
+    if (f.cabinet != null) entry.cabinet = f.cabinet;
+    return entry;
+  }) };
+}
+
 async function loadRunForDate(date, offlineFallback) {
   _workingRunDate = date;
   if (_unsubscribeRunSnapshot) { _unsubscribeRunSnapshot(); _unsubscribeRunSnapshot = null; }
@@ -230,16 +245,7 @@ async function loadRunForDate(date, offlineFallback) {
   } else if (offlineFallback && date === todayStr()) {
     runData = offlineFallback;
   }
-  // Brand-new day, nothing saved for it yet — start from the store's persistent
-  // flavor list/targets (set by a manager on a previous day) instead of blank.
-  // Only for *today*; a past date with no doc genuinely had no run, so it stays empty.
-  if (!runData && date === todayStr() && _storeCurrentFlavorList.length) {
-    runData = { activeFlavors: _storeCurrentFlavorList.map(f => {
-      const entry = { name: f.name, target: f.target || 0, dipping: 0, holding: 0 };
-      if (f.cabinet != null) entry.cabinet = f.cabinet;
-      return entry;
-    }) };
-  }
+  runData = _seedTodayRunData(runData, date);
   _applyRunData(runData);
   renderTable();
   if (typeof _renderRunDatePicker === 'function') _renderRunDatePicker();
@@ -247,7 +253,16 @@ async function loadRunForDate(date, offlineFallback) {
     try {
       _unsubscribeRunSnapshot = window._onSnapshot(window.getStoreRunLogRef(date), snap => {
         if (_saving) return;
-        _applyRunData(snap.exists() ? snap.data() : null);
+        // Same seeding as the initial load above — without this, the listener's
+        // own first callback (which fires immediately with whatever the server
+        // currently has) would report "doesn't exist" on any day nobody has
+        // saved to yet and wipe the just-seeded list back to blank moments
+        // after it appeared. This was the actual bug behind the flavor list
+        // seeming to reset on sign-out/app-restart/another device — all of
+        // those trigger a fresh loadRunForDate(), and on any day still
+        // un-touched by anyone, the doc genuinely doesn't exist server-side
+        // yet (it's only materialized by the first real save of the day).
+        _applyRunData(_seedTodayRunData(snap.exists() ? snap.data() : null, date));
         renderTable();
       }, err => console.error('Run snapshot listener error:', err));
     } catch (e) {

@@ -98,8 +98,16 @@ organizations/{orgId}/stores/{storeId}
   currentFlavorList: [{name, target, cabinet?}]         ← persistent default Today's Flavor List + target numbers;
                                                            written by saveAll() whenever today's list/targets change,
                                                            seeded into any new day's run doc that doesn't exist yet
-                                                           (js/store-org.js: loadRunForDate()) so the list survives
-                                                           day rollover until a manager edits it again
+                                                           (js/store-org.js: _seedTodayRunData(), used by both the
+                                                           initial load AND the live runs/{date} listener's own
+                                                           first callback — seeding only the initial load and not
+                                                           the listener too was a real bug: the listener's first
+                                                           event fires immediately with the server's current state,
+                                                           "doesn't exist yet" on any untouched day, silently wiping
+                                                           the just-seeded list back to blank moments after it
+                                                           appeared) so the list survives day rollover, sign-out,
+                                                           an app/browser restart, or opening from another device,
+                                                           until a manager edits it again
   lastRunDate, lastRunBuckets, lastRunAt               ← written on run completion
   storeEvents: [{type, buckets, at, by?}]               ← activity log, max 10 entries, trimmed on write; by = first-name attribution (optional, signed-in users only)
   settings: { profile: {phone, email, hours}, inventory: {orderLeadTimeDays, inventoryCountIntervalDays}, theme }
