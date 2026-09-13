@@ -7,6 +7,11 @@ set -e
 echo "Starting Firestore Emulator..."
 firebase emulators:start --only firestore &
 EMULATOR_PID=$!
+# `set -e` would otherwise kill this script (and leak the emulator process)
+# the instant the test command below returns non-zero, before the manual
+# `kill` a few lines down ever ran. The trap guarantees cleanup on any exit —
+# success, test failure, or Ctrl-C — not just the happy path.
+trap 'kill $EMULATOR_PID 2>/dev/null || true' EXIT
 
 # Wait for emulator to start
 for i in {1..15}; do
@@ -20,11 +25,9 @@ for i in {1..15}; do
 done
 
 echo "Running Firestore rules tests..."
-node tests/firestore-rules-test.js
-
+set +e
+node tests/rules-unit-tests.js
 TEST_RESULT=$?
-
-echo "Stopping Emulator..."
-kill $EMULATOR_PID 2>/dev/null || true
+set -e
 
 exit $TEST_RESULT

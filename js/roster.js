@@ -199,8 +199,9 @@ function getSorted(list) {
 }
 
 // ── DROPDOWNS ──────────────────────────────────────────────────────────────
-// Shared 0–10 Target dropdown — used by both the Ice Cream Run flavor table
-// and the Novelties tab's par-level column.
+// Shared 0–10 Target dropdown — used by the Ice Cream Run flavor table.
+// (Novelties switched its Target column to a free-typed number for every
+// category except Hurricane Toppings, which has none — see js/novelties.js.)
 const TARGET_OPTIONS = [
   {label:'—',value:0},{label:'1',value:1},{label:'2',value:2},{label:'3',value:3},
   {label:'4',value:4},{label:'5',value:5},{label:'6',value:6},{label:'7',value:7},
@@ -623,7 +624,11 @@ async function addNewToRoster() {
   }
 }
 
-async function saveOrgFlavorOverrides() {
+// See _makeCoalescedSaver() (appHelpers.js) — editing two flavors' code/type in
+// quick succession each fires its own save; without coalescing, an
+// older-but-slower write could land after a newer one and silently revert it,
+// the same race already fixed for saveAll()/saveNoveltiesCatalog()/etc.
+async function _saveOrgFlavorOverridesOnce() {
   if (!window._firebaseReady) { showStatusMessage('Offline — changes saved locally only', 3000); return; }
   try {
     await window._setDoc(getOrgDocRef(), { flavorEdits: _orgFlavorEdits, flavorRemovals: _orgFlavorRemovals }, { merge: true });
@@ -632,6 +637,7 @@ async function saveOrgFlavorOverrides() {
     showStatusMessage('⚠ Could not save changes', 2500);
   }
 }
+const saveOrgFlavorOverrides = _makeCoalescedSaver(_saveOrgFlavorOverridesOnce);
 
 // Corporate-only: change a flavor's code/type org-wide. Renaming the display name
 // isn't supported here — name is used as the primary key throughout the app

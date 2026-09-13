@@ -78,6 +78,7 @@ function applyData(data) {
   novelties = data?.novelties || [];
   inventoryCatalog = data?.inventoryCatalog || [];
   _inventoryLastCountedAt = data?.inventoryLastCountedAt || null;
+  tempEquipment = data?.tempEquipment || [];
   _managerPin = data?.managerPin || null;
   _storeCurrentFlavorList = data?.currentFlavorList || [];
   if (typeof loadCabinetPref === 'function') loadCabinetPref(); // store-wide default may have just changed (switch, live sync)
@@ -91,7 +92,18 @@ function _applyRunData(runData) {
   }).filter(f => roster.find(x => x.name === f.name));
   _cateringItems = rd.cateringItems || [];
   runMade      = rd.runMade || {};
+  runTearDowns = rd.runTearDowns || {};
   cateringMade = rd.cateringMade || {};
+  // _totalBucketsMade has to be re-derived every time runMade is replaced from
+  // Firestore — this function runs on initial load, on _resumeSavedRun(), AND
+  // on every live runs/{date} snapshot (another device's edit). Without this,
+  // _totalBucketsMade only ever tracked local setRunMade()/undoRunMade() calls
+  // in THIS tab, so a resumed or cross-device-synced run could show "✓ made"
+  // on every row while _totalBucketsMade silently sat at 0 — and
+  // writeRunSummary()'s `if (_totalBucketsMade <= 0 && cateringMadeCount === 0)
+  // return;` guard would then skip recording a real completed run entirely,
+  // the exact bug already fixed twice for the two Done buttons.
+  _totalBucketsMade = Object.values(runMade).reduce((s, v) => s + v, 0);
 }
 
 // See _makeCoalescedSaver() (appHelpers.js) for why this can't just be a plain
@@ -115,7 +127,7 @@ async function _saveAllOnce() {
   }
   // Note: submitted is never written here — only writeRunSummary() sets it, so
   // an in-progress run's regular autosaves never accidentally clear the flag.
-  const runPayload = { activeFlavors, cateringItems: _cateringItems, runMade, cateringMade, updatedAt: Date.now() };
+  const runPayload = { activeFlavors, cateringItems: _cateringItems, runMade, runTearDowns, cateringMade, updatedAt: Date.now() };
   localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify({ ...rosterPayload, ...runPayload }));
   if (!window._firebaseReady) { setSyncStatus('offline'); return; }
   setSyncStatus('saving');
@@ -216,6 +228,20 @@ async function loadAll() {
         if (snap.exists()) localStorage.setItem(window._STORAGE_KEYS.backup, JSON.stringify({ ...snap.data(), activeFlavors, cateringItems: _cateringItems }));
         setSyncStatus('loaded');
         renderTable();
+        // applyData() also refreshes `novelties`/`inventoryCatalog` (Target,
+        // par level, price, location/distributor order) with brand-new
+        // array/object references — but an already-open Novelties or
+        // Inventory tab builds its rows as closures over the *old* objects at
+        // render time, so without re-rendering here a device sitting on
+        // either tab kept showing stale catalog values from another device's
+        // edit until something else forced a re-render (Made, Reset, CSV
+        // import, or re-tapping the tab).
+        if (document.getElementById('tabPanelNovelties')?.classList.contains('active') && typeof renderNoveltiesPage === 'function') {
+          renderNoveltiesPage();
+        }
+        if (document.getElementById('tabPanelInventory')?.classList.contains('active') && typeof renderInventoryPage === 'function') {
+          renderInventoryPage();
+        }
       }, err => {
         console.error('Snapshot listener error:', err);
         setSyncStatus('error');
@@ -300,16 +326,6 @@ async function listRecentRunDates(max = 60) {
   }
 }
 
-// ── HELPERS ────────────────────────────────────────────────────────────────
-function showOrgPicker() {
-  const input = document.getElementById('orgIdInput');
-  if (input) {
-    input.value = window.getCurrentOrgId();
-  }
-  document.getElementById('orgOverlay').classList.add('open');
-}
-
-
 // ── MULTI-STORE OVERVIEW HELPERS ────────────────────────────────────────────
 
 // Returns today's date as YYYY-MM-DD (ISO, locale-stable via en-CA).
@@ -361,27 +377,6 @@ function _syncAgeColor(ts) {
   if (ageMs > 4 * 60 * 60 * 1000) return '#ff8080'; // > 4h — alert
   if (ageMs > 1 * 60 * 60 * 1000) return '#f0a500'; // 1–4h — warning
   return '#5a7a9a'; // < 1h — normal
-}
-
-// Pure client-side calculation from storeEvents[] — zero Firestore reads/writes.
-// Requires ≥ 3 run_completed events to surface a signal; returns null otherwise.
-// Splits runs into two halves (older vs. recent) and compares average bucket counts.
-
-async function selectOrg(orgId) {
-  const trimmed = String(orgId || '').trim();
-  if (!trimmed) return;
-  window.setOrgId(trimmed);
-  window.setStoreId(undefined);
-  window.setOrgStores([]);
-  document.getElementById('orgOverlay').classList.remove('open');
-  const sub = document.querySelector('.header-sub');
-  if (sub) sub.textContent = `Choose a store — ${trimmed}`;
-  await window.logOrgEvent('org_switched', { orgId: trimmed });
-  awaitLoadOrgMetaAndShowStorePicker();
-  if (window._auth && window._auth.currentUser) {
-    await loadCurrentUserRole();
-    updateRoleUIVisibility();
-  }
 }
 
 // Non-corporate accounts only ever see/select the store(s) in their own member doc
@@ -680,26 +675,29 @@ async function createOrgAndStore(storeLabel, storeId, region = '') {
   const user  = window._auth.currentUser;
   const now   = Date.now();
 
-  // 1. Create org doc if it doesn't already exist (preserve any existing data)
-  const orgRef  = window.getOrgDocRef();
-  const orgSnap = await window._getDoc(orgRef);
-  if (!orgSnap.exists()) {
-    await window._setDoc(orgRef, { name: orgId, createdAt: now, createdBy: user.uid });
+  const orgRef   = window.getOrgDocRef();
+  const orgSnap  = await window._getDoc(orgRef);
+  const orgExists = orgSnap.exists();
+
+  const storeRef  = window._doc(window._db, 'organizations', orgId, 'stores', storeId);
+  const storeSnap = await window._getDoc(storeRef);
+  if (storeSnap.exists()) {
+    throw new Error('A store with that ID already exists. Choose a different Store ID.');
   }
 
-  // 2. Create the store document
-  const storeRef = window._doc(window._db, 'organizations', orgId, 'stores', storeId);
-  const storePayload = { id: storeId, label: storeLabel, createdAt: now, createdBy: user.uid };
-  if (region) storePayload.region = region;
-  await window._setDoc(storeRef, storePayload);
-
-  // 3. Assign the creator as CORPORATE_ADMIN for this org — merged into whatever
+  // 1. Assign the creator as CORPORATE_ADMIN for this org — merged into whatever
   // stores[] they may already have. This function also runs for "Add Another
   // Store" on an org the admin is already a member of; overwriting stores[]
   // outright (as this used to) would silently drop every other store they
   // already had (harmless for CORPORATE_ADMIN's own access, since role-based
   // scoping bypasses stores[] for that role, but still wrong data to leave
   // sitting in Firestore).
+  //
+  // Written FIRST, before the org/store docs: firestore.rules only lets a
+  // brand-new org's creator self-grant CORPORATE_ADMIN while the org doc
+  // doesn't exist yet, and the org/store doc rules below require this member
+  // doc to already exist (isOrgMember()/canAccessStore()) — so for a genuinely
+  // new org, this write has to land before either of the other two.
   const memberRef      = window.getOrgMemberRef(user.uid);
   const memberSnap     = await window._getDoc(memberRef);
   const existingStores = memberSnap.exists() ? (memberSnap.data().stores || []) : [];
@@ -707,6 +705,16 @@ async function createOrgAndStore(storeLabel, storeId, region = '') {
     uid: user.uid, email: user.email || '', role: ROLES.CORPORATE_ADMIN,
     stores: [...new Set([...existingStores, storeId])], createdAt: now
   }, { merge: true });
+
+  // 2. Create org doc if it doesn't already exist (preserve any existing data)
+  if (!orgExists) {
+    await window._setDoc(orgRef, { name: orgId, createdAt: now, createdBy: user.uid });
+  }
+
+  // 3. Create the store document
+  const storePayload = { id: storeId, label: storeLabel, createdAt: now, createdBy: user.uid };
+  if (region) storePayload.region = region;
+  await window._setDoc(storeRef, storePayload);
 
   // 4. Update local role state immediately so UI reflects CORPORATE_ADMIN
   window._USER_ROLE = ROLES.CORPORATE_ADMIN;

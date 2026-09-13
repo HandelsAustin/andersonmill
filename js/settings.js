@@ -5,13 +5,9 @@
 
 let _storeSettings = {}; // populated by applyData() in store-org.js: { theme, cabinetNumbersEnabled }
 
-// Settings is now a bottom-tab panel rather than a popup overlay — these wrappers
-// stay so existing internal call sites (e.g. the roster-management button below)
-// don't need to change.
-function openSettings() {
-  switchTab('Settings');
-}
-
+// Settings is now a bottom-tab panel rather than a popup overlay — kept as a
+// wrapper since internal call sites (e.g. the roster-management button below)
+// use it to get back to the Run tab.
 function closeSettings() {
   switchTab('Run');
 }
@@ -217,6 +213,70 @@ function renderSettingsPage() {
   monthRow.append(monthInput, monthBtn);
   exportSection.appendChild(monthRow);
   content.appendChild(exportSection);
+
+  // ── Last 30 Days by Flavor ────────────────────────────────────────────────
+  const last30Section = _settingsSection('Last 30 Days by Flavor');
+  const last30Note = document.createElement('div');
+  last30Note.className = 'settings-note';
+  last30Note.style.marginBottom = '10px';
+  last30Note.textContent = 'Every active flavor, most buckets made first (includes flavors with none, so you can see what\'s not moving).';
+  last30Section.appendChild(last30Note);
+  const last30Btn = document.createElement('button');
+  last30Btn.className = 'btn';
+  last30Btn.textContent = '📊 Show Last 30 Days';
+  const last30Results = document.createElement('div');
+  last30Results.style.marginTop = '10px';
+  last30Btn.onclick = () => _renderLast30DaysReport(last30Results);
+  last30Section.append(last30Btn, last30Results);
+  content.appendChild(last30Section);
+
+  // ── Tear Down Log ─────────────────────────────────────────────────────────
+  const tearDownSection = _settingsSection('Tear Down Log');
+  const tearDownNote = document.createElement('div');
+  tearDownNote.className = 'settings-note';
+  tearDownNote.style.marginBottom = '10px';
+  tearDownNote.textContent = 'Recall a past day\'s tear-down / sanitizing answers.';
+  tearDownSection.appendChild(tearDownNote);
+  const tearDownRow = document.createElement('div');
+  tearDownRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+  const tearDownDateInput = document.createElement('input');
+  tearDownDateInput.type = 'date';
+  tearDownDateInput.className = 'settings-input';
+  tearDownDateInput.style.width = 'auto';
+  tearDownDateInput.value = todayStr();
+  const tearDownViewBtn = document.createElement('button');
+  tearDownViewBtn.className = 'btn';
+  tearDownViewBtn.textContent = 'View';
+  const tearDownResults = document.createElement('div');
+  tearDownResults.style.marginTop = '10px';
+  tearDownViewBtn.onclick = () => _renderTearDownLogView(tearDownDateInput.value, tearDownResults);
+  tearDownRow.append(tearDownDateInput, tearDownViewBtn);
+  tearDownSection.append(tearDownRow, tearDownResults);
+  content.appendChild(tearDownSection);
+
+  // ── Freezer/Fridge Temp Log ────────────────────────────────────────────────
+  const tempsSection = _settingsSection('Freezer/Fridge Temp Log');
+  const tempsNote = document.createElement('div');
+  tempsNote.className = 'settings-note';
+  tempsNote.style.marginBottom = '10px';
+  tempsNote.textContent = 'Recall a past day\'s temperature readings.';
+  tempsSection.appendChild(tempsNote);
+  const tempsRow = document.createElement('div');
+  tempsRow.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;';
+  const tempsDateInput = document.createElement('input');
+  tempsDateInput.type = 'date';
+  tempsDateInput.className = 'settings-input';
+  tempsDateInput.style.width = 'auto';
+  tempsDateInput.value = todayStr();
+  const tempsViewBtn = document.createElement('button');
+  tempsViewBtn.className = 'btn';
+  tempsViewBtn.textContent = 'View';
+  const tempsResults = document.createElement('div');
+  tempsResults.style.marginTop = '10px';
+  tempsViewBtn.onclick = () => _renderTempsLogView(tempsDateInput.value, tempsResults);
+  tempsRow.append(tempsDateInput, tempsViewBtn);
+  tempsSection.append(tempsRow, tempsResults);
+  content.appendChild(tempsSection);
 
   // ── Create Store Owner Account (CORPORATE_ADMIN only) ────────────────────
   if (userHasRole(ROLES.CORPORATE_ADMIN)) {
@@ -544,10 +604,24 @@ async function _loadMembersIntoSettings(container) {
         // Guard against locking the org out of corporate features entirely —
         // self-service sign-up only ever creates STORE_MANAGER accounts, so
         // once there's zero Corporate Admins left, nobody could ever grant
-        // that role to anyone again.
-        if (m.role === ROLES.CORPORATE_ADMIN && !members.some(x => x.uid !== m.uid && x.role === ROLES.CORPORATE_ADMIN)) {
-          showStatusMessage("⚠ Can't remove the last Corporate Admin — assign another account first", 3500);
-          return;
+        // that role to anyone again. Re-queries live instead of trusting the
+        // `members` array this page loaded with: that snapshot goes stale the
+        // moment ANOTHER admin session also has Settings open, and two admins
+        // each independently seeing "someone else exists" could otherwise
+        // both pass this check and delete each other at the same time.
+        if (m.role === ROLES.CORPORATE_ADMIN) {
+          try {
+            const freshSnap = await window._getDocs(window.getOrgMembersCollectionRef());
+            const anotherAdminExists = freshSnap.docs.some(d => d.id !== m.uid && d.data().role === ROLES.CORPORATE_ADMIN);
+            if (!anotherAdminExists) {
+              showStatusMessage("⚠ Can't remove the last Corporate Admin — assign another account first", 3500);
+              return;
+            }
+          } catch (e) {
+            console.error('Admin-count re-check failed:', e);
+            showStatusMessage('⚠ Could not verify — check your connection and try again', 3000);
+            return;
+          }
         }
         const label = m.email || m.uid;
         if (!confirm(`Remove ${label}'s access to this organization? They won't be able to sign into any store or use corporate features anymore. This does not delete their login itself — just their access.`)) return;
@@ -844,9 +918,9 @@ function _downloadCsv(filename, headers, rows) {
 }
 
 // One row per (date, flavor) with daily + catering quantities made, sourced
-// from the runs/{date} subcollection — unlike storeEvents (capped at the last
-// 10 entries), every day's run doc persists indefinitely, so this reflects
-// full history since runMade/cateringMade started being recorded.
+// from the runs/{date} subcollection — unlike storeEvents (capped at
+// STORE_EVENTS_MAX_ENTRIES), every day's run doc persists indefinitely, so
+// this reflects full history since runMade/cateringMade started being recorded.
 async function exportRunsCsv() {
   if (!window._firebaseReady) { showStatusMessage('Offline — export needs a connection', 3000); return; }
   showStatusMessage('Preparing export…', 2000);
@@ -938,5 +1012,145 @@ async function exportMonthlyBatchReport(monthStr) {
   } catch (e) {
     console.error('Monthly batch report error:', e);
     showStatusMessage('⚠ Could not generate monthly report', 2500);
+  }
+}
+
+// Same aggregation as exportMonthlyBatchReport() (last 30 calendar days
+// instead of one calendar month), rendered inline in Settings rather than
+// downloaded — and, unlike that report, always lists every flavor currently
+// on the store's active list (zeros included), not just ones with recorded
+// production, so a manager can see what ISN'T moving too.
+async function _renderLast30DaysReport(container) {
+  container.innerHTML = '<div class="settings-note">Loading…</div>';
+  if (!window._firebaseReady) { container.innerHTML = '<div class="settings-note">Offline — needs a connection</div>'; return; }
+  try {
+    const dates = Array.from({ length: 30 }, (_, i) =>
+      new Date(Date.now() - i * 86400000).toLocaleDateString('en-CA')
+    );
+    const docs = await Promise.all(dates.map(date =>
+      window._getDoc(window.getStoreRunLogRef(date)).catch(() => null)
+    ));
+    const totals = {};
+    activeFlavors.forEach(f => { totals[f.name] = 0; });
+    docs.forEach(snap => {
+      if (!snap || !snap.exists()) return;
+      Object.entries(snap.data().runMade || {}).forEach(([name, qty]) => {
+        totals[name] = (totals[name] || 0) + (qty || 0);
+      });
+    });
+    const rows = Object.entries(totals).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    if (!rows.length) {
+      container.innerHTML = '<div class="settings-note">No active flavors to report on.</div>';
+      return;
+    }
+    container.innerHTML = '';
+    const table = document.createElement('table');
+    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:13px;';
+    table.innerHTML = `<thead><tr>
+      <th style="text-align:left;padding:6px 8px;border-bottom:1.5px solid var(--panel-border);color:var(--text-accent);font-size:11px;text-transform:uppercase;">Flavor</th>
+      <th style="text-align:right;padding:6px 8px;border-bottom:1.5px solid var(--panel-border);color:var(--text-accent);font-size:11px;text-transform:uppercase;">Buckets Made</th>
+    </tr></thead>`;
+    const tbody = document.createElement('tbody');
+    rows.forEach(([name, qty]) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td style="padding:6px 8px;border-bottom:1px solid var(--panel-border);">${name}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid var(--panel-border);text-align:right;font-weight:${qty > 0 ? 700 : 400};color:${qty > 0 ? 'var(--text-primary)' : 'var(--text-dim)'};">${qty}</td>`;
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    container.appendChild(table);
+    const csvBtn = document.createElement('button');
+    csvBtn.className = 'btn';
+    csvBtn.style.cssText = 'margin-top:10px;font-size:12px;padding:8px 12px;';
+    csvBtn.textContent = '⬇ Download as CSV';
+    csvBtn.onclick = () => _downloadCsv(`last-30-days-by-flavor-${todayStr()}.csv`, ['Flavor', 'Buckets Made'], rows);
+    container.appendChild(csvBtn);
+  } catch (e) {
+    console.error('Last 30 days report error:', e);
+    container.innerHTML = '<div class="settings-note">⚠ Could not load the report.</div>';
+  }
+}
+
+// Read-only recall of one day's tear-down/sanitize answers (see
+// js/production.js beginRunSummaryFlow()/writeRunSummary() for how this doc
+// is written — only exists for a day whose run actually included a
+// type='TD' flavor).
+async function _renderTearDownLogView(date, container) {
+  if (!date) { container.innerHTML = '<div class="settings-note">Pick a date first.</div>'; return; }
+  container.innerHTML = '<div class="settings-note">Loading…</div>';
+  if (!window._firebaseReady) { container.innerHTML = '<div class="settings-note">Offline — needs a connection</div>'; return; }
+  try {
+    const snap = await window._getDoc(window.getStoreTearDownLogRef(date));
+    if (!snap.exists()) {
+      container.innerHTML = `<div class="settings-note">No tear-down record for ${date} — either no type='TD' flavor was run that day, or the run wasn't submitted yet.</div>`;
+      return;
+    }
+    const data = snap.data();
+    const yn = v => v === true ? '✓ Yes' : v === false ? '✕ No' : '—';
+    const perFlavorRows = Object.entries(data.perFlavor || {})
+      .map(([name, done]) => `<div style="display:flex;justify-content:space-between;padding:4px 0;"><span>${name}</span><span>${yn(done)}</span></div>`)
+      .join('') || '<div class="settings-note">None recorded.</div>';
+    const additionalRows = (data.additional || []).length
+      ? data.additional.map(name => `<div style="padding:4px 0;">${name}</div>`).join('')
+      : '<div class="settings-note">None.</div>';
+    container.innerHTML = `
+      <div style="display:grid;gap:10px;">
+        <div style="display:flex;justify-content:space-between;"><strong>Before run</strong><span>${yn(data.beforeRun)}</span></div>
+        <div style="display:flex;justify-content:space-between;"><strong>After run</strong><span>${yn(data.afterRun)}</span></div>
+        <div>
+          <strong>Per-flavor (Made-time)</strong>
+          ${perFlavorRows}
+        </div>
+        <div>
+          <strong>Additional flavors torn down</strong>
+          ${additionalRows}
+        </div>
+        ${data.by ? `<div class="settings-note">Recorded by ${data.by}</div>` : ''}
+      </div>`;
+  } catch (e) {
+    console.error('Tear-down log view error:', e);
+    container.innerHTML = '<div class="settings-note">⚠ Could not load this record.</div>';
+  }
+}
+
+// Read-only recall of one day's freezer/fridge temp readings (js/temps.js).
+// Matches equipment ids against the CURRENT tempEquipment list for label/
+// target — a piece of equipment removed since that date shows its id instead
+// of silently vanishing from the record.
+async function _renderTempsLogView(date, container) {
+  if (!date) { container.innerHTML = '<div class="settings-note">Pick a date first.</div>'; return; }
+  container.innerHTML = '<div class="settings-note">Loading…</div>';
+  if (!window._firebaseReady) { container.innerHTML = '<div class="settings-note">Offline — needs a connection</div>'; return; }
+  try {
+    const snap = await window._getDoc(window.getStoreTempLogRef(date));
+    if (!snap.exists()) {
+      container.innerHTML = `<div class="settings-note">No temperature record for ${date}.</div>`;
+      return;
+    }
+    const data = snap.data();
+    const readings = data.readings || {};
+    const ids = Object.keys(readings);
+    if (!ids.length) {
+      container.innerHTML = '<div class="settings-note">No readings recorded that day.</div>';
+      return;
+    }
+    const rows = ids.map(id => {
+      const eq = tempEquipment.find(e => e.id === id);
+      const label = eq ? eq.label : `(removed equipment: ${id})`;
+      const target = eq ? `${eq.targetTemp}°F` : '—';
+      const val = readings[id];
+      const current = (val === null || val === undefined) ? '—' : `${val}°F`;
+      return `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--panel-border);">
+        <span>${label}</span><span>Target ${target} &nbsp;·&nbsp; Reading ${current}</span>
+      </div>`;
+    }).join('');
+    container.innerHTML = `
+      <div>
+        ${data.submitted ? `<div class="settings-note" style="margin-bottom:8px;">✓ Submitted${data.submittedAt ? ' ' + relativeTime(data.submittedAt) : ''}</div>` : '<div class="settings-note" style="margin-bottom:8px;">Not yet submitted (in progress).</div>'}
+        ${rows}
+      </div>`;
+  } catch (e) {
+    console.error('Temps log view error:', e);
+    container.innerHTML = '<div class="settings-note">⚠ Could not load this record.</div>';
   }
 }

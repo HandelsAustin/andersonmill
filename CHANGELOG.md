@@ -7,6 +7,392 @@ v0.2
 
 ## Recent Changes
 
+### Investigated: Periodic Sign-Out (2026-09-12)
+User report: staff are periodically bounced back to the sign-in screen and
+have to be re-signed-in by someone who knows the shared store credentials.
+Investigated whether anything from this session's other fixes touched this —
+it doesn't, and it's a separate issue.
+
+- **No code bug found.** Every path that could end a session was traced:
+  `signOutUser()` (`js/auth.js`) has exactly two call sites, both the manual
+  header "Sign Out" button — never called from a catch block, timer, or error
+  handler. The manager-PIN re-lock (`js/manager-lock.js` `lockManager()`,
+  a 10-minute timeout) only clears a local unlock flag and never touches the
+  actual Firebase session — it's a separate, intentional feature, not this
+  bug. No Firestore/listener error handler forces a sign-out on a
+  network/permission error.
+- **Most likely actual cause (environmental, not fixable in app code):** a
+  device using the app as a bookmarked browser tab rather than an installed
+  PWA ("Add to Home Screen") is subject to the browser's own storage-eviction
+  policy for inactive sites — when that clears the saved Firebase session,
+  the app is correctly (not buggily) showing the real sign-in screen, since
+  the session genuinely no longer exists to restore. An installed PWA keeps
+  its storage in a separate, much more durable bucket not subject to the
+  same eviction — this is exactly why PWA installability was originally
+  built out (see the 2026-05-27 "PWA and Deployment-Readiness Hardening
+  Pass" entry below). A deploy's auto-reload (`js/app-core.js`, on
+  `controllerchange`) can make this show up right after an update even
+  though the actual storage loss happened earlier, making it look more
+  "periodic"/update-correlated than it really is.
+- **Added:** an explanation directly on the sign-in screen itself
+  (`#entryInstallNote`, `js/app-core.js` `_renderEntryInstallNote()`) —
+  platform-aware (iOS Safari vs. Android/desktop Chrome instructions),
+  shown only when NOT running in standalone/installed mode. This replaces
+  relying solely on the existing one-time `_showInstallHint()` toast (shown
+  once after first load, permanently dismissible, and — notably — stored in
+  the same `localStorage` bucket that a real eviction event wipes anyway) —
+  the new note shows up at the exact moment staff hit the actual problem and
+  explains what fixes it, instead of a generic tip from weeks earlier that's
+  easy to dismiss and forget.
+- **Not a code fix**: the underlying fix is operational — confirm every
+  staff device has actually done "Add to Home Screen," not just bookmarked
+  the URL or pinned a browser tab.
+
+### Freezer/Fridge Temp Tab, Stage 3 (2026-09-12)
+New "Temps" tab — the last of the three planned pieces from this session.
+Equipment catalog + daily readings, modeled closely on Inventory's
+catalog/log split (`js/inventory.js`).
+
+- **Added:** new tab (`js/temps.js`, `TABS.Temps` in `js/app-core.js`) between
+  Inventory and Store Settings. Unlike Inventory/Settings, the tab itself is
+  **not** PIN-gated — any signed-in user can open it and log today's
+  readings; only equipment setup is gated (below).
+- **Added:** persistent equipment catalog (`store.tempEquipment`) — the 8
+  fixed types (Walk-in Refrigerator, Drink Refrigerator, Sundae Bar, Single/
+  Double Door Freezer, Holding Cabinet, Dipping Cabinet, Chest Freezer), a
+  required target temp at creation, add/remove behind `requireManager()`.
+  Adding a duplicate type auto-numbers it ("Walk-in Refrigerator #2") via a
+  separate persisted counter (`store.tempEquipmentCounters`) that only ever
+  increases — deleting "#2" and adding another walk-in later gets "#3", not
+  a reused "#2".
+- **Added:** `organizations/{orgId}/stores/{storeId}/tempLog/{date}` — one
+  doc per day's readings, with the same offline/local-backup resilience
+  added for Novelties in Stage 1 (a failed read falls back to a local cache
+  instead of blanking real data). Reset clears only today's readings
+  (equipment/targets untouched), Submit batches a single confirmation if any
+  equipment has no reading rather than blocking or prompting one at a time.
+  Recallable from Settings → Freezer/Fridge Temp Log.
+- **Fixed during development:** a submitted day's `tempLog` doc is the actual
+  compliance record, not in-progress scratch state — but the initial Reset/
+  edit implementation could silently overwrite it back to empty readings
+  (`saveTempLog()`'s own `{merge:true}` still fully replaces the `readings`
+  field, since merge is per top-level field, not deep). Caught via the
+  emulator harness by inspecting the doc after a full submit → reset cycle.
+  Fixed two ways: (1) `submitTempsDay()` no longer re-saves the
+  just-cleared in-memory state after submit — the Firestore write already
+  has the real readings; (2) once a day is submitted, Reset is refused and
+  every reading input is disabled until a manager explicitly taps "🔓 Reopen
+  to Correct" (`reopenTempsDay()`), so further edits are deliberate.
+- **Added:** `tests/rules-unit-tests.js` now covers `tearDownLog`/`tempLog`
+  cross-store scoping explicitly (14/14 passing).
+- Verified end-to-end against the local emulator: add equipment (including
+  the duplicate-numbering case), enter a reading, submit, confirm the
+  Firestore doc has the real readings (not wiped), confirm Reset/edit are
+  locked out afterward, confirm Reopen restores editing, confirm the
+  Settings recall view renders a submitted day correctly.
+
+### Tear-Down Tracking, Stage 2 (2026-09-12)
+New feature: tracking tear-down/sanitizing of the shared dipping equipment
+during an Ice Cream Run. Uses the existing flavor `type === 'TD'` flag
+(Take & Dip) as the tear-down trigger directly — no new roster field, by
+design, since those are exactly the flavors that use the shared equipment.
+
+- **Added:** the Made-stepper (`js/made-stepper.js`) gains a "Did you tear
+  down and sanitize?" Yes/No control, shown only for a `type === 'TD'`
+  flavor's daily Made button, answered on the same prompt as the quantity.
+  Recorded into a new `runTearDowns` map alongside `runMade`/`cateringMade`
+  on `runs/{date}` (same save path, `_saveAllOnce()`).
+- **Added:** before the existing run-summary popup opens, a short pre-submit
+  flow (`js/production.js`: `beginRunSummaryFlow()`, new
+  `#tearDownSummaryOverlay`) asks — only when today's run included a `TD`
+  flavor — whether tear-down/sanitizing happened before the run, after the
+  run, and (looping until "No") after any additional flavor during the run.
+- **Added:** `organizations/{orgId}/stores/{storeId}/tearDownLog/{date}` —
+  written once at submit time (`writeRunSummary()`) with the per-flavor
+  Made-time answers plus the three pre-submit answers. Recallable from
+  Settings → Tear Down Log (date picker + read-only view).
+- **Fixed during development:** `submitSummary()` calls `writeRunSummary()`
+  without awaiting it, then immediately calls `doneRun()` — which resets
+  `_tearDownBeforeRun`/`_tearDownAfterRun`/`_tearDownAdditional`/
+  `runTearDowns`. Since `writeRunSummary()` is async and does several
+  `await`ed Firestore writes before reaching the new tearDownLog write, that
+  reset was landing *before* the async function got there, silently skipping
+  the write on every real run. Fixed by snapshotting all four into local
+  consts synchronously at the top of `writeRunSummary()`, before its first
+  `await` — caught via the new emulator test harness, not by inspection.
+- **Added:** `firestore.rules` now covers `tearDownLog/{date}` (and
+  `tempLog/{date}`, ahead of the still-unbuilt Freezer/Fridge Temp tab —
+  Stage 3) with the same `canAccessStore()` check as the other three date
+  logs. Not yet deployed to production.
+- Verified end-to-end against the local emulator: Made-stepper tear-down
+  prompt → pre-submit question flow → Firestore write → Settings recall view,
+  all confirmed with real data, including the race-condition fix above.
+
+### Local Emulator Test Harness + Field-Testing Fixes, Stage 1 (2026-09-12)
+Live field testing surfaced several reliability reports after the audit above.
+Before fixing them, set up a local Firebase Emulator Suite harness (Firestore +
+Auth + Hosting) so these — and everything going forward — can be verified by
+actually running the app and driving it with a headless browser, instead of
+routing every change through a manual round-trip to a live store. See
+`.claude/skills/run-app/SKILL.md` for the full how-to; `npm run emulators` +
+`npm run seed:emulator` + `npm run check:app` is the short version.
+
+- **Added:** `firebase.json`/`.firebaserc` emulator config (Firestore, Auth,
+  Hosting, Emulator UI), a guarded `connectFirestoreEmulator()`/
+  `connectAuthEmulator()` block in `index.html` that only ever engages when
+  served from `localhost`/`127.0.0.1` (production is untouched), and
+  `tests/seed-emulator.js` — an idempotent script seeding one org/store and a
+  Corporate Admin + Store Manager login for local testing.
+- **Found via the new harness — fixed:** `logOrgEvent()` (`appHelpers.js`)
+  marked an analytics event synced in memory but never persisted that back to
+  `localStorage`, so `flushAnalyticsEvents()` treated every event as
+  perpetually unsynced and endlessly retried it — hitting the events
+  collection's intentional "no updates once created" rule every single time.
+  Harmless (analytics is best-effort, already caught) but a real, previously
+  unnoticed bug; now mirrors the sync timestamp back into the persisted queue.
+- **Fixed — Novelties appearing to reset on app close/background:**
+  `loadNoveltiesForDate()` had no offline/error fallback — a `getDoc()` that
+  fails (very common right after a backgrounded PWA resumes, before the
+  network has reconnected) blanked the checklist to empty even though the
+  real data was untouched in Firestore. Now falls back to a local
+  (`car_novelties_backup`) cache of the same date on a load failure, and
+  `_saveNoveltiesLogOnce()` writes that cache before attempting the network
+  save (matching the Run tab's `_saveAllOnce()` pattern) — verified by
+  simulating a `getDoc()` failure against the emulator: an edited On Hand
+  value correctly survived instead of blanking, with the sync-status bar
+  honestly showing "Offline — using local backup."
+- **Fixed — Ice Cream Run appearing to reset itself**, including specifically
+  a run calculated at night and finished the next day: `car_run_state`'s
+  interrupted-run recovery only showed a warning toast, within a flat 12-hour
+  window, and never actually restored the run into view — meaning **any**
+  reload during an active run (not just an overnight gap) silently dropped
+  back to the plain non-run-mode table with no obvious way back in, which
+  looks exactly like "the run reset." Widened the window to "today or
+  yesterday" (covers the overnight case a hour-count can't reliably) and it
+  now calls the already-correct `_resumeSavedRun()` automatically — verified
+  end-to-end against the emulator: an interrupted run from "yesterday" (3
+  buckets made, one flavor) reopens with the run banner, made/undo state, and
+  a "↻ Resumed your in-progress run from yesterday" toast, exactly matching
+  what was actually in Firestore.
+- **Added:** a "🖨 Print" button in the run summary modal, printing what was
+  *actually made* this run (`runMade`/`cateringMade`) via a new
+  `printMadeSummary()` — distinct from the existing `printRun()`, which prints
+  what still *needs* to be made (a during-production checklist driven by
+  `toMake()`/dipping/holding, unaffected by Made-stepper submissions) and
+  would have shown the same pre-run deficit if reused here instead of an
+  actual "what got made" recap.
+- **Added:** Inventory CSV import can now be cancelled mid-mapping (before
+  anything's written) or undone shortly after committing — a session-only
+  "Remove this import" action scoped to exactly the items the most recent
+  import added (matched by name). Does not support undoing an older import
+  from history, which would need every catalog item permanently tagged with
+  its import batch — flagged as a known scope limit.
+- **Added:** Settings → "Last 30 Days by Flavor" — every currently-active
+  flavor (zeros included, so a manager can see what isn't moving) plus any
+  flavor with real production in the window, sorted by buckets made
+  descending, reusing the existing monthly batches-per-flavor report's
+  aggregation. Rendered inline with a CSV download alongside it.
+- **Investigated — login/store-access tied to device, not credentials:** the
+  two bugs behind this exact symptom were already found and fixed in the
+  audit above (`js/auth.js` `signInManager()` force-creating a fresh member
+  doc on any sign-in with no existing one, and a missing store-reconciliation
+  call on account creation). Confirmed with the reporting user that the test
+  account was a single-store Store Manager login (not a Corporate Admin,
+  which intentionally remembers a different store per device by design) — no
+  further code changes made; this should already be resolved once deployed.
+
+### Full-App Audit: Security, Data-Loss Bugs, Dead Code (2026-09-12)
+A ground-up audit of every file in the app (six parallel focused passes, each
+covering a different subsystem, cross-checked against PROJECT_CONTEXT.md and
+this changelog's own history of previously-fixed bug patterns), followed by
+fixes for everything that turned out to be a real, live issue.
+
+**Security — Firestore rules (the most severe findings, independently flagged
+by three separate passes):**
+- **Fixed — privilege escalation:** the `members/{memberId}` `update` rule let
+  any signed-in account rewrite its OWN member doc with no restriction on
+  which fields changed. Since the shared per-store login is a `STORE_MANAGER`-
+  role account by design (not a real admin), anyone with a store's shared
+  credentials could open devtools and `setDoc` their own `role` to
+  `CORPORATE_ADMIN` — instant org-wide dashboard access, PIN bypass, account
+  deletion rights, and the ability to reassign anyone's `stores[]`. Now:
+  self-updates are only allowed when `role`/`stores` are left unchanged;
+  changing either requires an existing `CORPORATE_ADMIN`.
+- **Fixed — no server-side per-store scoping:** `isStoreManager()` only ever
+  checked the caller's *role*, never whether the target `storeId` was actually
+  in that account's own `members/{uid}.stores[]` — PROJECT_CONTEXT.md already
+  documented store scoping as "enforced client-side... in `_scopedStores()`",
+  confirming the backend had no matching check. Any `STORE_MANAGER` account
+  could read or write *any other store's* doc (including its PIN and pricing)
+  or daily logs (`runs`/`noveltiesLog`/`inventoryLog`) directly via Firestore,
+  bypassing the UI entirely. New `canAccessStore(storeId)` rule function
+  checks `stores[]` membership for `STORE_MANAGER`s (`CORPORATE_ADMIN` is
+  unrestricted, as before) and is applied to the store doc and all three
+  subcollections — a parent rule never automatically cascades to
+  subcollections in Firestore, so each needed its own explicit check.
+- **Fixed — brand-new org bootstrap was unsatisfiable:** creating the very
+  first org+store (`js/store-org.js` `createOrgAndStore()`) requires the
+  creator to become `CORPORATE_ADMIN`, which requires a member doc, which
+  (under the old rules) required the org doc to already exist — a genuine
+  chicken-and-egg deadlock for any org beyond the one manually bootstrapped
+  outside the app. `createOrgAndStore()` now writes the member doc *first*
+  (self-granting `CORPORATE_ADMIN` only while the org doc doesn't exist yet —
+  the one case nothing else could ever grant that role), then the org doc,
+  then the store doc; each of the three writes now has something valid to
+  authorize against by the time it runs, whether this is truly the first org
+  or just "Add Another Store" for an existing admin.
+- **Fixed:** a member-list `list` query was allowed for any `STORE_MANAGER`
+  (exposing every account's email/role/store-assignments), even though the
+  only caller is the corporate-only Users & Roles panel — narrowed to
+  `CORPORATE_ADMIN`.
+- **Removed:** a dead, broken rule block for a top-level `analytics_events`
+  collection the app has never written to (real analytics events live at
+  `organizations/{orgId}/events/{eventId}`, which already has its own correct
+  rule) — its `read` condition also referenced `request.resource.data`, which
+  isn't populated on reads at all, so it could never have worked as intended.
+- **New test suite:** `tests/firestore-rules-test.js` (used the `firebase-admin`
+  SDK, which always bypasses Security Rules — even against the emulator — so
+  every one of its assertions passed trivially regardless of what the rules
+  actually said) is deleted. `tests/rules-unit-tests.js` — previously written
+  but never wired into `npm test`, and itself stale — is now the real suite:
+  13 cases against the actual rules engine (`@firebase/rules-unit-testing`)
+  covering every fix above, including the full non-admin org-bootstrap
+  sequence end-to-end. `npm test`/`test:rules`/`test:rules:auto` all point at
+  it now; verified green against a local emulator.
+
+**Data-loss / silent-failure bugs fixed:**
+- **Fixed — deleting an account didn't actually revoke access:** `signInManager()`
+  always force-created a fresh member doc on sign-in if none existed — exactly
+  the state Settings → Users & Roles → Delete leaves a removed account in. A
+  removed employee signing back in on the same shared device got silently
+  re-granted `STORE_MANAGER` access to whatever store happened to be cached
+  there. Force-create now only applies to the genuine "no account found —
+  create one?" signup path, never a normal sign-in.
+- **Fixed — a completed run could silently fail to record itself (again):**
+  `_totalBucketsMade` (the value `writeRunSummary()` checks before deciding
+  whether there's anything to write) was only ever updated by local
+  `setRunMade()`/`undoRunMade()` calls — never recomputed when `runMade` was
+  restored from Firestore via `_resumeSavedRun()` or a live cross-device
+  sync. A resumed or another-device-synced run could show "✓ made" on every
+  row while secretly holding `_totalBucketsMade = 0`, causing Done/Submit to
+  skip the Firestore write entirely — the same failure mode already fixed
+  twice before for the app's two separate Done buttons, recurring through a
+  third path. `_applyRunData()` now re-derives it from `runMade` every time
+  that data is (re)applied; `startRunTimer()` no longer zeroes it as a side
+  effect (that was actually a resume-clobbering bug in its own right).
+- **Fixed — Novelties CSV export's "Made" column was always 0 for any
+  submitted day:** `submitNoveltiesSummary()` deleted every item's `madeQty`
+  right before its final save, so the very data Settings → Export Data reads
+  back out was wiped the moment a day was actually finished. Removed the
+  delete — `noveltiesLog/{date}` is a per-day historical doc, not shared
+  state that needs clearing, the same reasoning `runMade` already followed.
+- **Fixed — Hurricane Toppings' Made button corrupted its own On Hand value:**
+  Hurricane Toppings tracks On Hand as a bounded fill level (Empty…Full), but
+  the generic Made stepper was rendered for every category with no exception,
+  and treated it as a plain running count — submitting any quantity could push
+  the value outside its valid range, breaking both the fill-level dropdown and
+  print/export output. The Made button no longer renders for this category;
+  "done" already falls out naturally once On Hand reads Full.
+- **Fixed — duplicate Store ID could silently overwrite an existing store:**
+  `createOrgAndStore()` had no existence check before its non-merge store-doc
+  write; a mistyped or colliding Store ID on "Add Another Store" would have
+  replaced another store's entire doc (roster, novelties, PIN, history — all
+  of it). Now checks first and rejects with a clear error.
+- **Fixed:** Inventory's "Mark Count Complete" always stamped the
+  overdue-count timestamp with `Date.now()`, even when recalling and re-saving
+  a *past* count session — silently masking a genuinely overdue count. Now
+  only stamps it while today's session is the one being completed, matching
+  the same guard `saveAll()` already applies to the flavor list default.
+- **Fixed:** an already-open Novelties or Inventory tab didn't live-update
+  when another device edited the shared catalog (Target, par level, price,
+  location/distributor order) — the store-doc listener only re-rendered the
+  Run tab. Now also re-renders whichever of those two tabs is currently active.
+
+**Accuracy fixes:**
+- **Fixed — Dashboard "Last 30 Days"/"Production Trend · 7 Days"/"Top Flavors"
+  understated their own labels:** all three read `storeEvents[]`, which was
+  capped at 10 entries total and shared between `run_completed` and
+  `novelties_completed` types — a store logging one of each per day only ever
+  had about 5 days of real history to work with, no matter what the date
+  filter allowed through. Cap raised to 60 (new shared `STORE_EVENTS_MAX_ENTRIES`,
+  `appHelpers.js`) so a typical store's mix of both event types actually
+  covers 30 days.
+- **Improved:** Inventory's CSV column auto-guess did a raw substring match
+  against the literal camelCase field name ("locationorder"), which a real
+  distributor header ("Location Order", "Aisle", "Vendor Code") would never
+  match — the two fields TODO.md flagged as unconfirmed against a real
+  export. Now normalizes punctuation/case on both sides and checks a short
+  synonym list per field.
+- **Fixed:** `printRun()` never accounted for catering — a catering-only
+  flavor was missing from the printed sheet entirely, and one needing both
+  daily and catering production understated its true total. Now mirrors the
+  same daily-needed ∪ catering-only list the Run tab itself renders in run mode.
+- **Fixed:** the app's fallback bootstrap timer (fires only if Firebase's own
+  module script never becomes ready at all) checked the legacy
+  `window._STORE_ID` global instead of whether bootstrap had actually already
+  run — on a repeat visit with a store already cached, it would have wrongly
+  skipped the fallback entirely, leaving the user stuck if Firebase failed to load.
+
+**Dead code / cleanup:**
+- Removed a fully unreachable "Switch Org" overlay (`showOrgPicker()`,
+  `selectOrg()`, `#orgOverlay` markup) — nothing ever called the only function
+  that opened it.
+- Removed `clearRunView()` — an unused near-duplicate of `doneRun()` that,
+  unlike `doneRun()`, never called `writeRunSummary()`; a latent trap for a
+  future edit to wire it up and reintroduce the "production made but never
+  recorded" bug this session (and two previous ones) fixed elsewhere.
+- Removed `getStoreEventDocRef()` (appHelpers.js) — `storeEvents` has always
+  been written as one whole-array field, never as per-event subdocs; this ref
+  helper reflected an abandoned design direction with zero callers.
+- Removed dead code: `ORGS` array and `setCurrentUserRole()` (js/auth.js),
+  `window.setUserRole()` (appHelpers.js — see the `APP_STATE.userRole` fix
+  below), `openSettings()`/`openNovelties()`/`closeNovelties()`/
+  `openInventory()`/`closeInventory()` (popup-era wrappers with zero callers
+  since all four became bottom-tab panels), the write-only `.made` field on
+  `activeFlavors` entries (nothing ever read it back), and the never-read
+  `window._ORG_ID`/`window._STORE_ID` globals (the one real read of
+  `_STORE_ID` was the bootstrap-fallback bug fixed above; fixing it to use
+  `getCurrentStoreId()` made the raw global fully dead). Also removed a
+  duplicate `window.setSignedInUser` definition in index.html's module script
+  that appHelpers.js's own definition always overwrote before it could matter.
+- **Fixed:** `getCurrentUserRole()` read `APP_STATE.userRole`, a value set
+  once at page-load from `localStorage` and never updated again (the only
+  function that could have updated it, `setUserRole()`, was itself dead code)
+  — a fresh sign-in in the same session could leave this reporting a stale
+  role (from a previous account on the device, or the `EMPLOYEE` default)
+  even after the real, live `window._USER_ROLE` had already updated correctly.
+  Two real consumers were affected: analytics events tagging the wrong role,
+  and the corporate System Dashboard showing the wrong role pill / hiding
+  "Add Store" from an actual corporate admin. Now reads `window._USER_ROLE` first.
+- Coalesced two save paths that were still firing plain overlapping writes —
+  `saveOrgFlavorOverrides()` (js/roster.js, editing two flavors' codes/types
+  in quick succession could silently revert one) and `_saveManagerPin()`
+  (js/manager-lock.js, lower-odds since PIN-setting is a rare single action)
+  — via the existing `_makeCoalescedSaver()` pattern, matching every other
+  store-doc writer.
+- **Fixed:** `resetDay()` didn't call `stopRunTimer()` or clear the
+  double-tap-Done guard state, unlike the app's other two "end the run"
+  functions — self-healed on the next run start, but inconsistent.
+- `ensureOrgDoc()` now uses a merge write (was a plain `setDoc`, capable of
+  wiping sibling org-doc fields in a narrow concurrent-bootstrap window).
+- Settings → Users & Roles' last-remaining-Corporate-Admin delete guard now
+  re-queries the members collection live instead of trusting the page-load
+  snapshot — two admin sessions open at once could otherwise each see "someone
+  else exists" and both delete each other.
+- **Fixed — third recurrence of the tab-bar z-index bug:** `#statusToast`
+  (the shared toast behind nearly every save/error/offline message in the
+  app) had no `z-index` at all, so the always-on-top bottom tab bar painted
+  over it regardless of DOM order — the same bug already fixed twice before
+  for the flavor-roster modal and the undo toast/install hint, just missed
+  for arguably the most-used instance. Matched to the same fix.
+- Removed dead `.entry-btn-manager` CSS (leftover from the removed two-button
+  employee/manager entry screen) and a stray orphaned comment block in
+  js/store-org.js left behind when the function it described moved to
+  js/dashboard.js.
+- ARCHITECTURE.md's script-load-order list was missing four files added since
+  it was last updated (`made-stepper.js`, `settings.js`, `novelties.js`,
+  `inventory.js`) — brought current.
+
 ### Three High-Priority Data-Persistence Bugs (2026-08-06)
 - **Target/cabinet numbers in the Ice Cream Run tab**: these are fields *inside* each `activeFlavors` entry, so they were wiped by the exact same bug just fixed above (the live listener's first callback reporting "doesn't exist yet" and clobbering the just-seeded list) — no separate fix needed, this was the same root cause.
 - **Fixed — Novelties Target silently reset to defaults on some devices**: `_seedNoveltiesIfEmpty()` (`js/novelties.js`) treated an empty in-memory `novelties` array as "this store has never set up its catalog" and immediately seeded + saved fresh defaults (parLevel 5 for everything) over whatever real target numbers a manager had actually set. The tab buttons have no loading gate, so tapping Novelties in the brief window before the store's real data finished loading — a few hundred ms on a slow connection, easily hit by anyone tapping through tabs quickly after opening the app — was enough to trigger it, and since `novelties` lives on the store doc's live listener, the corruption propagated to every other device immediately. New `_storeDataLoaded` flag (`js/store-org.js`, set once `loadAll()` has actually applied real data) gates the seed, and the Novelties tab now shows a brief "Loading…" state instead of rendering — or auto-saving over — an array that just hasn't loaded yet.

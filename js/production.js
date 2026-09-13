@@ -4,7 +4,7 @@
 let roster = [];        // full list (MASTER_ROSTER + any user-added)
 let activeFlavors = []; // flavors on today's list
 let runMode = false;
-let _storeEvents = [];  // recent activity log for current store (max 10, from storeEvents field)
+let _storeEvents = [];  // recent activity log for current store (max STORE_EVENTS_MAX_ENTRIES, from storeEvents field)
 let _storeDoc    = null; // raw store doc data from last Firestore load (for manager dashboard fallbacks)
 let _storeCurrentFlavorList = []; // [{name, target}] — persistent store-level default list, carried forward into any new day until a manager changes it (see applyData()/loadRunForDate() in store-org.js)
 let _lastSyncAt  = null; // timestamp of last successful cloud sync (saved or loaded)
@@ -113,7 +113,8 @@ function buildRow(f, runIndex, runTotal) {
         madeBtn.onclick = () => openMadeStepper({
           title: f.name,
           value: tm,
-          onSubmit: qty => setRunMade(f.name, qty)
+          needsTearDown: f.type === 'TD',
+          onSubmit: (qty, tearDownDone) => setRunMade(f.name, qty, tearDownDone)
         });
         row.appendChild(madeBtn);
       }
@@ -336,6 +337,9 @@ function removeFromActive(idx) {
 
 // ── RUN MODE ───────────────────────────────────────────────────────────────
 let runMade = {}; // flavor name -> daily qty made/submitted today (0 is valid — the Skip replacement)
+// flavor name -> true/false, only ever set for type==='TD' flavors, answered
+// on the same Made-stepper prompt as the quantity (see js/made-stepper.js).
+let runTearDowns = {};
 // Manager mode
 let _runTimerInterval = null;
 let _runStartTime = null;
@@ -343,14 +347,13 @@ let _totalBucketsMade = 0;
 
 function _persistRunState() {
   if (!runMode) return;
-  try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems })); } catch(e) {}
+  try { localStorage.setItem('car_run_state', JSON.stringify({ made: _totalBucketsMade, at: Date.now(), catering: _cateringItems, date: _workingRunDate || todayStr() })); } catch(e) {}
 }
 
-function setRunMade(name, qty) {
+function setRunMade(name, qty, tearDownDone) {
   runMade[name] = Math.max(0, parseInt(qty) || 0);
+  if (tearDownDone !== undefined) runTearDowns[name] = !!tearDownDone;
   _totalBucketsMade = Object.values(runMade).reduce((s, v) => s + v, 0);
-  const idx = activeFlavors.findIndex(f => f.name === name);
-  if (idx >= 0) { activeFlavors[idx].made = runMade[name]; }
   _persistRunState();
   saveAll();
   renderTable();
@@ -359,9 +362,8 @@ function setRunMade(name, qty) {
 
 function undoRunMade(name) {
   delete runMade[name];
+  delete runTearDowns[name];
   _totalBucketsMade = Object.values(runMade).reduce((s, v) => s + v, 0);
-  const idx = activeFlavors.findIndex(f => f.name === name);
-  if (idx >= 0) { activeFlavors[idx].made = 0; }
   _persistRunState();
   saveAll();
   renderTable();
@@ -538,8 +540,10 @@ function _startProductionRun(dailyNeeded) {
   closeRunPrepOverlay();
   runMode = true;
   runMade = {};
+  runTearDowns = {};
   cateringMade = {};
-  try { localStorage.setItem('car_run_state', JSON.stringify({ made: 0, at: Date.now(), catering: _cateringItems })); } catch(e) {}
+  _totalBucketsMade = 0;
+  try { localStorage.setItem('car_run_state', JSON.stringify({ made: 0, at: Date.now(), catering: _cateringItems, date: _workingRunDate || todayStr() })); } catch(e) {}
 
   // Single write that both guarantees today's run doc exists under Saved Runs
   // and explicitly clears `submitted` (handles starting a second run on a
@@ -644,11 +648,20 @@ function printInventory() {
 }
 
 function printRun() {
-  const needed = activeFlavors.filter(f => toMake(f) > 0);
-  const sorted = getSorted(needed);
+  // Same daily-needed ∪ catering-only list renderTable() builds in run mode —
+  // otherwise a catering-only flavor (0 daily need, N catering buckets) never
+  // appeared on the printed sheet at all, and a flavor needing both understated
+  // what staff should actually produce.
+  const dailyFlavors = activeFlavors.filter(f => toMake(f) > 0);
+  const dailyNames   = new Set(dailyFlavors.map(f => f.name));
+  const cateringOnly = activeFlavors.filter(f =>
+    !dailyNames.has(f.name) && _cateringItems.some(c => c.name === f.name)
+  );
+  const sorted = getSorted([...dailyFlavors, ...cateringOnly]);
   const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
 
   let rows = [];
+  let cateringTotal = 0;
   sorted.forEach(f => {
     const tm = toMake(f);
     for (let i = 1; i <= tm; i++) {
@@ -659,9 +672,19 @@ function printRun() {
         <td style="text-align:center;color:#999">${tm > 1 ? `${i} of ${tm}` : ''}</td>
       </tr>`);
     }
+    const cateringQty = _cateringItems.find(c => c.name === f.name)?.buckets || 0;
+    cateringTotal += cateringQty;
+    for (let i = 1; i <= cateringQty; i++) {
+      rows.push(`<tr>
+        <td>${f.name} <span style="color:#d72627;font-weight:bold;">🍨 Catering</span></td>
+        <td style="text-align:center">${f.category || '—'}</td>
+        <td style="text-align:center">${f.type || '—'}</td>
+        <td style="text-align:center;color:#999">${cateringQty > 1 ? `${i} of ${cateringQty}` : ''}</td>
+      </tr>`);
+    }
   });
 
-  const total = sorted.reduce((s, f) => s + toMake(f), 0);
+  const total = sorted.reduce((s, f) => s + toMake(f), 0) + cateringTotal;
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <title>Run Sheet — ${today}</title>
@@ -705,9 +728,13 @@ function doneRun() {
   stopRunTimer();
   runMode = false;
   runMade = {};
+  runTearDowns = {};
   cateringMade = {};
   _cateringItems = [];
   _totalBucketsMade = 0;
+  _tearDownBeforeRun = null;
+  _tearDownAfterRun = null;
+  _tearDownAdditional = [];
   localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
   const doneFooter = document.getElementById('runDoneFooter');
@@ -748,20 +775,6 @@ function confirmDoneRun() {
   }, 3000);
 }
 
-function clearRunView() {
-  stopRunTimer();
-  runMode = false;
-  runMade = {};
-  cateringMade = {};
-  _cateringItems = [];
-  _totalBucketsMade = 0;
-  localStorage.removeItem('car_run_state');
-  document.getElementById('runBanner').style.display = 'none';
-  const doneFooter = document.getElementById('runDoneFooter');
-  if (doneFooter) doneFooter.style.display = 'none';
-  renderTable();
-}
-
 async function resetDay() {
   // "Reset" always means "start today fresh" — if a past date is currently
   // recalled, switch back to today first rather than resetting that history.
@@ -777,12 +790,16 @@ async function resetDay() {
 
   // Apply reset immediately — no confirm() dialog; undo toast is the recovery path
   activeFlavors.forEach(f => { f.dipping = 0; f.holding = 0; });
+  stopRunTimer();
   runMode = false;
   // Clear stale run state — prevents made entries carrying over to the next run
   runMade = {};
+  runTearDowns = {};
   cateringMade = {};
   _cateringItems = [];
   _totalBucketsMade = 0;
+  _doneRunPending = false;
+  if (_doneRunTimer) { clearTimeout(_doneRunTimer); _doneRunTimer = null; }
   localStorage.removeItem('car_run_state');
   document.getElementById('runBanner').style.display = 'none';
   const doneFooter = document.getElementById('runDoneFooter');
@@ -836,7 +853,10 @@ function roundToHalf(n) {
 
 function startRunTimer() {
   _runStartTime = Date.now();
-  _totalBucketsMade = 0;
+  // Not this function's job to reset bucket-made state — it's also called by
+  // _resumeSavedRun() after runMade/_totalBucketsMade have just been restored
+  // from Firestore, and zeroing it here would wipe that right back out. A
+  // genuinely fresh run zeroes it explicitly in _startProductionRun().
   const el = document.getElementById('runTimerDisplay');
   if (_runTimerInterval) clearInterval(_runTimerInterval);
   _runTimerInterval = setInterval(() => {
@@ -865,6 +885,102 @@ function checkRunComplete() {
   const list = [...dailyFlavors, ...cateringOnly];
   const allDone = list.length > 0 && list.every(_isRunRowDone);
   footer.style.display = allDone ? '' : 'none';
+}
+
+// ── TEAR-DOWN PRE-SUBMIT QUESTIONS ──────────────────────────────────────────
+// Answers collected once per run, at submit time — separate from the
+// per-flavor tear-down answers already captured on the Made-stepper prompt
+// (runTearDowns). Written into tearDownLog/{date} by writeRunSummary().
+let _tearDownBeforeRun  = null;
+let _tearDownAfterRun   = null;
+let _tearDownAdditional = []; // [flavorName, ...] — one entry per "yes" loop iteration
+
+// Only asked when today's run actually involved a type='TD' flavor — for a
+// run with none, there's nothing to tear down, so skip straight to the
+// existing summary. Replaces the Done footer's direct showRunSummary() call.
+function beginRunSummaryFlow() {
+  if (!activeFlavors.some(f => f.type === 'TD')) { showRunSummary(); return; }
+  _tearDownBeforeRun  = null;
+  _tearDownAfterRun   = null;
+  _tearDownAdditional = [];
+  _renderTearDownStep('before');
+}
+
+function _renderTearDownStep(step) {
+  const overlay = document.getElementById('tearDownSummaryOverlay');
+  const body = document.getElementById('tearDownSummaryBody');
+  body.innerHTML = '';
+  overlay.classList.add('open');
+
+  const askYesNo = (question, onYes, onNo) => {
+    const q = document.createElement('p');
+    q.style.cssText = 'font-size:15px;margin-bottom:18px;line-height:1.4;';
+    q.textContent = question;
+    body.appendChild(q);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;';
+    const yes = document.createElement('button');
+    yes.className = 'btn btn-green';
+    yes.style.cssText = 'flex:1;justify-content:center;';
+    yes.textContent = 'Yes';
+    yes.onclick = onYes;
+    const no = document.createElement('button');
+    no.className = 'btn';
+    no.style.cssText = 'flex:1;justify-content:center;';
+    no.textContent = 'No';
+    no.onclick = onNo;
+    row.append(yes, no);
+    body.appendChild(row);
+  };
+
+  if (step === 'before') {
+    askYesNo(
+      'Did you tear down and sanitize before starting your ice cream run?',
+      () => { _tearDownBeforeRun = true;  _renderTearDownStep('after'); },
+      () => { _tearDownBeforeRun = false; _renderTearDownStep('after'); }
+    );
+  } else if (step === 'after') {
+    askYesNo(
+      'Did you tear down and sanitize after your ice cream run?',
+      () => { _tearDownAfterRun = true;  _renderTearDownStep('additional'); },
+      () => { _tearDownAfterRun = false; _renderTearDownStep('additional'); }
+    );
+  } else if (step === 'additional') {
+    askYesNo(
+      'Did you tear down and sanitize after any additional flavor during your ice cream run today?',
+      () => _renderTearDownStep('pick-flavor'),
+      () => _finishTearDownFlow()
+    );
+  } else if (step === 'pick-flavor') {
+    const q = document.createElement('p');
+    q.style.cssText = 'font-size:15px;margin-bottom:12px;';
+    q.textContent = 'Which flavor?';
+    body.appendChild(q);
+    const select = document.createElement('select');
+    select.className = 'settings-input';
+    select.style.cssText = 'width:100%;margin-bottom:18px;';
+    getSorted(activeFlavors).forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.name;
+      opt.textContent = f.name;
+      select.appendChild(opt);
+    });
+    body.appendChild(select);
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-green';
+    confirmBtn.style.cssText = 'width:100%;justify-content:center;';
+    confirmBtn.textContent = 'Add & Continue';
+    confirmBtn.onclick = () => {
+      if (select.value) _tearDownAdditional.push(select.value);
+      _renderTearDownStep('additional'); // loop — keeps asking until "No"
+    };
+    body.appendChild(confirmBtn);
+  }
+}
+
+function _finishTearDownFlow() {
+  document.getElementById('tearDownSummaryOverlay').classList.remove('open');
+  showRunSummary();
 }
 
 function showRunSummary() {
@@ -931,6 +1047,63 @@ function adjustSummary() {
   document.getElementById('summaryOverlay').classList.remove('open');
 }
 
+// Prints what was actually MADE this run (runMade/cateringMade) — distinct
+// from printRun(), which prints what still NEEDS to be made (a to-do sheet
+// for during production, driven by toMake()/dipping/holding, unaffected by
+// Made-stepper submissions). Called from the summary modal, before Submit
+// clears runMade/cateringMade via doneRun() — this is the one point in the
+// flow where "what was made" is both fully known and still in memory.
+function printMadeSummary() {
+  const rows = Object.entries(runMade)
+    .filter(([, qty]) => qty > 0)
+    .map(([name, qty]) => ({ name, qty, catering: cateringMade[name] || 0 }));
+  // Catch a catering-only flavor with no matching daily runMade entry.
+  Object.entries(cateringMade).forEach(([name, qty]) => {
+    if (qty > 0 && !runMade[name]) rows.push({ name, qty: 0, catering: qty });
+  });
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  const totalDaily    = rows.reduce((s, r) => s + r.qty, 0);
+  const totalCatering = rows.reduce((s, r) => s + r.catering, 0);
+
+  const bodyRows = rows.map(r => `<tr>
+    <td>${r.name}</td>
+    <td style="text-align:center">${r.qty || '—'}</td>
+    <td style="text-align:center">${r.catering || '—'}</td>
+  </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>Made List — ${today}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 13px; margin: 24px; color: #000; }
+    h2 { margin: 0 0 4px; font-size: 18px; }
+    p { margin: 0 0 16px; color: #555; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 6px 8px; border-bottom: 2px solid #d72627; color: #444; }
+    td { padding: 7px 8px; border-bottom: 1px solid #ddd; }
+    tr:nth-child(even) td { background: #f9f9f9; }
+    .summary { margin-top: 16px; font-size: 13px; font-weight: bold; text-align: right; }
+  </style></head><body>
+  <h2>Handel's — Made List</h2>
+  <p>${today}</p>
+  <table>
+    <thead><tr>
+      <th>Flavor</th>
+      <th style="text-align:center">Made</th>
+      <th style="text-align:center">Catering</th>
+    </tr></thead>
+    <tbody>${bodyRows || '<tr><td colspan="3" style="text-align:center;color:#888;">Nothing recorded as made.</td></tr>'}</tbody>
+  </table>
+  <div class="summary">${totalDaily} bucket${totalDaily !== 1 ? 's' : ''} made${totalCatering > 0 ? ` &nbsp;|&nbsp; ${totalCatering} catering` : ''}</div>
+  <script>window.onload = function(){ window.print(); }<\/script>
+  </body></html>`;
+
+  const w = window.open('', '_blank', 'width=800,height=600');
+  if (w) { w.document.write(html); w.document.close(); }
+  else { alert('Please allow pop-ups for this page to print the made list.'); }
+}
+
 // Submit: locks the run in — writes the Dashboard-facing summary and marks
 // the day's run doc submitted so it drops off the Saved Runs list.
 function submitSummary() {
@@ -953,8 +1126,10 @@ function _currentUserName() {
 // Writes lastRunDate + lastRunBuckets + storeEvents to the store doc on run completion,
 // and marks the day's run doc submitted so it drops off the Saved Runs list.
 // Called from submitSummary() only. Uses merge so it never clobbers production data.
-// storeEvents[] keeps the last 10 run entries so the store detail panel can show a timeline
-// without any extra Firestore reads — it's part of the store doc already loaded by getDocs.
+// storeEvents[] keeps the last STORE_EVENTS_MAX_ENTRIES entries (shared with
+// novelties_completed entries — see appHelpers.js) so the store detail panel
+// and dashboard trend sections can show history without any extra Firestore
+// reads — it's part of the store doc already loaded by getDocs.
 async function writeRunSummary() {
   const cateringMadeCount = Object.values(cateringMade).reduce((s, v) => s + v, 0);
   if (_totalBucketsMade <= 0 && cateringMadeCount === 0) return;
@@ -962,6 +1137,15 @@ async function writeRunSummary() {
   // Only non-zero entries count as "made this flavor" for flavor-tracking purposes
   const flavors         = Object.fromEntries(Object.entries(runMade).filter(([, v]) => v > 0));
   const cateringFlavors = Object.fromEntries(Object.entries(cateringMade).filter(([, v]) => v > 0));
+  // Snapshotted now, synchronously, before this function's first `await` —
+  // submitSummary() calls this without awaiting it ("fire-and-forget") and
+  // immediately calls doneRun() right after, which resets these globals to
+  // null/{}. Reading them again after an await here would race doneRun() and
+  // silently skip the tearDownLog write below on every real run.
+  const tdBeforeRun  = _tearDownBeforeRun;
+  const tdAfterRun   = _tearDownAfterRun;
+  const tdAdditional = [..._tearDownAdditional];
+  const tdPerFlavor  = { ...runTearDowns };
   try {
     const userName = _currentUserName();
     const newEntry = {
@@ -971,7 +1155,7 @@ async function writeRunSummary() {
       ...(_runDurationMs > 0 ? { durationMs: _runDurationMs } : {}),
       ...(cateringMadeCount > 0 ? { cateringBuckets: cateringMadeCount, cateringFlavors } : {})
     };
-    _storeEvents = [..._storeEvents, newEntry].slice(-10);
+    _storeEvents = [..._storeEvents, newEntry].slice(-STORE_EVENTS_MAX_ENTRIES);
     await window._setDoc(getStoreDocRef(), {
       lastRunDate:    todayStr(),
       lastRunBuckets: _totalBucketsMade,
@@ -979,6 +1163,19 @@ async function writeRunSummary() {
       storeEvents:    _storeEvents
     }, { merge: true });
     await window._setDoc(window.getStoreRunLogRef(_workingRunDate || todayStr()), { submitted: true }, { merge: true });
+    // Only written when the pre-submit tear-down questions actually ran
+    // (beginRunSummaryFlow() only asks them when today's run included a
+    // type='TD' flavor) — a run with none has nothing meaningful to log here.
+    if (tdBeforeRun !== null) {
+      await window._setDoc(window.getStoreTearDownLogRef(_workingRunDate || todayStr()), {
+        beforeRun: tdBeforeRun,
+        afterRun: tdAfterRun,
+        perFlavor: tdPerFlavor,
+        additional: tdAdditional,
+        at: Date.now(),
+        ...(userName ? { by: userName } : {}),
+      }, { merge: true });
+    }
   } catch (e) {
     console.error('Run summary write error:', e);
   }

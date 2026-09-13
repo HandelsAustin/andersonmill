@@ -164,12 +164,46 @@ const saveNoveltiesCatalog = _makeCoalescedSaver(_saveNoveltiesCatalogOnce, {
   onSettle: () => { _saving = false; },
 });
 
+// A single most-recent-day local cache for the working Novelties checklist —
+// same "one day, not full history" limitation the Run tab's own car_backup
+// fallback already documents and accepts. Kept as its own localStorage key
+// rather than folded into car_backup: _saveAllOnce() (store-org.js) does a
+// full (non-merge) overwrite of that blob, so writing into it from here too
+// would race and clobber whichever side saved last.
+function _saveNoveltiesLocalBackup() {
+  try {
+    localStorage.setItem('car_novelties_backup', JSON.stringify({
+      date: _workingNoveltiesDate || todayStr(), items: _noveltiesLog, updatedAt: Date.now()
+    }));
+  } catch (e) {}
+}
+function _loadNoveltiesLocalBackup(date) {
+  try {
+    const raw = localStorage.getItem('car_novelties_backup');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return (parsed && parsed.date === date) ? parsed.items : null;
+  } catch (e) { return null; }
+}
+
 async function _saveNoveltiesLogOnce() {
-  if (!window._firebaseReady) { showStatusMessage("Offline — today's checklist saved locally only", 3000); return; }
+  // Written before the network call — matches _saveAllOnce()'s pattern
+  // (store-org.js) so an edit made right as the app backgrounds/is killed
+  // mid-write still has a local record, instead of only existing in an
+  // in-flight request that may never complete.
+  _saveNoveltiesLocalBackup();
+  if (!window._firebaseReady) {
+    setSyncStatus('offline');
+    showStatusMessage("Offline — today's checklist saved locally only", 3000);
+    return;
+  }
+  setSyncStatus('saving');
   try {
     await window._setDoc(window.getStoreNoveltiesLogRef(_workingNoveltiesDate || todayStr()), { items: _noveltiesLog, updatedAt: Date.now() }, { merge: true });
+    setSyncStatus('saved');
   } catch (e) {
     console.error('Novelties log save error:', e);
+    setSyncStatus('error');
     showStatusMessage('⚠ Could not save checklist', 2500);
   }
 }
@@ -186,37 +220,51 @@ async function loadNoveltiesForDate(date) {
   _workingNoveltiesDate = date;
   if (_unsubscribeNoveltiesSnapshot) { _unsubscribeNoveltiesSnapshot(); _unsubscribeNoveltiesSnapshot = null; }
   let logData = null;
+  let loadFailed = false;
   if (window._firebaseReady) {
     try {
       const snap = await window._getDoc(window.getStoreNoveltiesLogRef(date));
       if (snap.exists()) logData = snap.data();
     } catch (e) {
       console.error('Novelties log load error:', e);
+      loadFailed = true;
     }
+  } else {
+    loadFailed = true;
   }
-  _noveltiesLog = logData?.items || [];
+  if (loadFailed) {
+    // Couldn't reach Firestore at all — offline, or (very commonly) a
+    // transient failure right after the app resumes from being backgrounded,
+    // before the network has actually reconnected yet. A failed load must
+    // never look the same as "this day genuinely has no data yet" (which
+    // legitimately renders blank) — fall back to the last locally-cached
+    // copy of THIS exact date instead of wiping the checklist to empty.
+    const cached = _loadNoveltiesLocalBackup(date);
+    _noveltiesLog = cached || [];
+    setSyncStatus('offline');
+  } else {
+    _noveltiesLog = logData?.items || [];
+    _saveNoveltiesLocalBackup();
+  }
   renderNoveltiesPage();
   if (window._firebaseReady && window._onSnapshot) {
     try {
       _unsubscribeNoveltiesSnapshot = window._onSnapshot(window.getStoreNoveltiesLogRef(date), snap => {
         if (_noveltiesSaving) return;
+        // A genuinely nonexistent doc on an untouched day is a real, accurate
+        // "doesn't exist" report (unlike the Run tab, Novelties has no
+        // persistent per-day default to reseed from) — blank IS correct here.
+        // A listener ERROR is different: leave whatever's currently on screen
+        // alone rather than guessing, same principle as the load-failure path
+        // above.
         _noveltiesLog = snap.exists() ? (snap.data().items || []) : [];
+        _saveNoveltiesLocalBackup();
         renderNoveltiesPage();
       }, err => console.error('Novelties snapshot listener error:', err));
     } catch (e) {
       console.error('Failed to start novelties snapshot listener:', e);
     }
   }
-}
-
-// Novelties is now a bottom-tab panel rather than a popup overlay — these wrappers
-// stay in case anything still calls them directly.
-function openNovelties() {
-  switchTab('Novelties');
-}
-
-function closeNovelties() {
-  switchTab('Run');
 }
 
 function _noveltyKey(item) {
@@ -514,13 +562,25 @@ function renderNoveltiesPage() {
 
         // Made — pre-filled, adjustable stepper; submitted rows show a done
         // status with Undo (same pattern as the Run tab's Made column).
+        //
+        // Hurricane Toppings has no discrete "made quantity" — it's a single
+        // bulk container tracked purely by fill level (Empty…Full), and "done"
+        // already falls out of _toMakeNovelty() reaching 0 once On Hand reads
+        // Full (see checkNoveltiesComplete()). A generic quantity Made button
+        // here used to add whatever qty was entered directly onto that 0–1
+        // fill-level value via setNoveltyMade()'s onHand+=delta math, producing
+        // an out-of-range decimal (e.g. 1.5) that matched no option in the
+        // On Hand dropdown and would print/export as a nonsense "1 1/2" fill.
         if (entry.madeQty !== undefined) {
           tr.style.opacity = '0.6';
           tdName.style.textDecoration = 'line-through';
         }
         const tdMadeBtn = document.createElement('td');
         tdMadeBtn.style.cssText = 'text-align:right;padding:9px 4px;white-space:nowrap;';
-        if (entry.madeQty !== undefined) {
+        if (isHurricane) {
+          // Nothing to do here — refilling the container via the On Hand
+          // selector above is the entire interaction for this category.
+        } else if (entry.madeQty !== undefined) {
           const wrap = document.createElement('div');
           wrap.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:8px;';
           const label = document.createElement('span');
@@ -651,7 +711,7 @@ async function submitNoveltiesSummary() {
           type: 'novelties_completed', items: totalMade, categories, at: Date.now(),
           ...(userName ? { by: userName } : {}),
         };
-        _storeEvents = [..._storeEvents, newEntry].slice(-10);
+        _storeEvents = [..._storeEvents, newEntry].slice(-STORE_EVENTS_MAX_ENTRIES);
         await window._setDoc(getStoreDocRef(), { storeEvents: _storeEvents }, { merge: true });
       } catch (e) { console.error('Novelties summary write error:', e); }
     }
@@ -659,7 +719,12 @@ async function submitNoveltiesSummary() {
       await window._setDoc(window.getStoreNoveltiesLogRef(_workingNoveltiesDate || todayStr()), { submitted: true }, { merge: true });
     } catch (e) { console.error('Novelties submitted-flag write error:', e); }
   }
-  novelties.forEach(item => { delete _getLogEntry(item).madeQty; });
-  saveNoveltiesLog();
+  // madeQty is intentionally left in place — this is a per-day historical doc
+  // (noveltiesLog/{date}), not shared state that needs clearing for "next
+  // time." Deleting it here used to wipe the very data Settings → Export Data
+  // reads back out for the CSV's "Made" column, so every day that had ever
+  // been submitted silently exported as 0 for every item. The Run tab's
+  // equivalent (runMade) has never been deleted after submit for the same
+  // reason — see writeRunSummary().
   renderNoveltiesPage();
 }

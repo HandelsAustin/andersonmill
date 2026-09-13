@@ -19,16 +19,11 @@ let _inventoryLog = []; // working date's counts: [{ name, onHand }]
 let _workingInventoryDate = null;
 let _inventoryLastCountedAt = null; // populated by applyData() in store-org.js
 let _inventorySortMode = 'location'; // 'location' | 'distributor'
-
-// Inventory is now a bottom-tab panel rather than a popup overlay — these wrappers
-// stay in case anything still calls them directly.
-function openInventory() {
-  switchTab('Inventory');
-}
-
-function closeInventory() {
-  switchTab('Run');
-}
+// Session-only record of the most recent CSV import batch, powering the
+// "Remove this import" action in the CSV import panel — not persisted, and
+// deliberately scoped to only the single most recent import (see
+// _undoLastImport() for why supporting older imports would need more).
+let _lastImportBatch = null; // { names: [...], importedAt } | null
 
 // See _makeCoalescedSaver() (appHelpers.js) — same rapid-edit race as the Run
 // and Novelties tabs. Catalog shares `_saving` since it lands on the store doc
@@ -205,6 +200,33 @@ const INVENTORY_CSV_FIELDS = [
   { key: 'par', label: 'Par Level' },
 ];
 
+// A raw substring match against the literal camelCase key (e.g. "locationorder")
+// only ever matches a header that already spells the key out — real distributor
+// headers like "Location Order", "Aisle", or "Vendor Code" never would, which is
+// exactly the two fields TODO.md flagged as unconfirmed against a real export.
+// Normalizing punctuation/spaces out of both sides, plus a short synonym list,
+// covers the common real-world spellings without requiring an exact template.
+const CSV_FIELD_SYNONYMS = {
+  name: ['name', 'item', 'itemname', 'description', 'product'],
+  price: ['price', 'cost', 'unitprice', 'unitcost'],
+  category: ['category', 'location', 'locationlabel', 'department', 'section'],
+  locationOrder: ['locationorder', 'storeorder', 'storelocation', 'aisle', 'shelf'],
+  distributorOrder: ['distributororder', 'distributor', 'vendororder', 'vendorcode', 'sku', 'itemnumber', 'itemcode'],
+  par: ['par', 'parlevel', 'parqty', 'reorderlevel', 'min'],
+};
+function _normalizeCsvHeader(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+function _guessCsvColumn(headers, fieldKey) {
+  const normHeaders = headers.map(_normalizeCsvHeader);
+  const candidates = CSV_FIELD_SYNONYMS[fieldKey] || [_normalizeCsvHeader(fieldKey)];
+  for (const cand of candidates) {
+    const idx = normHeaders.findIndex(h => h.includes(cand));
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
 // Minimal RFC4180-ish CSV parser: handles quoted fields, escaped "" quotes,
 // commas inside quotes, and CRLF/LF line endings. No external library available.
 function _parseCSV(text) {
@@ -240,6 +262,28 @@ function _parseCSV(text) {
 
 function _buildCsvImportPanel(container) {
   container.innerHTML = '';
+
+  // "Undo last import" — module-level (not local to this closure) so it
+  // survives renderInventoryPage() rebuilding this whole panel after a
+  // successful commit. Session-only (not persisted), scoped to exactly the
+  // items the most recent import added — doesn't attempt to support undoing
+  // an older import from history, which would need every catalog item
+  // permanently tagged with its import batch.
+  if (_lastImportBatch) {
+    const undoRow = document.createElement('div');
+    undoRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--panel-bg-alt);border:1px solid var(--panel-border);border-radius:8px;padding:10px 12px;margin-bottom:10px;';
+    const label = document.createElement('span');
+    label.style.cssText = 'font-size:12px;color:var(--text-muted);';
+    label.textContent = `Last import: ${_lastImportBatch.names.length} item${_lastImportBatch.names.length !== 1 ? 's' : ''} at ${new Date(_lastImportBatch.importedAt).toLocaleTimeString()}`;
+    const undoBtn = document.createElement('button');
+    undoBtn.className = 'btn';
+    undoBtn.style.cssText = 'font-size:12px;padding:6px 12px;color:#ff8080;border-color:#d72627;';
+    undoBtn.textContent = '↺ Remove this import';
+    undoBtn.onclick = () => _undoLastImport();
+    undoRow.append(label, undoBtn);
+    container.appendChild(undoRow);
+  }
+
   let parsed = null;
   let mapSelects = {};
   let parsedItems = [];
@@ -264,11 +308,32 @@ function _buildCsvImportPanel(container) {
   previewBtn.className = 'btn';
   previewBtn.textContent = 'Preview';
   previewBtn.style.display = 'none';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.style.display = 'none';
   const commitBtn = document.createElement('button');
   commitBtn.className = 'btn btn-green';
   commitBtn.style.display = 'none';
-  btnRow.append(previewBtn, commitBtn);
+  btnRow.append(previewBtn, cancelBtn, commitBtn);
   container.appendChild(btnRow);
+
+  // Back out of an in-progress import (mid column-mapping or after previewing,
+  // before committing anything) — resets this panel to the initial file-picker
+  // state without touching the catalog.
+  function _resetImportPanel() {
+    parsed = null;
+    mapSelects = {};
+    parsedItems = [];
+    fileInput.value = '';
+    mapWrap.innerHTML = '';
+    mapWrap.style.display = 'none';
+    previewWrap.innerHTML = '';
+    previewBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+    commitBtn.style.display = 'none';
+  }
+  cancelBtn.onclick = _resetImportPanel;
 
   fileInput.onchange = () => {
     const file = fileInput.files[0];
@@ -280,6 +345,7 @@ function _buildCsvImportPanel(container) {
       previewWrap.innerHTML = '';
       commitBtn.style.display = 'none';
       mapSelects = {};
+      cancelBtn.style.display = '';
       if (!parsed.headers.length) {
         mapWrap.innerHTML = '<div class="settings-note">Could not read any columns from that file.</div>';
         mapWrap.style.display = '';
@@ -306,7 +372,7 @@ function _buildCsvImportPanel(container) {
           opt.textContent = h || `Column ${i + 1}`;
           select.appendChild(opt);
         });
-        const guessIdx = parsed.headers.findIndex(h => h.toLowerCase().includes(fdef.key.toLowerCase()));
+        const guessIdx = _guessCsvColumn(parsed.headers, fdef.key);
         if (guessIdx >= 0) select.value = String(guessIdx);
         mapSelects[fdef.key] = select;
         row.append(label, select);
@@ -368,15 +434,28 @@ function _buildCsvImportPanel(container) {
     if (!parsedItems.length) return;
     inventoryCatalog = [...inventoryCatalog, ...parsedItems];
     saveInventoryCatalog();
+    _lastImportBatch = { names: parsedItems.map(i => i.name), importedAt: Date.now() };
     showStatusMessage(`✓ Imported ${parsedItems.length} item${parsedItems.length !== 1 ? 's' : ''}`, 2500);
-    fileInput.value = '';
-    mapWrap.style.display = 'none';
-    previewWrap.innerHTML = '';
-    previewBtn.style.display = 'none';
-    commitBtn.style.display = 'none';
-    parsedItems = [];
+    _resetImportPanel();
     renderInventoryPage();
   };
+}
+
+// Removes exactly the items the most recent CSV import added (see
+// _lastImportBatch above) — matched by name, same identity key the import's
+// own duplicate-skip check uses. Does not attempt to restore an item that
+// already existed under the same name before the import (there was nothing
+// to restore — that name was skipped as a duplicate at import time).
+function _undoLastImport() {
+  if (!_lastImportBatch) return;
+  const namesToRemove = new Set(_lastImportBatch.names);
+  const before = inventoryCatalog.length;
+  inventoryCatalog = inventoryCatalog.filter(i => !namesToRemove.has(i.name));
+  const removed = before - inventoryCatalog.length;
+  saveInventoryCatalog();
+  _lastImportBatch = null;
+  showStatusMessage(`✓ Removed ${removed} item${removed !== 1 ? 's' : ''} from the last import`, 2500);
+  renderInventoryPage();
 }
 
 function renderInventoryPage() {
@@ -578,7 +657,13 @@ function renderInventoryPage() {
     completeBtn.style.marginBottom = '20px';
     completeBtn.onclick = () => {
       inventoryCatalog.forEach(item => _recordHistory(item, _getInventoryEntry(item)));
-      _inventoryLastCountedAt = Date.now();
+      // Only stamp "last counted now" while today's session is the one being
+      // completed — recalling a past date to correct/re-save it must never
+      // reset the overdue-count clock, same guard _saveAllOnce() (store-org.js)
+      // already applies to currentFlavorList for the same reason.
+      if ((_workingInventoryDate || todayStr()) === todayStr()) {
+        _inventoryLastCountedAt = Date.now();
+      }
       saveInventoryCatalog();
       saveInventoryLog();
       renderInventoryPage();

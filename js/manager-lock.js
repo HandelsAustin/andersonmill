@@ -48,15 +48,23 @@ function handlePinKey(k) {
   if (_pinEntry.length === 4) setTimeout(submitPin, 120);
 }
 
-async function _saveManagerPin(pin) {
-  _managerPin = pin;
+// See _makeCoalescedSaver() (appHelpers.js) — PIN-setting is a rare, single
+// deliberate action rather than rapid-fire edits, so this race is unlikely in
+// practice, but coalescing here costs nothing and keeps every store-doc writer
+// consistent with the same pattern.
+async function _saveManagerPinOnce() {
   if (!window._firebaseReady) { showStatusMessage('Offline — PIN saved locally only', 3000); return; }
   try {
-    await window._setDoc(getStoreDocRef(), { managerPin: pin }, { merge: true });
+    await window._setDoc(getStoreDocRef(), { managerPin: _managerPin }, { merge: true });
   } catch (e) {
     console.error('PIN save error:', e);
     showStatusMessage('⚠ Could not save PIN', 2500);
   }
+}
+const _saveManagerPinCoalesced = _makeCoalescedSaver(_saveManagerPinOnce);
+function _saveManagerPin(pin) {
+  _managerPin = pin;
+  _saveManagerPinCoalesced();
 }
 
 function submitPin() {

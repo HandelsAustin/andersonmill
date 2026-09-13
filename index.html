@@ -16,13 +16,27 @@
   <!-- These fonts are expected to be installed on devices; system fallbacks provided -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, collection, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-    import { getAuth, setPersistence, browserLocalPersistence, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getFirestore, connectFirestoreEmulator, doc, setDoc, getDoc, getDocs, deleteDoc, onSnapshot, collection, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getAuth, connectAuthEmulator, setPersistence, browserLocalPersistence, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
     import { FIREBASE_CONFIG, DEFAULT_ORG_ID, DEFAULT_ORG_META, ROLES, STORAGE_KEYS } from "./config.js";
 
     const firebaseApp = initializeApp(FIREBASE_CONFIG);
     const db = getFirestore(firebaseApp);
     const auth = getAuth(firebaseApp);
+    // Local dev/test only — never true on the deployed Vercel production
+    // domain, only when this file is served from a local emulator/dev server.
+    // Firestore/Auth emulators are fully isolated local data stores keyed off
+    // the same real projectId in config.js, so this never touches production
+    // data. Must run immediately after getFirestore()/getAuth(), before any
+    // other call on `db`/`auth` — the SDK throws if you try to switch a
+    // client to an emulator after it's already been used for a real op.
+    const _isLocalDev = ['localhost', '127.0.0.1'].includes(location.hostname);
+    if (_isLocalDev) {
+      connectFirestoreEmulator(db, '127.0.0.1', 8080);
+      connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+      window._usingEmulators = true;
+      console.log('🧪 Connected to local Firebase emulators (Firestore :8080, Auth :9099)');
+    }
     // Explicit persistence instead of trusting the SDK's own default (which,
     // depending on environment, may pick IndexedDB-backed storage). IndexedDB
     // inside an iOS "Add to Home Screen" standalone PWA has a long history of
@@ -54,18 +68,14 @@
     window._limit = limit;
     window._auth = auth;
     window._firebaseReady = true;
-    window._ORG_ID = localStorage.getItem(STORAGE_KEYS.orgId) || DEFAULT_ORG_ID;
-    window._STORE_ID = localStorage.getItem(STORAGE_KEYS.storeId) || undefined;
     window._STORAGE_KEYS = STORAGE_KEYS;
     window._USER_ROLE = localStorage.getItem('car_user_role') || ROLES.EMPLOYEE;
     window.DEFAULT_ORG_ID = DEFAULT_ORG_ID;
     window.DEFAULT_ORG_META = DEFAULT_ORG_META;
     window.ROLES = ROLES;
-    window.setSignedInUser = function(user) {
-      window.APP_STATE = window.APP_STATE || {};
-      window.APP_STATE.userUid = user?.uid || null;
-      window.APP_STATE.isSignedIn = !!user;
-    };
+    // window.setSignedInUser is defined by appHelpers.js (loaded via <script
+    // defer> below) — that's the canonical version; it always wins over any
+    // definition here since it's assigned after this module script runs.
     if (!localStorage.getItem(STORAGE_KEYS.orgId)) {
       localStorage.setItem(STORAGE_KEYS.orgId, DEFAULT_ORG_ID);
     }
@@ -137,6 +147,7 @@
     try {
       const secondaryApp = initializeApp(FIREBASE_CONFIG, 'Secondary');
       window._secondaryAuth = getAuth(secondaryApp);
+      if (_isLocalDev) connectAuthEmulator(window._secondaryAuth, 'http://127.0.0.1:9099', { disableWarnings: true });
     } catch (e) {
       console.error('Secondary Firebase app init failed (store-owner account creation will be unavailable):', e);
     }
@@ -419,9 +430,6 @@
     .entry-btn-employee { width:100%; min-height:76px; padding:20px 24px; background:#0f4a2a; border:1.5px solid #98d4e3; border-radius:12px; color:#ffffff; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; font-size:19px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; transition:background 0.1s; }
     .entry-btn-employee:hover { background:#165e35; }
     .entry-btn-employee:active { opacity:0.75; }
-    .entry-btn-manager { width:100%; min-height:52px; padding:14px 24px; background:transparent; border:1.5px solid rgba(152,212,227,0.35); border-radius:10px; color:#98d4e3; font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif; font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; transition:border-color 0.15s,color 0.15s; }
-    .entry-btn-manager:hover { border-color:#98d4e3; color:#ffffff; }
-    .entry-btn-manager:active { opacity:0.75; }
   </style>
   <script src="./appHelpers.js" defer></script>
 </head>
@@ -493,7 +501,7 @@
     </div>
 
     <div id="runDoneFooter" style="display:none;background:#0f4a2a;border:1.5px solid #98d4e3;border-radius:8px;padding:12px;margin-top:14px;">
-      <button class="btn btn-green" onclick="showRunSummary()" style="width:100%;justify-content:center;font-size:14px;padding:13px;">&#10003; Done — Review &amp; Submit</button>
+      <button class="btn btn-green" onclick="beginRunSummaryFlow()" style="width:100%;justify-content:center;font-size:14px;padding:13px;">&#10003; Done — Review &amp; Submit</button>
     </div>
   </div>
 
@@ -507,6 +515,11 @@
     <div id="inventoryContent"></div>
   </div>
 
+  <div class="tab-panel" id="tabPanelTemps">
+    <div class="tab-panel-header"><h2>Freezer/Fridge Temps</h2></div>
+    <div id="tempsContent"></div>
+  </div>
+
   <div class="tab-panel" id="tabPanelSettings">
     <div class="tab-panel-header"><h2>Store Settings</h2></div>
     <div id="settingsContent"></div>
@@ -516,6 +529,7 @@
     <button class="tab-btn active" id="tabBtnRun" onclick="switchTab('Run')"><span class="tab-icon">&#127848;</span>Ice Cream Run</button>
     <button class="tab-btn" id="tabBtnNovelties" onclick="switchTab('Novelties')"><span class="tab-icon">&#127820;</span>Novelties</button>
     <button class="tab-btn" id="tabBtnInventory" onclick="requireManager(() => switchTab('Inventory'))"><span class="tab-icon">&#128230;</span>Inventory</button>
+    <button class="tab-btn" id="tabBtnTemps" onclick="switchTab('Temps')"><span class="tab-icon">&#127777;&#65039;</span>Temps</button>
     <button class="tab-btn" id="tabBtnSettings" onclick="requireManager(() => switchTab('Settings'))"><span class="tab-icon">&#9881;</span>Store Settings</button>
   </div>
 </div>
@@ -568,10 +582,30 @@
       <span id="madeStepperValue" style="font-size:38px;font-weight:700;min-width:64px;text-align:center;color:#ffffff;">0</span>
       <button onclick="_stepMadeStepper(1)" style="width:52px;height:52px;font-size:26px;font-weight:700;background:#12223a;border:1.5px solid #2e4a70;border-radius:8px;color:#c5d8f0;cursor:pointer;touch-action:manipulation;line-height:1;padding:0;-webkit-tap-highlight-color:transparent;">+</button>
     </div>
+    <!-- Shown only for flavors flagged type 'TD' (Take & Dip / Tear Down) —
+         asked on this same prompt, alongside the quantity, per how the shared
+         dipping equipment actually gets used during production. -->
+    <div id="madeStepperTearDown" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid #2e4a70;text-align:center;">
+      <p style="margin-bottom:8px;font-size:13px;">Did you tear down and sanitize?</p>
+      <div style="display:flex;gap:10px;justify-content:center;">
+        <button id="madeStepperTdYes" class="btn" onclick="_setMadeStepperTearDown(true)" style="flex:1;justify-content:center;">Yes</button>
+        <button id="madeStepperTdNo" class="btn" onclick="_setMadeStepperTearDown(false)" style="flex:1;justify-content:center;">No</button>
+      </div>
+    </div>
     <div class="modal-footer" style="justify-content:center;margin-top:20px;">
       <button class="btn btn-green" onclick="_confirmMadeStepper()">Submit</button>
       <button class="btn" onclick="_cancelMadeStepper()">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- Tear-Down pre-submit questions — only shown when today's run included at
+     least one type='TD' flavor. Walks: before-run / after-run / repeating
+     additional-flavor questions, then hands off to the existing summary. -->
+<div id="tearDownSummaryOverlay" class="summary-overlay">
+  <div class="summary-box" style="max-width:380px;">
+    <h2>Tear Down &amp; Sanitize</h2>
+    <div id="tearDownSummaryBody" style="text-align:center;padding:8px 0;"></div>
   </div>
 </div>
 
@@ -584,6 +618,7 @@
     </table>
     <div class="modal-footer" style="margin-top:22px;">
       <button class="btn" style="flex:1;justify-content:center;padding:13px;" onclick="adjustSummary()">Adjust</button>
+      <button class="btn" style="flex:1;justify-content:center;padding:13px;" onclick="printMadeSummary()">🖨 Print</button>
       <button class="summary-close" style="margin-top:0;flex:1;" onclick="submitSummary()">Submit</button>
     </div>
   </div>
@@ -615,17 +650,6 @@
     <p class="var-sub">Prepare these before starting your run.</p>
     <div id="varList"></div>
     <button class="var-close" onclick="document.getElementById('varOverlay').classList.remove('open'); startRunTimer();">Got it</button>
-  </div>
-</div>
-
-<!-- Organization Picker Overlay -->
-<div id="orgOverlay" class="store-overlay">
-  <h2>Select Organization</h2>
-  <p>Enter the organization ID for the org you want to manage.</p>
-  <div class="store-list" style="max-width:340px;">
-    <input id="orgIdInput" type="text" placeholder="handels" style="width:100%;padding:14px 12px;border-radius:10px;border:1.5px solid #98d4e3;background:#1e2870;color:#ffffff;font-family:'Tw Cen MT','Century Gothic',Arial,sans-serif;font-size:14px; margin-bottom:14px;" />
-    <button class="store-btn" onclick="selectOrg(document.getElementById('orgIdInput').value)">Switch Org</button>
-    <div style="margin-top:20px;font-size:12px;color:#98d4e3;line-height:1.4;font-family:'Arial Narrow',Arial,sans-serif;">Tip: Use the same org IDs shown in your Firestore organization collection.</div>
   </div>
 </div>
 
@@ -669,6 +693,7 @@
     </div>
     <div class="pin-error" id="authError" style="margin-bottom:10px;"></div>
     <button class="entry-btn-employee" onclick="signInManager()">Sign In</button>
+    <div id="entryInstallNote" style="display:none;margin-top:16px;padding:10px 12px;border-radius:8px;background:rgba(240,165,0,0.12);border:1px solid #f0a500;color:#f0a500;font-size:12px;line-height:1.5;font-family:'Arial Narrow',Arial,sans-serif;"></div>
   </div>
 </div>
 
@@ -723,6 +748,7 @@
 <script src="./js/settings.js" defer></script>
 <script src="./js/novelties.js" defer></script>
 <script src="./js/inventory.js" defer></script>
+<script src="./js/temps.js" defer></script>
 <script src="./js/app-core.js" defer></script>
 </body>
 </html>

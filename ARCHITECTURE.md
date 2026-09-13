@@ -14,10 +14,15 @@ Vercel deploys the repo as-is), loaded via `<script src defer>` in this order:
 - `appHelpers.js` — org/store state + Firestore ref helpers, analytics events
 - `js/auth.js` — Firebase auth, role loading, auth modal
 - `js/roster.js` — master flavor roster, roster CRUD, add-flavor modal/picker, cabinet-sort
+- `js/made-stepper.js` — shared Made-quantity stepper modal (Run + Novelties tabs)
 - `js/production.js` — production run state, table rendering, run mode, catering, print, run summary
 - `js/manager-lock.js` — manager PIN lock (local session lock layered on role/auth)
 - `js/store-org.js` — org/store Firestore refs, load/save, org & store picker UI
 - `js/dashboard.js` — corporate + manager dashboards, store detail, trend analytics
+- `js/settings.js` — Manager Settings: roster mgmt, users/roles, data export, PIN, theme
+- `js/novelties.js` — Novelties tab: catalog + daily checklist
+- `js/inventory.js` — Inventory tab: catalog, CSV import, dual sort, valuation
+- `js/temps.js` — Freezer/Fridge Temps tab: equipment catalog, daily readings
 - `js/app-core.js` — sync status, connectivity, init/bootstrap, entry screen, SW + PWA install
 
 All top-level `let`/`const` declarations share one global lexical scope across

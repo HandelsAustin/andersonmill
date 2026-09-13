@@ -15,9 +15,6 @@ const DEFAULT_ORG_META = {
   createdAt: Date.now(),
   updatedAt: Date.now()
 };
-const ORGS = [
-  { id: DEFAULT_ORG_ID, label: DEFAULT_ORG_META.name }
-];
 function userHasRole(role) {
   return window._USER_ROLE === role;
 }
@@ -62,28 +59,6 @@ async function loadCurrentUserRole(forceCreate = false) {
     console.error('Load user role error:', e);
   }
 }
-
-  async function setCurrentUserRole(newRole) {
-    if (!window._auth || !window._auth.currentUser) return;
-    try {
-      const user = window._auth.currentUser;
-      const ref = getOrgMemberRef(user.uid);
-      await window._setDoc(ref, {
-        uid: user.uid,
-        email: user.email,
-        role: newRole,
-        stores: window.getCurrentStoreId() ? [window.getCurrentStoreId()] : [],
-        updatedAt: Date.now()
-      }, { merge: true });
-      window._USER_ROLE = newRole;
-      localStorage.setItem('car_user_role', window._USER_ROLE);
-      updateUserRoleDisplay();
-      updateAuthButton();
-      updateRoleUIVisibility();
-    } catch (e) {
-      console.error('Set user role error:', e);
-    }
-  }
 
 function updateAuthButton() {
   const btn = document.getElementById('authBtn');
@@ -151,7 +126,15 @@ async function signInManager() {
   }
   try {
     await window._signInWithEmailAndPassword(window._auth, email, password);
-    await loadCurrentUserRole(true);
+    // forceCreate must stay false here: a valid Firebase Auth login with no
+    // member doc isn't necessarily "new" — it's also the exact state a
+    // corporate admin's Delete Account action (Settings → Users & Roles)
+    // leaves a removed account in. Force-creating one here would silently
+    // re-grant that removed account STORE_MANAGER access (to whatever store
+    // happens to be cached on this device) the moment they sign back in,
+    // defeating deletion entirely. Only the "no account found — create one?"
+    // branch below is a genuine new signup and should force-create.
+    await loadCurrentUserRole(false);
     _reconcileStoreForSignedInUser();
     await window.logOrgEvent('signed_in', { email });
     hideEntryScreen();
@@ -170,6 +153,7 @@ async function signInManager() {
         await window._createUserWithEmailAndPassword(window._auth, email, password);
         await window._signInWithEmailAndPassword(window._auth, email, password);
         await loadCurrentUserRole(true);
+        _reconcileStoreForSignedInUser();
         await window.logOrgEvent('account_created', { email });
         hideEntryScreen();
         updateConnectivityStatus();
@@ -250,7 +234,7 @@ async function ensureOrgDoc() {
   if (!window._firebaseReady) return;
   try {
     const ref = getOrgDocRef();
-    await window._setDoc(ref, { ...DEFAULT_ORG_META });
+    await window._setDoc(ref, { ...DEFAULT_ORG_META }, { merge: true });
     await loadOrgMetadata();
   } catch (e) {
     console.error('Org creation error:', e);

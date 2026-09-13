@@ -1,3 +1,13 @@
+// Shared cap for store.storeEvents[] — one array holding BOTH run_completed
+// and novelties_completed entries (js/production.js writeRunSummary(),
+// js/novelties.js submitNoveltiesSummary()). The Manager/Corporate Dashboards'
+// "Last 30 Days"/"Production Trend · 7 Days"/"Top Flavors" sections all filter
+// this same array by a time cutoff, but a cap that's too small silently
+// contradicts the label — a store logging one run + one novelties checklist
+// per day only got ~5 days of combined history out of the old 10-slot cap,
+// not 30, regardless of what the date filter itself allowed through.
+const STORE_EVENTS_MAX_ENTRIES = 60;
+
 const STORAGE_KEYS = window._STORAGE_KEYS || {
   orgId: 'car_org_id',
   storeId: 'car_store_id',
@@ -15,24 +25,16 @@ window.APP_STATE = window.APP_STATE || {
 
 window.setOrgId = function(orgId) {
   window.APP_STATE.orgId = orgId || window.DEFAULT_ORG_ID || 'handels';
-  window._ORG_ID = window.APP_STATE.orgId;
   localStorage.setItem(STORAGE_KEYS.orgId, window.APP_STATE.orgId);
 };
 
 window.setStoreId = function(storeId) {
   window.APP_STATE.storeId = storeId;
-  window._STORE_ID = storeId;
   if (storeId === undefined || storeId === null) {
     localStorage.removeItem(STORAGE_KEYS.storeId);
   } else {
     localStorage.setItem(STORAGE_KEYS.storeId, storeId);
   }
-};
-
-window.setUserRole = function(role) {
-  window.APP_STATE.userRole = role;
-  window._USER_ROLE = role;
-  localStorage.setItem('car_user_role', role);
 };
 
 window.setSignedInUser = function(user) {
@@ -48,8 +50,15 @@ window.getCurrentStoreId = function() {
   return window.APP_STATE.storeId;
 };
 
+// window._USER_ROLE (js/auth.js) is the live, kept-up-to-date role — it changes
+// on every sign-in/out/role-load. APP_STATE.userRole is only ever set once, at
+// page-load, from whatever was last cached — it used to be the value read here,
+// which meant this could report a stale role (from a previous account on this
+// device, or the EMPLOYEE default) for the entire session even after a real
+// sign-in updated the live variable. Fall back to it only for the brief window
+// before _USER_ROLE itself has been set for the first time.
 window.getCurrentUserRole = function() {
-  return window.APP_STATE.userRole;
+  return window._USER_ROLE || window.APP_STATE.userRole;
 };
 
 window.isSignedIn = function() {
@@ -99,6 +108,18 @@ window.getStoreInventoryLogRef = function(date, orgId = window.getCurrentOrgId()
 };
 window.getStoreInventoryLogCollectionRef = function(orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
   return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'inventoryLog');
+};
+window.getStoreTearDownLogRef = function(date, orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._doc(window._db, 'organizations', orgId, 'stores', storeId, 'tearDownLog', date);
+};
+window.getStoreTearDownLogCollectionRef = function(orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'tearDownLog');
+};
+window.getStoreTempLogRef = function(date, orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._doc(window._db, 'organizations', orgId, 'stores', storeId, 'tempLog', date);
+};
+window.getStoreTempLogCollectionRef = function(orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'tempLog');
 };
 
 // Lazily creates (once) and refreshes the shared <datalist> of every region
@@ -249,6 +270,23 @@ window.logOrgEvent = async function(type, payload = {}) {
       const eventRef = window._doc(window._db, 'organizations', window.getCurrentOrgId(), 'events', event.id);
       await window._setDoc(eventRef, { ...event, syncedAt: Date.now() });
       event.syncedAt = Date.now();
+      // Mirror the sync back into the persisted queue — without this, every
+      // event stays permanently marked unsynced in localStorage even after
+      // succeeding here, so flushAnalyticsEvents() (which trusts that flag to
+      // skip already-sent events) re-attempts every event on every flush.
+      // The events collection intentionally disallows `update` once created
+      // (firestore.rules), so that redundant re-send always failed with a
+      // permission error — harmless (analytics is best-effort, already
+      // caught), but a real bug: found via the local-emulator test harness.
+      try {
+        const raw = localStorage.getItem('car_analytics_events');
+        const events = raw ? JSON.parse(raw) : [];
+        const idx = events.findIndex(e => e.id === event.id);
+        if (idx >= 0) {
+          events[idx].syncedAt = event.syncedAt;
+          localStorage.setItem('car_analytics_events', JSON.stringify(events.slice(0, 80)));
+        }
+      } catch (e) {}
     } catch (e) {
       console.warn('Analytics sync failed', e);
     }
@@ -271,7 +309,4 @@ window.flushAnalyticsEvents = async function() {
     }
   }
   localStorage.setItem('car_analytics_events', JSON.stringify(events.slice(0, 80)));
-};
-window.getStoreEventDocRef = function(eventId, orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
-  return window._doc(window._db, 'organizations', orgId, 'stores', storeId, 'events', eventId);
 };

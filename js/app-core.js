@@ -2,13 +2,18 @@
 // Extracted from index.html — no logic changes.
 
 // ── Bottom tab navigation ────────────────────────────────────────────────────
-// Ice Cream Run / Novelties / Inventory / Store Settings. All four tabs are always
-// visible to any signed-in account — Inventory/Settings are gated at point-of-use
-// by requireManager() (the shared per-store PIN) instead of by role-based hiding.
+// Ice Cream Run / Novelties / Inventory / Temps / Store Settings. All five tabs
+// are always visible to any signed-in account — Inventory/Settings are gated at
+// point-of-use by requireManager() (the shared per-store PIN) instead of by
+// role-based hiding. Temps is intentionally NOT gated at the tab level (unlike
+// Inventory/Settings) — any signed-in user can log today's readings; only
+// adding/removing equipment or changing target temps is gated, inside the tab
+// itself (js/temps.js renderTempsPage()).
 const TABS = {
   Run:        { panel: 'tabPanelRun',        btn: 'tabBtnRun',        render: () => { renderTable(); _renderRunDatePicker(); } },
   Novelties:  { panel: 'tabPanelNovelties',  btn: 'tabBtnNovelties',  render: () => renderNoveltiesPage() },
   Inventory:  { panel: 'tabPanelInventory',  btn: 'tabBtnInventory',  render: () => renderInventoryPage() },
+  Temps:      { panel: 'tabPanelTemps',      btn: 'tabBtnTemps',      render: () => renderTempsPage() },
   Settings:   { panel: 'tabPanelSettings',   btn: 'tabBtnSettings',   render: () => renderSettingsPage() },
 };
 
@@ -93,7 +98,16 @@ function showStatusMessage(msg, timeout=2200) {
     el.id = 'statusToast';
     el.style.position = 'fixed';
     el.style.right = '18px';
-    el.style.bottom = '18px';
+    // Bottom offset + z-index match the undo toast (js/roster.js
+    // showUndoToast()) — the bottom tab bar is position:fixed with
+    // z-index:250, and a positioned sibling left at the default z-index:auto
+    // always paints BELOW one with an explicit z-index, regardless of DOM
+    // order. This exact bug was already fixed twice for other fixed-position
+    // elements (the flavor-roster modal, and the undo toast/install hint) but
+    // missed here — arguably the most-used one, since nearly every save/error/
+    // offline message in the app goes through showStatusMessage().
+    el.style.bottom = 'calc(74px + env(safe-area-inset-bottom, 0px))';
+    el.style.zIndex = '260';
     el.style.padding = '10px 14px';
     el.style.borderRadius = '8px';
     el.style.background = '#2c3691';
@@ -155,22 +169,51 @@ async function init() {
   await loadAll();
   renderTable();
 
-  // Interrupted-run recovery: if a run was active when the page closed/refreshed,
-  // alert the operator so they know to verify their progress manually.
-  // car_run_state is written by calculateRun()/dismissRunRow() and cleared by doneRun()/resetDay().
+  // Interrupted-run recovery: if a run was active when the page closed/
+  // refreshed/backgrounded, automatically resume it in place — rather than
+  // just toasting a warning and leaving the operator to manually find it
+  // under "Saved Runs". Without this, ANY reload during an active run (not
+  // just an overnight gap) silently dropped back to the plain, non-run-mode
+  // table with no obvious way back in, which is exactly what "the run resets
+  // itself" looks like from the operator's side — the data was always safe in
+  // Firestore, but the in-progress run view itself never came back on its own.
+  //
+  // Widened from a flat 12-hour staleness window to "today or yesterday" —
+  // this specifically covers a store that calculates a run at close and
+  // finishes making it the next day, which a hour-count cutoff handles
+  // inconsistently depending on exactly what time production happens.
+  //
+  // car_run_state is written by _startProductionRun()/_persistRunState() and
+  // cleared by doneRun()/resetDay().
   const staleRun = localStorage.getItem('car_run_state');
+  let resumedStaleRun = false;
   if (staleRun) {
     try {
       const run = JSON.parse(staleRun);
-      const ageH = (Date.now() - (run.at || 0)) / 3600000;
-      if (ageH < 12) { // within the same shift — stale state from today's session
+      const runDate  = run.date || todayStr();
+      const today    = todayStr();
+      const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+      if (runDate === today || runDate === yesterday) {
         const made = run.made || 0;
-        // Restore catering items so they survive page refresh
         if (run.catering && Array.isArray(run.catering)) _cateringItems = run.catering;
-        setTimeout(() => showStatusMessage(
-          `⚠️ A run was interrupted — ${made > 0 ? made + ' bucket' + (made !== 1 ? 's' : '') + ' were made before closing.' : 'the app closed mid-run.'}`,
-          8000
-        ), 600);
+        // Confirm nobody already finished this exact run from another device
+        // in the meantime before silently reopening it as if still pending.
+        let alreadySubmitted = false;
+        if (window._firebaseReady) {
+          try {
+            const snap = await window._getDoc(window.getStoreRunLogRef(runDate));
+            alreadySubmitted = snap.exists() && snap.data().submitted === true;
+          } catch (e) { /* can't confirm — resume anyway, safer than silently losing it */ }
+        }
+        if (!alreadySubmitted) {
+          await _resumeSavedRun(runDate);
+          resumedStaleRun = true;
+          setTimeout(() => showStatusMessage(
+            `↻ Resumed your in-progress run from ${runDate === today ? 'today' : 'yesterday'}` +
+            (made > 0 ? ` — ${made} bucket${made !== 1 ? 's' : ''} made so far.` : '.'),
+            6000
+          ), 600);
+        }
       }
     } catch(e) { /* ignore malformed state */ }
     localStorage.removeItem('car_run_state');
@@ -182,10 +225,10 @@ async function init() {
   if (justCreated) {
     localStorage.removeItem('car_just_created');
     setTimeout(() => showStatusMessage("🎉 Store ready! Tap ☰ Edit Flavors to add today's flavors.", 8000), 800);
-  } else if (!staleRun) {
+  } else if (!resumedStaleRun) {
     // iOS install hint — shown once after first store load for non-standalone iOS Safari users.
     // Chrome for Android/desktop users are served by the toolbar Install App button.
-    // Suppressed when a stale-run warning is already showing to avoid stacking toasts.
+    // Suppressed when a run-resumed toast is already showing to avoid stacking toasts.
     setTimeout(_showInstallHint, 3000);
   }
 }
@@ -193,10 +236,36 @@ async function init() {
 // ── ENTRY SCREEN ────────────────────────────────────────────────────────────
 function showEntryScreen() {
   document.getElementById('entryOverlay').classList.add('open');
+  _renderEntryInstallNote();
 }
 
 function hideEntryScreen() {
   document.getElementById('entryOverlay').classList.remove('open');
+}
+
+// Explains *why* this screen is showing, right where staff actually hit the
+// problem — not just a one-time install tip shown after first load (see
+// _showInstallHint() below), which is easy to dismiss once and forget, and
+// which a real storage-eviction event can itself wipe out (its own dismissal
+// flag lives in the same localStorage bucket that just got cleared). A device
+// running as a plain bookmarked browser tab (not "Added to Home Screen"/
+// installed) is subject to the browser's own storage-eviction policy for
+// inactive sites — when that clears the saved Firebase session, this screen
+// is the *correct*, not buggy, result: there's genuinely nothing left to
+// restore. Installing keeps the session in a separate, much more durable
+// storage bucket that isn't subject to the same eviction. No code fix closes
+// this — it's a browser/OS behavior — so the best remaining lever is making
+// sure whoever's looking at this screen understands what actually fixes it.
+function _renderEntryInstallNote() {
+  const el = document.getElementById('entryInstallNote');
+  if (!el) return;
+  const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+  if (isStandalone) { el.style.display = 'none'; return; }
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  el.style.display = '';
+  el.innerHTML = isIOS
+    ? '⚠️ Getting signed out often? Ask a manager to add this app to the Home Screen — tap <strong>Share ⬆</strong>, then <strong>Add to Home Screen</strong>. An installed app stays signed in; a browser tab/bookmark can lose the saved sign-in after a few idle days.'
+    : '⚠️ Getting signed out often? Ask a manager to install this app (browser menu → <strong>Install app</strong> / <strong>Add to Home Screen</strong>). An installed app stays signed in; a browser tab/bookmark can lose the saved sign-in after a few idle days.';
 }
 
 function bootstrap() {
@@ -253,8 +322,15 @@ function waitForFirebaseAndBootstrap() {
     // index.html's handler re-runs bootstrap() to recover regardless of which branch won the race.
     setTimeout(() => { if (window._bootstrapWaiting) { window._bootstrapWaiting = null; bootstrap(); } }, 6000);
   } else {
+    // Firebase's own module script never became ready at all (e.g. the CDN
+    // import failed). Same fallback pattern as the branch above: only fire if
+    // nothing else has already consumed the waiting bootstrap call. The
+    // previous guard here checked the legacy `window._STORE_ID` global instead
+    // — unrelated to whether bootstrap had already run, and would have wrongly
+    // skipped this fallback entirely on a repeat visit where a store was
+    // already cached, leaving the user stuck on nothing if Firebase failed to load.
     window._bootstrapWaiting = bootstrap;
-    setTimeout(() => { if (!window._STORE_ID) bootstrap(); }, 4000);
+    setTimeout(() => { if (window._bootstrapWaiting) { window._bootstrapWaiting = null; bootstrap(); } }, 4000);
   }
 }
 

@@ -9,8 +9,18 @@ service cloud.firestore {
       function isOrgMember() {
         return isSignedIn() && exists(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
       }
+      function memberDoc() {
+        return get(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid));
+      }
       function memberRole() {
-        return get(/databases/$(database)/documents/organizations/$(orgId)/members/$(request.auth.uid)).data.role;
+        return memberDoc().data.role;
+      }
+      function memberStores() {
+        // .get(field, default) instead of dot-access: a member doc the app
+        // itself writes always includes `stores`, but rules should never rely
+        // on that — dot-accessing a genuinely missing field errors out the
+        // whole check instead of just correctly denying store access.
+        return memberDoc().data.get('stores', []);
       }
       function isStoreManager() {
         return isOrgMember() && (memberRole() == 'STORE_MANAGER' || memberRole() == 'CORPORATE_ADMIN');
@@ -18,43 +28,85 @@ service cloud.firestore {
       function isCorporateAdmin() {
         return isOrgMember() && memberRole() == 'CORPORATE_ADMIN';
       }
+      // CORPORATE_ADMIN reaches every store; a STORE_MANAGER only reaches the
+      // store(s) listed on their own member doc. This mirrors — and actually
+      // enforces server-side — the scoping js/store-org.js's _scopedStores()
+      // already does client-side (see PROJECT_CONTEXT.md "Roles & Access Model").
+      function canAccessStore(storeId) {
+        return isCorporateAdmin() ||
+          (isOrgMember() && memberRole() == 'STORE_MANAGER' && storeId in memberStores());
+      }
 
       // Org metadata
       allow read: if isOrgMember();
-      allow create: if isSignedIn() && isOrgMember();
+      allow create: if isOrgMember();
       allow update, delete: if isCorporateAdmin();
 
-      // Stores under org
+      // Stores under org — scoped per-account, not just per-role. A store's own
+      // doc create only ever happens as part of org bootstrap / "Add Another
+      // Store" (both CORPORATE_ADMIN-only in the app), which canAccessStore()
+      // already permits via its isCorporateAdmin() branch.
       match /stores/{storeId} {
-        allow read: if isOrgMember();
-        allow create, update, delete: if isStoreManager();
+        allow read, create, update, delete: if canAccessStore(storeId);
 
         // Date-recallable daily logs — Ice Cream Run, Novelties checklist, and
         // Inventory counts. Doc IDs are YYYY-MM-DD dates; one small doc per day/
         // count session so a store's full history doesn't bloat the store doc itself.
         match /runs/{date} {
-          allow read: if isOrgMember();
-          allow create, update, delete: if isStoreManager();
+          allow read, create, update, delete: if canAccessStore(storeId);
         }
         match /noveltiesLog/{date} {
-          allow read: if isOrgMember();
-          allow create, update, delete: if isStoreManager();
+          allow read, create, update, delete: if canAccessStore(storeId);
         }
         match /inventoryLog/{date} {
-          allow read: if isOrgMember();
-          allow create, update, delete: if isStoreManager();
+          allow read, create, update, delete: if canAccessStore(storeId);
+        }
+        match /tearDownLog/{date} {
+          allow read, create, update, delete: if canAccessStore(storeId);
+        }
+        match /tempLog/{date} {
+          allow read, create, update, delete: if canAccessStore(storeId);
         }
       }
 
-      // Members collection - protect membership records
+      // Members collection - protect membership records.
       match /members/{memberId} {
-        // A user may read their own member doc; managers may read members
+        // A user may read their own member doc; managers may read members.
         allow get: if isSignedIn() && (request.auth.uid == memberId || isStoreManager());
-        allow list: if isStoreManager();
-        // A user may create their own member doc (on sign-up). Managers can create/update other members.
-        allow create: if isSignedIn() && (request.auth.uid == memberId || isStoreManager());
-        allow update: if isSignedIn() && (request.auth.uid == memberId || isStoreManager());
-        // Only corporate admins may delete members
+        // Listing the whole roster is only ever done from the corporate-only
+        // Users & Roles panel (js/settings.js _loadMembersIntoSettings()).
+        allow list: if isCorporateAdmin();
+
+        // A user may always create their OWN member doc (self-service sign-up
+        // and brand-new-org bootstrap both do this with no backend involved).
+        // Self-created docs are locked to STORE_MANAGER — the one exception is
+        // a genuinely new org (its org doc doesn't exist yet), where the first
+        // member has to be able to grant themselves CORPORATE_ADMIN, since
+        // nothing else ever could (see js/store-org.js createOrgAndStore(),
+        // which writes this member doc before the org/store docs specifically
+        // so this check has something to key off of). An existing
+        // CORPORATE_ADMIN can create any member doc with any role (Settings →
+        // Users & Roles → Create Store Owner Account).
+        allow create: if isSignedIn() && (
+          isCorporateAdmin() ||
+          (request.auth.uid == memberId && (
+            request.resource.data.role == 'STORE_MANAGER' ||
+            !exists(/databases/$(database)/documents/organizations/$(orgId))
+          ))
+        );
+
+        // A user may update their own doc but never change their own role or
+        // store access that way — otherwise a shared per-store login could
+        // grant itself CORPORATE_ADMIN or add stores to itself. Only an
+        // existing CORPORATE_ADMIN can change role/stores (the Users & Roles
+        // panel's role dropdown / store-assignment editor).
+        allow update: if isCorporateAdmin() || (
+          isSignedIn() && request.auth.uid == memberId &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.stores == resource.data.stores
+        );
+
+        // Only corporate admins may delete members.
         allow delete: if isCorporateAdmin();
       }
 
@@ -64,13 +116,6 @@ service cloud.firestore {
         allow read: if isStoreManager();
         allow update, delete: if false;
       }
-    }
-
-    // Analytics events should be scoped by org and store.
-    match /analytics_events/{eventId} {
-      allow read: if request.auth != null && exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)/members/$(request.auth.uid));
-      allow create: if request.auth != null && exists(/databases/$(database)/documents/organizations/$(request.resource.data.orgId)/members/$(request.auth.uid));
-      allow update, delete: if false;
     }
   }
 }

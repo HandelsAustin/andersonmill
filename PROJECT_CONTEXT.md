@@ -109,7 +109,7 @@ organizations/{orgId}/stores/{storeId}
                                                            an app/browser restart, or opening from another device,
                                                            until a manager edits it again
   lastRunDate, lastRunBuckets, lastRunAt               ← written on run completion
-  storeEvents: [{type, buckets, at, by?}]               ← activity log, max 10 entries, trimmed on write; by = first-name attribution (optional, signed-in users only).
+  storeEvents: [{type, buckets, at, by?}]               ← activity log, max 60 entries (STORE_EVENTS_MAX_ENTRIES, appHelpers.js), trimmed on write; by = first-name attribution (optional, signed-in users only).
                                                            Written by writeRunSummary() (js/production.js) — called from BOTH ways of
                                                            ending a run (the always-visible run-banner "Done" button and the
                                                            "Done — Review & Submit" footer that only appears once everything's
@@ -148,8 +148,30 @@ organizations/{orgId}/stores/{storeId}/inventoryLog/{date}
     No live listener — inventory counts are still a periodic, usually single-session
     task, unlike the daily Run/Novelties checklists.
 
-All three date-log subcollections are covered by firestore.rules (isOrgMember() read /
-isStoreManager() write, same as the store doc) — deployed to production.
+organizations/{orgId}/stores/{storeId}/tearDownLog/{date}
+  beforeRun: bool, afterRun: bool, perFlavor: {flavorName: bool}, additional: [flavorName, ...], at, by?
+  ← One doc per day, written once at run-submit time (js/production.js: writeRunSummary()),
+    only when that day's run included a flavor with type==='TD' (Take & Dip — the flag
+    doubles as "requires tear-down", by design, since those are the flavors that use the
+    shared dipping equipment). perFlavor is collected earlier, per-flavor, on the same
+    Made-stepper prompt as the quantity (js/made-stepper.js); beforeRun/afterRun/additional
+    are asked as a short pre-submit flow (js/production.js: beginRunSummaryFlow()) that
+    runs before the existing run-summary popup. Recallable from Settings → Tear Down Log.
+
+organizations/{orgId}/stores/{storeId}/tempLog/{date}
+  readings: {equipmentId: number|null}, updatedAt, submitted, submittedAt
+  ← One doc per day's Freezer/Fridge Temp readings (js/temps.js: loadTempsForDate()).
+    Equipment catalog (store.tempEquipment: [{id, type, label, targetTemp}], plus
+    store.tempEquipmentCounters: {type: highestNumberUsed} for "#2"/"#3"-style
+    duplicate numbering that never reuses a number after a deletion) is persistent,
+    same pattern as inventoryCatalog. Adding/removing equipment and changing target
+    temps requires the manager PIN; logging today's readings does not — any signed-in
+    user can do that, unlike Inventory/Settings which gate the whole tab. Recallable
+    from Settings → Freezer/Fridge Temp Log.
+
+All five date-log subcollections are covered by firestore.rules (canAccessStore(storeId) —
+CORPORATE_ADMIN unrestricted, STORE_MANAGER scoped to members/{uid}.stores[]) — not yet
+deployed to production (see TODO.md).
 
 organizations/{orgId}/members/{uid}
   uid, email, role, stores[], createdAt

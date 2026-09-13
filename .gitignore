@@ -24,3 +24,7 @@ firebase-debug.log
 .env
 .env.local
 .env.*.local
+
+# Local emulator test artifacts
+tests/.last-check-screenshot.png
+ui-debug.log
