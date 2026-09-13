@@ -5,7 +5,7 @@
 let _madeStepperValue    = 0;
 let _madeStepperOnSubmit = null;
 // Optional tear-down question, shown on this same prompt for flavors flagged
-// type 'TD' (Take & Dip) — the shared dipping equipment is what actually
+// type 'TD' (Tear Down) — the shared dipping equipment is what actually
 // needs tearing down/sanitizing, so it's asked right where "Made" is
 // submitted rather than as a separate step. Defaults to "No" (visibly
 // pre-selected, not silently assumed) so a rushed tap never claims a

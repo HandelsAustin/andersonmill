@@ -151,9 +151,10 @@ organizations/{orgId}/stores/{storeId}/inventoryLog/{date}
 organizations/{orgId}/stores/{storeId}/tearDownLog/{date}
   beforeRun: bool, afterRun: bool, perFlavor: {flavorName: bool}, additional: [flavorName, ...], at, by?
   ← One doc per day, written once at run-submit time (js/production.js: writeRunSummary()),
-    only when that day's run included a flavor with type==='TD' (Take & Dip — the flag
-    doubles as "requires tear-down", by design, since those are the flavors that use the
-    shared dipping equipment). perFlavor is collected earlier, per-flavor, on the same
+    only when that day's run included a flavor with type==='TD' — TD stands for Tear Down
+    (not "Take & Dip", a mislabel that existed elsewhere in the app before 2026-09-12 and
+    has since been corrected — see CHANGELOG), since those are the flavors that use the
+    shared dipping equipment. perFlavor is collected earlier, per-flavor, on the same
     Made-stepper prompt as the quantity (js/made-stepper.js); beforeRun/afterRun/additional
     are asked as a short pre-submit flow (js/production.js: beginRunSummaryFlow()) that
     runs before the existing run-summary popup. Recallable from Settings → Tear Down Log.

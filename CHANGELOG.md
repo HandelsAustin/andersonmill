@@ -7,6 +7,24 @@ v0.2
 
 ## Recent Changes
 
+### Fix: "Take & Dip" Mislabel — TD Actually Stands for Tear Down (2026-09-12)
+The flavor `type` value `'TD'` has always meant **Tear Down**, confirmed by
+the user. `js/dashboard.js`'s flavor-type breakdown (in the corporate
+System Dashboard's store-detail panel) had it labeled "Take & Dip" instead —
+a stale/incorrect label, not a second real meaning — while the Ice Cream
+Run table's own legend (`index.html`) already correctly said "Tear Down
+(TD)". This mislabel briefly caused confusion earlier today while building
+the Tear-Down tracking feature (see the entry above) before the user caught
+and corrected it.
+
+- **Fixed:** `js/dashboard.js`'s flavor-type breakdown now shows "Tear Down"
+  instead of "Take & Dip" for `type === 'TD'` flavors.
+- **Fixed:** corrected comments in `js/made-stepper.js`, `index.html`, and
+  `PROJECT_CONTEXT.md` that repeated the "Take & Dip" mislabel.
+- Left the one historical CHANGELOG mention of "Take & Dip" (2026-05-28,
+  "Corporate Dashboard Improvements") as-is — it's a record of what the code
+  said at the time, not something to rewrite after the fact.
+
 ### Deploy Follow-Up: Service Worker Cache (2026-09-12)
 Caught while deploying today's changes: `sw.js`'s precached app-shell list
 (`APP_SHELL`) was missing the new `js/temps.js`, and `CACHE_VERSION` hadn't
@@ -103,9 +121,13 @@ catalog/log split (`js/inventory.js`).
 
 ### Tear-Down Tracking, Stage 2 (2026-09-12)
 New feature: tracking tear-down/sanitizing of the shared dipping equipment
-during an Ice Cream Run. Uses the existing flavor `type === 'TD'` flag
-(Take & Dip) as the tear-down trigger directly — no new roster field, by
-design, since those are exactly the flavors that use the shared equipment.
+during an Ice Cream Run. Uses the existing flavor `type === 'TD'` flag —
+**TD stands for Tear Down** — as the tear-down trigger directly, no new
+roster field, since those are exactly the flavors that use the shared
+equipment. (Earlier in this session, before implementing this feature, `TD`
+was mistakenly assumed to stand for "Take & Dip" based on a stale label in
+`js/dashboard.js`'s flavor-type breakdown — that label has never been
+correct; TD has always meant Tear Down. Fixed the same day — see below.)
 
 - **Added:** the Made-stepper (`js/made-stepper.js`) gains a "Did you tear
   down and sanitize?" Yes/No control, shown only for a `type === 'TD'`
