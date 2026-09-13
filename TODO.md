@@ -25,6 +25,9 @@ deliberately deferred.
 - **Two entry points still bypass Settings for Edit Flavors**: the empty-state "Set Up Today's Flavors" button and the Manager Dashboard's shortage-row click both open the flavor picker directly (both still PIN-gated via `requireManager()`, so nothing insecure — just inconsistent with "Edit Flavors only lives in Settings" now). Confirmed fine to leave as-is for now.
 - **Config constants triplicated** (`ROLES`/`DEFAULT_ORG_ID`/`DEFAULT_ORG_META` each independently declared in `config.js`, `js/auth.js`, and copied onto `window` in `index.html`) — flagged in the 2026-09-12 audit as a maintenance smell (editing one without the others would silently diverge), but left alone: collapsing them touches how classic-script global scope resolves identifiers across every file, and the risk of a subtle break wasn't worth it in an audit pass. Worth a careful, isolated pass on its own.
 
+## Standing reminder for every deploy (not one-time — hit twice now: 2026-09-12, 2026-09-13)
+- [ ] **Bump `sw.js`'s `CACHE_VERSION`** whenever a deploy touches `index.html` or any `js/*.js` file. The app is cache-first — pushing to GitHub/Vercel updates the server, but every browser that already visited the app keeps serving its old cached files until the cache is busted by a version bump. Also add any newly-created `js/*.js` file to `APP_SHELL`. Forgetting this makes a real, deployed fix look like it "didn't work."
+
 ## One-time deployment checklist (predates this session — confirm still true)
 - [ ] Firebase Console → Authentication → Authorized domains includes the Vercel production URL (sign-in works today, so this is very likely already done — worth a quick confirmation glance).
 - [ ] SW registers correctly in DevTools → Application → Service Workers on the live URL.

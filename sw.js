@@ -5,7 +5,7 @@
  * To deploy a new app version that busts the old cache, bump CACHE_VERSION below.
  */
 
-const CACHE_VERSION = 'v30';
+const CACHE_VERSION = 'v31';
 const CACHE_NAME    = `count-and-run-${CACHE_VERSION}`;
 
 // App shell — precached on SW install; served from cache immediately on all subsequent loads.
@@ -28,6 +28,7 @@ const APP_SHELL = [
   '/js/settings.js',
   '/js/novelties.js',
   '/js/inventory.js',
+  '/js/flavor-order.js',
   '/js/temps.js',
   '/js/app-core.js',
 ];

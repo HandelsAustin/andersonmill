@@ -7,6 +7,18 @@ v0.2
 
 ## Recent Changes
 
+### Deploy Follow-Up: Service Worker Cache, Round Two (2026-09-13)
+Same class of bug as the 2026-09-12 entry below, caught only because the
+user reported the previous commit's changes weren't showing up live after
+push+deploy: `sw.js`'s `CACHE_VERSION` was still `v30` and `APP_SHELL` was
+missing the new `js/flavor-order.js`, despite this session's commit touching
+`index.html` and eight `js/*.js` files. Cache-first means every browser
+that had already visited the app kept serving the old cached versions
+regardless of what was actually deployed to the server — bumped `v30` →
+`v31` and added `js/flavor-order.js` to `APP_SHELL`. Worth checking `sw.js`
+as a standing step whenever a deploy touches `index.html` or any `js/*.js`
+file, not just when a new file is added.
+
 ### Order Tab Rebuild, Tab Reorganization, Current Inventory Value (2026-09-13)
 Renamed Inventory → **Order** and rebuilt it per a full spec walkthrough with
 the user, plus a new Flavor Order feature and a store-wide inventory
