@@ -71,6 +71,14 @@ async function loadInventoryForDate(date) {
   }
   _inventoryLog = logData?.items || [];
   renderInventoryPage();
+  // The Admin tab's Current Inventory Value (js/settings.js) reads
+  // _inventoryLog too, and may have rendered before this load finished if it
+  // was opened without ever visiting the Order tab first this session —
+  // refresh it so that figure doesn't stay stuck at whatever it showed
+  // (typically $0) before this data actually arrived.
+  if (document.getElementById('tabPanelSettings')?.classList.contains('active') && typeof renderSettingsPage === 'function') {
+    renderSettingsPage();
+  }
 }
 
 async function listRecentInventoryDates(max = 60) {
@@ -194,11 +202,17 @@ async function _toggleInventoryDateMenu() {
 const INVENTORY_CSV_FIELDS = [
   { key: 'name', label: 'Name', required: true },
   { key: 'price', label: 'Price' },
-  { key: 'category', label: 'Category / Location Label' },
+  { key: 'source', label: 'Source' },
   { key: 'locationOrder', label: 'Store Location Order (#)' },
-  { key: 'distributorOrder', label: 'Distributor Order (#)' },
+  { key: 'distributorOrder', label: 'Item #' },
   { key: 'par', label: 'Par Level' },
 ];
+
+// Fixed choices for the Source column, plus a free-typed custom option — see
+// _buildSourceField() below. Stored as a plain string either way (one of
+// these three, or whatever custom text was typed), so CSV import/export and
+// display never need to distinguish "fixed" from "custom".
+const INVENTORY_SOURCE_OPTIONS = ['Distributor', 'Amazon', 'Grocery Store'];
 
 // A raw substring match against the literal camelCase key (e.g. "locationorder")
 // only ever matches a header that already spells the key out — real distributor
@@ -209,9 +223,9 @@ const INVENTORY_CSV_FIELDS = [
 const CSV_FIELD_SYNONYMS = {
   name: ['name', 'item', 'itemname', 'description', 'product'],
   price: ['price', 'cost', 'unitprice', 'unitcost'],
-  category: ['category', 'location', 'locationlabel', 'department', 'section'],
+  source: ['source', 'vendor', 'supplier'],
   locationOrder: ['locationorder', 'storeorder', 'storelocation', 'aisle', 'shelf'],
-  distributorOrder: ['distributororder', 'distributor', 'vendororder', 'vendorcode', 'sku', 'itemnumber', 'itemcode'],
+  distributorOrder: ['itemnumber', 'itemcode', 'itemno', 'distributororder', 'distributor', 'vendororder', 'vendorcode', 'sku'],
   par: ['par', 'parlevel', 'parqty', 'reorderlevel', 'min'],
 };
 function _normalizeCsvHeader(s) {
@@ -225,6 +239,55 @@ function _guessCsvColumn(headers, fieldKey) {
     if (idx >= 0) return idx;
   }
   return -1;
+}
+
+// Source column widget: a select with the fixed options plus "Custom…", which
+// reveals a text input for a free-typed source (e.g. a specific local
+// supplier). Always resolves to a plain string — one of INVENTORY_SOURCE_OPTIONS,
+// or whatever custom text was typed — so storage/display never needs to know
+// which kind it is.
+function _buildSourceField(value, onChange) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+  const label = document.createElement('span');
+  label.className = 'settings-label';
+  label.textContent = 'Source';
+  const select = document.createElement('select');
+  select.className = 'settings-input';
+  const isCustom = !!value && !INVENTORY_SOURCE_OPTIONS.includes(value);
+  INVENTORY_SOURCE_OPTIONS.forEach(opt => {
+    const o = document.createElement('option');
+    o.value = opt;
+    o.textContent = opt;
+    select.appendChild(o);
+  });
+  const customOpt = document.createElement('option');
+  customOpt.value = '__custom__';
+  customOpt.textContent = 'Custom…';
+  select.appendChild(customOpt);
+  select.value = isCustom ? '__custom__' : (value || '');
+
+  const customInput = document.createElement('input');
+  customInput.type = 'text';
+  customInput.className = 'settings-input';
+  customInput.placeholder = 'Custom source';
+  customInput.style.display = isCustom ? '' : 'none';
+  customInput.value = isCustom ? value : '';
+
+  select.onchange = () => {
+    if (select.value === '__custom__') {
+      customInput.style.display = '';
+      customInput.focus();
+      onChange(customInput.value.trim());
+    } else {
+      customInput.style.display = 'none';
+      onChange(select.value);
+    }
+  };
+  customInput.onchange = () => onChange(customInput.value.trim());
+
+  wrap.append(label, select, customInput);
+  return wrap;
 }
 
 // Minimal RFC4180-ish CSV parser: handles quoted fields, escaped "" quotes,
@@ -414,7 +477,7 @@ function _buildCsvImportPanel(container) {
       const item = {
         name,
         unit: 'units',
-        category: get(cols, 'category'),
+        source: get(cols, 'source'),
         locationOrder: parseInt(get(cols, 'locationOrder')) || 0,
         distributorOrder: parseInt(get(cols, 'distributorOrder')) || 0,
         parLevel: parseInt(get(cols, 'par')) || 0,
@@ -422,7 +485,7 @@ function _buildCsvImportPanel(container) {
         history: [],
       };
       parsedItems.push(item);
-      row.innerHTML = `<td style="padding:5px 8px;">${name}</td><td style="padding:5px 8px;">$${item.pricePerUnit.toFixed(2)}</td><td style="padding:5px 8px;">${item.category || '—'}</td>`;
+      row.innerHTML = `<td style="padding:5px 8px;">${name}</td><td style="padding:5px 8px;">$${item.pricePerUnit.toFixed(2)}</td><td style="padding:5px 8px;">${item.source || '—'}</td>`;
       table.appendChild(row);
     });
     previewWrap.appendChild(table);
@@ -489,12 +552,10 @@ function renderInventoryPage() {
     content.appendChild(ok);
   }
 
-  // ── Total value ───────────────────────────────────────────────────────────
-  const totalValue = inventoryCatalog.reduce((sum, item) => sum + _inventoryValue(item, _getInventoryEntry(item)), 0);
-  const valueEl = document.createElement('div');
-  valueEl.style.cssText = 'font-size:18px;font-weight:700;color:var(--text-primary);margin-bottom:14px;';
-  valueEl.textContent = `Total Inventory Value: $${totalValue.toFixed(2)}`;
-  content.appendChild(valueEl);
+  // Total value display moved to the Admin tab's "Current Inventory Value"
+  // (js/settings.js), which combines this list with the last completed Ice
+  // Cream Run and the misc items list — _inventoryValue()/_orderQty() below
+  // are still used by that calculation, just no longer rendered here.
 
   // ── CSV import ────────────────────────────────────────────────────────────
   const importSection = _settingsSection('Import from Distributor CSV');
@@ -504,9 +565,12 @@ function renderInventoryPage() {
   content.appendChild(importSection);
 
   // ── Add item ────────────────────────────────────────────────────────────
+  // Every column is fillable right here at add time (not just via CSV import)
+  // — Source/Item #/Location Order # used to only be settable through CSV
+  // import, defaulting to blank/0 for a manually-added item.
   const addSection = _settingsSection('Add Supply Item');
   const addRow = document.createElement('div');
-  addRow.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+  addRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;';
   const nameInput = document.createElement('input');
   nameInput.className = 'settings-input';
   nameInput.placeholder = 'Name (e.g. Vanilla Base Mix)';
@@ -527,6 +591,19 @@ function renderInventoryPage() {
   parInput.className = 'settings-input';
   parInput.placeholder = 'Par';
   parInput.style.width = '70px';
+  const itemNumInput = document.createElement('input');
+  itemNumInput.type = 'number';
+  itemNumInput.className = 'settings-input';
+  itemNumInput.placeholder = 'Item #';
+  itemNumInput.style.width = '80px';
+  const locOrderInput = document.createElement('input');
+  locOrderInput.type = 'number';
+  locOrderInput.className = 'settings-input';
+  locOrderInput.placeholder = 'Store Location #';
+  locOrderInput.style.width = '110px';
+  let addSource = '';
+  const sourceField = _buildSourceField('', v => { addSource = v; });
+  sourceField.style.width = '150px';
   const addBtn = document.createElement('button');
   addBtn.className = 'btn btn-green';
   addBtn.textContent = '+ Add';
@@ -536,9 +613,9 @@ function renderInventoryPage() {
     inventoryCatalog.push({
       name,
       unit: unitInput.value.trim() || 'units',
-      category: '',
-      locationOrder: 0,
-      distributorOrder: 0,
+      source: addSource,
+      locationOrder: parseInt(locOrderInput.value) || 0,
+      distributorOrder: parseInt(itemNumInput.value) || 0,
       pricePerUnit: parseFloat(priceInput.value) || 0,
       parLevel: Math.max(0, parseInt(parInput.value) || 0),
       history: []
@@ -546,12 +623,12 @@ function renderInventoryPage() {
     saveInventoryCatalog();
     renderInventoryPage();
   };
-  addRow.append(nameInput, unitInput, priceInput, parInput, addBtn);
+  addRow.append(nameInput, unitInput, priceInput, parInput, itemNumInput, locOrderInput, sourceField, addBtn);
   addSection.appendChild(addRow);
   content.appendChild(addSection);
 
   // ── Item list ───────────────────────────────────────────────────────────
-  const sortLabel = _inventorySortMode === 'distributor' ? 'Distributor Order' : 'Store Location';
+  const sortLabel = _inventorySortMode === 'distributor' ? 'Item #' : 'Store Location';
   const listSection = _settingsSection(`Supply Items · ${inventoryCatalog.length}`);
   const sortToggle = document.createElement('button');
   sortToggle.className = 'btn';
@@ -580,7 +657,7 @@ function renderInventoryPage() {
 
     const nameEl = document.createElement('div');
     nameEl.style.cssText = 'font-size:13px;font-weight:700;flex:1;min-width:140px;';
-    nameEl.textContent = `${item.name} (${item.unit})` + (item.category ? ` — ${item.category}` : '');
+    nameEl.textContent = `${item.name} (${item.unit})`;
     topRow.appendChild(nameEl);
 
     const removeBtn = document.createElement('button');
@@ -591,15 +668,40 @@ function renderInventoryPage() {
     topRow.appendChild(removeBtn);
     row.appendChild(topRow);
 
+    // Every column is editable right here — not just at add/import time —
+    // so "fill in all information for each item" holds after the fact too.
     const fieldsRow = document.createElement('div');
     fieldsRow.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;';
 
-    const onHandField = _settingsInput('On Hand', entry.onHand, 'number');
-    onHandField.wrap.style.width = '90px';
+    const onHandCaption = document.createElement('span');
+    onHandCaption.className = 'settings-label';
+    onHandCaption.textContent = 'On Hand';
+    const onHandWrap = document.createElement('div');
+    onHandWrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+    // Whole-count + quarter-fraction widget (same as Novelties' Ice Cream
+    // Maker Cambros field) — On Hand needs to accept fractions like "1 1/2",
+    // not just whole numbers.
+    const onHandWidget = _buildCambroOnHandWidget(entry.onHand, (val) => {
+      entry.onHand = Math.max(0, val);
+      _recordHistory(item, entry);
+      saveInventoryLog();
+      renderInventoryPage();
+    });
+    onHandWrap.append(onHandCaption, onHandWidget);
+
     const parField = _settingsInput('Par Level', item.parLevel, 'number');
     parField.wrap.style.width = '90px';
     const priceField = _settingsInput('Price / Unit', item.pricePerUnit, 'number');
     priceField.wrap.style.width = '90px';
+    const itemNumField = _settingsInput('Item #', item.distributorOrder || 0, 'number');
+    itemNumField.wrap.style.width = '80px';
+    const locOrderField = _settingsInput('Store Location #', item.locationOrder || 0, 'number');
+    locOrderField.wrap.style.width = '110px';
+    const sourceField = _buildSourceField(item.source || '', v => {
+      item.source = v;
+      saveInventoryCatalog();
+    });
+    sourceField.style.width = '150px';
 
     const orderEl = document.createElement('div');
     orderEl.style.cssText = 'font-size:12px;';
@@ -608,20 +710,14 @@ function renderInventoryPage() {
     const renderOrder = () => {
       const qty = _orderQty(item, entry);
       orderEl.innerHTML = qty > 0
-        ? `<span style="color:#ff8080;font-weight:700;">Order ${qty} ${item.unit}</span>`
+        ? `<span style="color:#ff8080;font-weight:700;">Order ${_formatQty(qty)} ${item.unit}</span>`
         : `<span style="color:#22a05a;font-weight:700;">Stocked</span>`;
       valueLine.textContent = `Value: $${_inventoryValue(item, entry).toFixed(2)}`;
     };
     renderOrder();
 
-    // Full re-render on change — Total Value and the Order List section below
-    // aggregate across all items and would otherwise go stale.
-    onHandField.input.onchange = () => {
-      entry.onHand = Math.max(0, parseInt(onHandField.input.value) || 0);
-      _recordHistory(item, entry);
-      saveInventoryLog();
-      renderInventoryPage();
-    };
+    // Full re-render on change — the Order List section below aggregates
+    // across all items and would otherwise go stale.
     parField.input.onchange = () => {
       item.parLevel = Math.max(0, parseInt(parField.input.value) || 0);
       saveInventoryCatalog();
@@ -632,8 +728,18 @@ function renderInventoryPage() {
       saveInventoryCatalog();
       renderInventoryPage();
     };
+    itemNumField.input.onchange = () => {
+      item.distributorOrder = parseInt(itemNumField.input.value) || 0;
+      saveInventoryCatalog();
+      renderInventoryPage();
+    };
+    locOrderField.input.onchange = () => {
+      item.locationOrder = parseInt(locOrderField.input.value) || 0;
+      saveInventoryCatalog();
+      renderInventoryPage();
+    };
 
-    fieldsRow.append(onHandField.wrap, parField.wrap, priceField.wrap, orderEl);
+    fieldsRow.append(onHandWrap, parField.wrap, priceField.wrap, itemNumField.wrap, locOrderField.wrap, sourceField, orderEl);
     row.appendChild(fieldsRow);
     row.appendChild(valueLine);
 
@@ -641,7 +747,7 @@ function renderInventoryPage() {
       const histEl = document.createElement('div');
       histEl.className = 'settings-note';
       histEl.style.marginTop = '6px';
-      histEl.textContent = 'History: ' + item.history.map(h => `${h.date} → ${h.onHand}`).join('  ·  ');
+      histEl.textContent = 'History: ' + item.history.map(h => `${h.date} → ${_formatQty(h.onHand)}`).join('  ·  ');
       row.appendChild(histEl);
     }
 
@@ -673,7 +779,13 @@ function renderInventoryPage() {
   }
 
   // ── Order List ────────────────────────────────────────────────────────────
-  const toOrder = inventoryCatalog.filter(i => _orderQty(i, _getInventoryEntry(i)) > 0);
+  // Sorted by Item # once produced — the working Supply Items list above
+  // stays in whichever sort the manager has it in (Store Location by
+  // default) for walking the store during counting, but the order itself is
+  // always Item #, matching how it'll be placed with the distributor.
+  const toOrder = inventoryCatalog
+    .filter(i => _orderQty(i, _getInventoryEntry(i)) > 0)
+    .sort((a, b) => (a.distributorOrder || 0) - (b.distributorOrder || 0) || a.name.localeCompare(b.name));
   const orderSection = _settingsSection(`Order List · ${toOrder.length}`);
   if (!toOrder.length) {
     const ok = document.createElement('div');
@@ -686,17 +798,24 @@ function renderInventoryPage() {
       const row = document.createElement('div');
       row.className = 'settings-card';
       row.style.cssText += 'display:flex;justify-content:space-between;margin-bottom:6px;';
-      row.innerHTML = `<span>${item.name}</span><span style="font-weight:700;color:#ff8080;">${_orderQty(item, entry)} ${item.unit}</span>`;
+      row.innerHTML = `<span>#${item.distributorOrder || '—'} · ${item.name}</span><span style="font-weight:700;color:#ff8080;">${_formatQty(_orderQty(item, entry))} ${item.unit}</span>`;
       orderSection.appendChild(row);
     });
     const printBtn = document.createElement('button');
     printBtn.className = 'btn';
     printBtn.style.marginTop = '8px';
-    printBtn.textContent = '🖨 Print Order List';
+    printBtn.textContent = '🖨 Produce & Print Order List';
     printBtn.onclick = () => printOrderList(toOrder);
     orderSection.appendChild(printBtn);
   }
   content.appendChild(orderSection);
+
+  // ── Flavor Order (js/flavor-order.js) ────────────────────────────────────
+  const flavorOrderContainer = document.createElement('div');
+  flavorOrderContainer.id = 'flavorOrderSection';
+  flavorOrderContainer.style.marginTop = '10px';
+  content.appendChild(flavorOrderContainer);
+  renderFlavorOrderSection();
 }
 
 function _removeInventoryItem(name) {
@@ -714,15 +833,19 @@ function _removeInventoryItem(name) {
   });
 }
 
+// items must already be sorted by Item # (distributorOrder) — see the Order
+// List section in renderInventoryPage(), which is the only caller.
 function printOrderList(items) {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const rows = items.map(i => {
     const entry = _getInventoryEntry(i);
     return `<tr>
+    <td>${i.distributorOrder || '—'}</td>
     <td>${i.name}</td>
-    <td style="text-align:center">${entry.onHand}</td>
+    <td>${i.source || '—'}</td>
+    <td style="text-align:center">${_formatQty(entry.onHand)}</td>
     <td style="text-align:center">${i.parLevel}</td>
-    <td style="text-align:center;font-weight:bold">${_orderQty(i, entry)} ${i.unit}</td>
+    <td style="text-align:center;font-weight:bold">${_formatQty(_orderQty(i, entry))} ${i.unit}</td>
   </tr>`;
   }).join('');
 
@@ -738,10 +861,12 @@ function printOrderList(items) {
     tr:nth-child(even) td { background: #f9f9f9; }
   </style></head><body>
   <h2>Handel's — Supply Order List</h2>
-  <p>${today}</p>
+  <p>${today} — sorted by Item #</p>
   <table>
     <thead><tr>
+      <th>Item #</th>
       <th>Item</th>
+      <th>Source</th>
       <th style="text-align:center">On Hand</th>
       <th style="text-align:center">Par</th>
       <th style="text-align:center">Order Qty</th>

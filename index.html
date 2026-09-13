@@ -208,7 +208,7 @@
 
     .app-body { padding: 16px 24px; }
 
-    /* Bottom tab navigation — Ice Cream Run / Novelties / Inventory / Store Settings */
+    /* Bottom tab navigation — Ice Cream Run / Novelties / Temps / Inventory / Admin */
     .tab-panel { display: none; padding: 16px 24px 88px; }
     .tab-panel.active { display: block; }
     .tab-panel-header { margin-bottom: 16px; }
@@ -511,7 +511,7 @@
   </div>
 
   <div class="tab-panel" id="tabPanelInventory">
-    <div class="tab-panel-header"><h2>Inventory</h2></div>
+    <div class="tab-panel-header"><h2>Order</h2></div>
     <div id="inventoryContent"></div>
   </div>
 
@@ -521,16 +521,16 @@
   </div>
 
   <div class="tab-panel" id="tabPanelSettings">
-    <div class="tab-panel-header"><h2>Store Settings</h2></div>
+    <div class="tab-panel-header"><h2>Admin</h2></div>
     <div id="settingsContent"></div>
   </div>
 
   <div class="bottom-tab-bar">
     <button class="tab-btn active" id="tabBtnRun" onclick="switchTab('Run')"><span class="tab-icon">&#127848;</span>Ice Cream Run</button>
     <button class="tab-btn" id="tabBtnNovelties" onclick="switchTab('Novelties')"><span class="tab-icon">&#127820;</span>Novelties</button>
-    <button class="tab-btn" id="tabBtnInventory" onclick="requireManager(() => switchTab('Inventory'))"><span class="tab-icon">&#128230;</span>Inventory</button>
     <button class="tab-btn" id="tabBtnTemps" onclick="switchTab('Temps')"><span class="tab-icon">&#127777;&#65039;</span>Temps</button>
-    <button class="tab-btn" id="tabBtnSettings" onclick="requireManager(() => switchTab('Settings'))"><span class="tab-icon">&#9881;</span>Store Settings</button>
+    <button class="tab-btn" id="tabBtnInventory" onclick="requireManager(() => switchTab('Inventory'))"><span class="tab-icon">&#128230;</span>Order</button>
+    <button class="tab-btn" id="tabBtnSettings" onclick="requireManager(() => switchTab('Settings'))"><span class="tab-icon">&#9881;</span>Admin</button>
   </div>
 </div>
 <!-- PIN Modal -->
@@ -748,6 +748,7 @@
 <script src="./js/settings.js" defer></script>
 <script src="./js/novelties.js" defer></script>
 <script src="./js/inventory.js" defer></script>
+<script src="./js/flavor-order.js" defer></script>
 <script src="./js/temps.js" defer></script>
 <script src="./js/app-core.js" defer></script>
 </body>

@@ -24,6 +24,17 @@ async function loadOrgMetadata() {
       return;
     }
     const meta = snap.data();
+    // The org doc is only ever created alongside its first store
+    // (createOrgAndStore()), and — unlike the stores collection — is readable
+    // by ANY org member regardless of role (`allow read: if isOrgMember();`,
+    // no per-store scoping). That makes "org doc exists" a safe, role-
+    // agnostic proxy for "this org has at least one store somewhere", which
+    // showStorePicker() needs to tell a genuinely brand-new org (self-service
+    // "create your first store" bootstrap) apart from an existing org this
+    // account just isn't assigned to ("ask your manager for access") — a
+    // STORE_MANAGER can no longer list the stores collection to figure that
+    // out itself (see firestore.rules' `match /stores/{storeId}` comment).
+    window._orgHasAnyStores = true;
     if (meta?.name) {
       document.title = `${meta.name} — Count & Run`;
       window._orgName = meta.name;
@@ -81,6 +92,9 @@ function applyData(data) {
   tempEquipment = data?.tempEquipment || [];
   _managerPin = data?.managerPin || null;
   _storeCurrentFlavorList = data?.currentFlavorList || [];
+  flavorPrices = data?.flavorPrices || {};
+  miscInventoryItems = data?.miscInventoryItems || [];
+  flavorOrderTargets = data?.flavorOrderTargets || {};
   if (typeof loadCabinetPref === 'function') loadCabinetPref(); // store-wide default may have just changed (switch, live sync)
 }
 
@@ -409,15 +423,66 @@ function _reconcileStoreForSignedInUser() {
   }
 }
 
+// Re-derives the header's store-name text from a real Firestore label instead
+// of the stale single-key car_store_label cache. car_store_label is a global
+// (not per-store) cache — it only ever reflects whichever store last had its
+// real label explicitly passed to _storeDisplayLabel(), so on a shared device
+// where _reconcileStoreForSignedInUser() just switched the active store out
+// from under a stale cached pick (e.g. this account's own store, after the
+// device was last used signed into a DIFFERENT store), the header kept
+// showing the previous store's name — the underlying store id was already
+// correct, only the label display was stuck. bootstrap() (js/app-core.js)
+// already re-derives the label this way for its own cold-start path via
+// loadOrgStores(), but that fix lived ONLY there — a live interactive sign-in
+// (signInManager(), js/auth.js) and the ordinary onAuthStateChanged session-
+// restore path (index.html) never called it, so the header could stay wrong
+// for the rest of the session. Call this right after every
+// _reconcileStoreForSignedInUser() call (all three sites) so the header is
+// authoritative regardless of which path resolved the store. Safe/no-op if no
+// store is resolved yet, and best-effort if offline/permission-denied — on
+// failure the header just keeps whatever it already had, same as before.
+async function _refreshHeaderForCurrentStore() {
+  const id = window.getCurrentStoreId();
+  if (!id) return;
+  try {
+    await loadOrgStores();
+    const store = findStoreById(id);
+    if (store?.label) _storeDisplayLabel(id, store.label);
+  } catch (e) {
+    console.error('Header store-label refresh error:', e);
+  }
+  _updateHeaderSub();
+}
+
+// CORPORATE_ADMIN lists the whole stores collection (firestore.rules: `allow
+// list` is CORPORATE_ADMIN-only — see the comment on `match /stores/{storeId}`
+// for why a collection-wide list can't be scoped per-account the way single-
+// doc reads can). A STORE_MANAGER instead fetches its own stores[] one doc at
+// a time via `get()`, which canAccessStore() already secures correctly; a
+// missing/deleted store id is silently skipped (Promise.all + filter) rather
+// than failing the whole load.
 async function loadOrgStores() {
   if (!window._firebaseReady || !window._getDocs) return [];
   try {
-    const coll = window.getOrgStoresCollectionRef();
-    const snap = await window._getDocs(coll);
-    window._orgHasAnyStores = snap.docs.length > 0; // distinguishes "brand new org" from "just not assigned to one yet"
-    const stores = _scopedStores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    window.setOrgStores(stores);
-    return stores;
+    let stores;
+    if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+      const coll = window.getOrgStoresCollectionRef();
+      const snap = await window._getDocs(coll);
+      window._orgHasAnyStores = snap.docs.length > 0; // distinguishes "brand new org" from "just not assigned to one yet"
+      stores = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } else {
+      const ids = window._userStores || [];
+      const docs = await Promise.all(ids.map(id => window._getDoc(getStoreDocRef(window.getCurrentOrgId(), id))));
+      stores = docs.filter(d => d.exists()).map(d => ({ id: d.id, ...d.data() }));
+      // A STORE_MANAGER can't list the collection, so it has no way to learn
+      // whether the org has OTHER stores it just isn't assigned to — only
+      // CORPORATE_ADMIN ever needs that distinction (showOrgSetupForm()'s
+      // "brand new org" bootstrap), so leave it alone here rather than
+      // guessing from this account's own scoped result.
+    }
+    const scoped = _scopedStores(stores);
+    window.setOrgStores(scoped);
+    return scoped;
   } catch (e) {
     console.error('Org store load error:', e);
     return [];

@@ -4,6 +4,8 @@
 // New page — data lives at store.settings (merged onto the existing store doc).
 
 let _storeSettings = {}; // populated by applyData() in store-org.js: { theme, cabinetNumbersEnabled }
+let flavorPrices = {}; // {flavorName: pricePerBucket} — populated by applyData(); Current Inventory Value's ice-cream component
+let miscInventoryItems = []; // [{name, onHand, pricePerUnit}] — populated by applyData()
 
 // Settings is now a bottom-tab panel rather than a popup overlay — kept as a
 // wrapper since internal call sites (e.g. the roster-management button below)
@@ -32,6 +34,65 @@ const _saveStoreSettingsCoalesced = _makeCoalescedSaver(_saveStoreSettingsOnce, 
 async function saveStoreSettings(patch) {
   _storeSettings = { ..._storeSettings, ...patch };
   await _saveStoreSettingsCoalesced();
+}
+
+// ── Current Inventory Value (Admin tab) ─────────────────────────────────────
+// Combines three sources into one figure — deliberately excludes Flavor Order
+// (js/flavor-order.js), which has no per-item pricing (its source PDF carries
+// none, and per-item pricing wasn't wanted for it).
+async function _saveFlavorPricesOnce() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — prices saved locally only', 3000); return; }
+  try {
+    await window._setDoc(getStoreDocRef(), { flavorPrices }, { merge: true });
+  } catch (e) {
+    console.error('Flavor prices save error:', e);
+    showStatusMessage('⚠ Could not save prices', 2500);
+  }
+}
+const saveFlavorPrices = _makeCoalescedSaver(_saveFlavorPricesOnce, {
+  onStart:  () => { _saving = true; },
+  onSettle: () => { _saving = false; },
+});
+
+async function _saveMiscInventoryItemsOnce() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — saved locally only', 3000); return; }
+  try {
+    await window._setDoc(getStoreDocRef(), { miscInventoryItems }, { merge: true });
+  } catch (e) {
+    console.error('Misc inventory items save error:', e);
+    showStatusMessage('⚠ Could not save', 2500);
+  }
+}
+const saveMiscInventoryItems = _makeCoalescedSaver(_saveMiscInventoryItemsOnce, {
+  onStart:  () => { _saving = true; },
+  onSettle: () => { _saving = false; },
+});
+
+// Most recent 'run_completed' event's per-flavor made-buckets — storeEvents
+// already carries this (js/production.js writeRunSummary()), so no extra
+// Firestore read is needed. Returns null if no run has ever completed.
+function _lastCompletedRunFlavors() {
+  for (let i = _storeEvents.length - 1; i >= 0; i--) {
+    if (_storeEvents[i].type === 'run_completed') return _storeEvents[i].flavors || {};
+  }
+  return null;
+}
+
+function _iceCreamInventoryValue() {
+  const flavors = _lastCompletedRunFlavors();
+  if (!flavors) return 0;
+  return Object.entries(flavors).reduce((sum, [name, qty]) => sum + qty * (flavorPrices[name] || 0), 0);
+}
+
+function _miscInventoryValue() {
+  return miscInventoryItems.reduce((sum, i) => sum + (i.onHand || 0) * (i.pricePerUnit || 0), 0);
+}
+
+function _orderListInventoryValue() {
+  return inventoryCatalog.reduce((sum, item) => {
+    const entry = _inventoryLog.find(e => e.name === item.name);
+    return sum + (entry?.onHand || 0) * (item.pricePerUnit || 0);
+  }, 0);
 }
 
 function _settingsSection(title) {
@@ -63,6 +124,147 @@ function renderSettingsPage() {
   const content = document.getElementById('settingsContent');
   if (!content) return;
   content.innerHTML = '';
+
+  // ── Current Inventory Value ───────────────────────────────────────────────
+  // Moved here from the Order tab (js/inventory.js), which now only shows its
+  // own list's value inline per-item — this is the combined figure: the Order
+  // list's own value, the last completed Ice Cream Run's made buckets valued
+  // at a manager-set price/bucket, and the misc items list below. Flavor
+  // Order (js/flavor-order.js) is deliberately excluded — no per-item pricing
+  // for it (see that file's header comment).
+  // _inventoryLog (Order tab on-hand data) only loads once the Order tab has
+  // been opened this session — kick that off here too so the Order-list
+  // component below isn't stuck at $0 if Admin is opened first. Fires once;
+  // loadInventoryForDate() re-renders this page itself when it resolves.
+  if (typeof _workingInventoryDate !== 'undefined' && !_workingInventoryDate && typeof loadInventoryForDate === 'function') {
+    loadInventoryForDate(todayStr());
+  }
+  const orderValue = _orderListInventoryValue();
+  const iceCreamValue = _iceCreamInventoryValue();
+  const miscValue = _miscInventoryValue();
+  const totalValue = orderValue + iceCreamValue + miscValue;
+  const valueSection = _settingsSection('Current Inventory Value');
+  const valueHeadline = document.createElement('div');
+  valueHeadline.style.cssText = 'font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:8px;';
+  valueHeadline.textContent = `$${totalValue.toFixed(2)}`;
+  valueSection.appendChild(valueHeadline);
+  const valueBreakdown = document.createElement('div');
+  valueBreakdown.className = 'settings-note';
+  valueBreakdown.innerHTML = `Order list: $${orderValue.toFixed(2)} &nbsp;·&nbsp; Ice Cream (last run): $${iceCreamValue.toFixed(2)} &nbsp;·&nbsp; Misc items: $${miscValue.toFixed(2)}`;
+  valueSection.appendChild(valueBreakdown);
+  content.appendChild(valueSection);
+
+  // ── Flavor Pricing ────────────────────────────────────────────────────────
+  // Scoped to whichever flavors actually appear in the last completed run
+  // (rather than the whole roster, which can run to 60+ flavors) — that's
+  // exactly what the Ice Cream component of the value above needs priced.
+  const pricingSection = _settingsSection('Flavor Pricing (Last Completed Run)');
+  const lastRunFlavors = _lastCompletedRunFlavors();
+  if (!lastRunFlavors || !Object.keys(lastRunFlavors).length) {
+    const note = document.createElement('div');
+    note.className = 'settings-note';
+    note.textContent = 'No completed run on record yet — nothing to price.';
+    pricingSection.appendChild(note);
+  } else {
+    Object.keys(lastRunFlavors).sort().forEach(name => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
+      const nameEl = document.createElement('span');
+      nameEl.style.cssText = 'flex:1;min-width:140px;font-size:13px;';
+      nameEl.textContent = `${name} (${lastRunFlavors[name]} made)`;
+      const priceField = _settingsInput('Price / Bucket', flavorPrices[name] || 0, 'number');
+      priceField.wrap.style.width = '100px';
+      priceField.input.onchange = () => {
+        flavorPrices[name] = Math.max(0, parseFloat(priceField.input.value) || 0);
+        saveFlavorPrices();
+        renderSettingsPage();
+      };
+      row.append(nameEl, priceField.wrap);
+      pricingSection.appendChild(row);
+    });
+  }
+  content.appendChild(pricingSection);
+
+  // ── Miscellaneous Inventory Items ────────────────────────────────────────
+  // A simple flat list for anything not covered by the Order list, Ice Cream
+  // Run, or Flavor Order — On Hand is tracked directly on each item (no dated
+  // log/history the way Order/Temps have one) since this list is meant to be
+  // low-maintenance.
+  const miscSection = _settingsSection('Miscellaneous Inventory Items');
+  const miscAddRow = document.createElement('div');
+  miscAddRow.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;';
+  const miscNameInput = document.createElement('input');
+  miscNameInput.className = 'settings-input';
+  miscNameInput.placeholder = 'Name';
+  miscNameInput.style.flex = '2';
+  miscNameInput.style.minWidth = '140px';
+  const miscOnHandInput = document.createElement('input');
+  miscOnHandInput.type = 'number';
+  miscOnHandInput.className = 'settings-input';
+  miscOnHandInput.placeholder = 'On Hand';
+  miscOnHandInput.style.width = '90px';
+  const miscPriceInput = document.createElement('input');
+  miscPriceInput.type = 'number';
+  miscPriceInput.className = 'settings-input';
+  miscPriceInput.placeholder = 'Price/Unit';
+  miscPriceInput.style.width = '90px';
+  const miscAddBtn = document.createElement('button');
+  miscAddBtn.className = 'btn btn-green';
+  miscAddBtn.textContent = '+ Add';
+  miscAddBtn.onclick = () => {
+    const name = miscNameInput.value.trim();
+    if (!name) { miscNameInput.focus(); return; }
+    miscInventoryItems.push({
+      name,
+      onHand: parseFloat(miscOnHandInput.value) || 0,
+      pricePerUnit: parseFloat(miscPriceInput.value) || 0,
+    });
+    saveMiscInventoryItems();
+    renderSettingsPage();
+  };
+  miscAddRow.append(miscNameInput, miscOnHandInput, miscPriceInput, miscAddBtn);
+  miscSection.appendChild(miscAddRow);
+
+  if (!miscInventoryItems.length) {
+    const note = document.createElement('div');
+    note.className = 'settings-note';
+    note.textContent = 'Nothing here yet — add anything not already covered by the Order list, Ice Cream Run, or Flavor Order.';
+    miscSection.appendChild(note);
+  } else {
+    miscInventoryItems.forEach((item, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
+      const nameEl = document.createElement('span');
+      nameEl.style.cssText = 'flex:1;min-width:120px;font-size:13px;font-weight:700;';
+      nameEl.textContent = item.name;
+      const onHandField = _settingsInput('On Hand', item.onHand, 'number');
+      onHandField.wrap.style.width = '90px';
+      onHandField.input.onchange = () => {
+        item.onHand = Math.max(0, parseFloat(onHandField.input.value) || 0);
+        saveMiscInventoryItems();
+        renderSettingsPage();
+      };
+      const priceField = _settingsInput('Price/Unit', item.pricePerUnit, 'number');
+      priceField.wrap.style.width = '90px';
+      priceField.input.onchange = () => {
+        item.pricePerUnit = Math.max(0, parseFloat(priceField.input.value) || 0);
+        saveMiscInventoryItems();
+        renderSettingsPage();
+      };
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '🗑';
+      removeBtn.title = 'Remove item';
+      removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:4px 6px;';
+      removeBtn.onclick = () => {
+        miscInventoryItems = miscInventoryItems.filter((_, i) => i !== idx);
+        saveMiscInventoryItems();
+        renderSettingsPage();
+      };
+      row.append(nameEl, onHandField.wrap, priceField.wrap, removeBtn);
+      miscSection.appendChild(row);
+    });
+  }
+  content.appendChild(miscSection);
 
   // ── Store Name ───────────────────────────────────────────────────────────
   // Same email can be assigned to multiple stores (or, for CORPORATE_ADMIN, every
@@ -253,6 +455,42 @@ function renderSettingsPage() {
   tearDownRow.append(tearDownDateInput, tearDownViewBtn);
   tearDownSection.append(tearDownRow, tearDownResults);
   content.appendChild(tearDownSection);
+
+  // ── Freezer/Fridge Equipment ─────────────────────────────────────────────
+  // Editing Location/Target Temp here (rather than inline on the Temps tab's
+  // own equipment list) keeps that list to plain display + daily entry —
+  // adding/removing equipment still happens there (js/temps.js
+  // _buildTempEquipmentManager()), this is just the "correct it later" path.
+  const tempEquipSection = _settingsSection('Freezer/Fridge Equipment');
+  if (!tempEquipment.length) {
+    const equipNote = document.createElement('div');
+    equipNote.className = 'settings-note';
+    equipNote.textContent = 'No equipment set up yet — add some from the Temps tab.';
+    tempEquipSection.appendChild(equipNote);
+  } else {
+    tempEquipment.forEach(eq => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
+      const nameEl = document.createElement('span');
+      nameEl.style.cssText = 'flex:1;min-width:120px;font-size:13px;font-weight:700;';
+      nameEl.textContent = eq.label;
+      const locationField = _settingsInput('Location', eq.location || '', 'text');
+      locationField.wrap.style.width = '140px';
+      locationField.input.onchange = () => {
+        eq.location = locationField.input.value.trim();
+        saveTempEquipment();
+      };
+      const targetField = _settingsInput('Target °F', eq.targetTemp, 'number');
+      targetField.wrap.style.width = '100px';
+      targetField.input.onchange = () => {
+        eq.targetTemp = parseFloat(targetField.input.value) || 0;
+        saveTempEquipment();
+      };
+      row.append(nameEl, locationField.wrap, targetField.wrap);
+      tempEquipSection.appendChild(row);
+    });
+  }
+  content.appendChild(tempEquipSection);
 
   // ── Freezer/Fridge Temp Log ────────────────────────────────────────────────
   const tempsSection = _settingsSection('Freezer/Fridge Temp Log');

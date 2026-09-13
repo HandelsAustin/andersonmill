@@ -2,7 +2,7 @@
 // Extracted from index.html — no logic changes.
 
 // ── Bottom tab navigation ────────────────────────────────────────────────────
-// Ice Cream Run / Novelties / Inventory / Temps / Store Settings. All five tabs
+// Ice Cream Run / Novelties / Temps / Inventory / Admin. All five tabs
 // are always visible to any signed-in account — Inventory/Settings are gated at
 // point-of-use by requireManager() (the shared per-store PIN) instead of by
 // role-based hiding. Temps is intentionally NOT gated at the tab level (unlike
@@ -295,16 +295,7 @@ function bootstrap() {
   }
   const savedId = window.getCurrentStoreId();
   if (savedId) {
-    window.setStoreId(savedId);
-    loadOrgStores().then(() => {
-      const store = findStoreById(savedId);
-      _storeDisplayLabel(savedId, store?.label);
-      _updateHeaderSub();
-      init();
-    }).catch(() => {
-      _updateHeaderSub();
-      init();
-    });
+    _refreshHeaderForCurrentStore().then(init);
   } else {
     showStorePicker();
   }

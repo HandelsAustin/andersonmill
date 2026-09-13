@@ -124,9 +124,28 @@ organizations/{orgId}/stores/{storeId}
       in-memory array before that point means "hasn't loaded yet," not "never set up,"
       and treating it as the latter used to silently overwrite real target numbers with
       defaults on whichever device happened to tap the Novelties tab first.
-  inventoryCatalog: [{name, unit, category, parLevel, pricePerUnit, locationOrder, distributorOrder, history}], inventoryLastCountedAt
-    ← Inventory catalog (js/inventory.js) — persistent; per-count on-hand lives in inventoryLog/{date} below.
-      pricePerUnit/locationOrder/distributorOrder support CSV import, dual sort, and $ valuation.
+  inventoryCatalog: [{name, unit, source, parLevel, pricePerUnit, locationOrder, distributorOrder, history}], inventoryLastCountedAt
+    ← Order tab catalog (js/inventory.js, tab renamed from "Inventory" to "Order"
+      2026-09-13; internal ids/functions/collection names unchanged) — persistent;
+      per-count on-hand lives in inventoryLog/{date} below. source is free text
+      (Distributor/Amazon/Grocery Store, or custom) — replaced the old `category`
+      field 2026-09-13. distributorOrder is shown to users as "Item #".
+      pricePerUnit/locationOrder/distributorOrder support CSV import, dual sort,
+      and $ valuation (the $ total itself now lives on the Admin tab, see
+      "Current Inventory Value" below).
+  flavorPrices: {flavorName: pricePerBucket}
+    ← Admin tab "Flavor Pricing" (js/settings.js) — only ever populated for
+      flavors that have appeared in a completed run (storeEvents' most recent
+      run_completed entry), not the full roster. Feeds Current Inventory Value's
+      ice-cream component.
+  miscInventoryItems: [{name, onHand, pricePerUnit}]
+    ← Admin tab "Miscellaneous Inventory Items" (js/settings.js) — flat, manager-
+      maintained, no dated history; anything not covered by the Order list, Ice
+      Cream Run, or Flavor Order.
+  flavorOrderTargets: {itemName: target}
+    ← Flavor Order (js/flavor-order.js) — per-item Target for Handel's corporate
+      "FLAVORS" order form (FLAVOR_ORDER_ITEMS, a fixed 39-item list baked into
+      code, not manager-editable). On-hand lives in flavorOrderLog/{date} below.
 
 organizations/{orgId}/stores/{storeId}/runs/{date}                 (date = YYYY-MM-DD)
   activeFlavors, cateringItems, updatedAt
@@ -162,17 +181,31 @@ organizations/{orgId}/stores/{storeId}/tearDownLog/{date}
 organizations/{orgId}/stores/{storeId}/tempLog/{date}
   readings: {equipmentId: number|null}, updatedAt, submitted, submittedAt
   ← One doc per day's Freezer/Fridge Temp readings (js/temps.js: loadTempsForDate()).
-    Equipment catalog (store.tempEquipment: [{id, type, label, targetTemp}], plus
-    store.tempEquipmentCounters: {type: highestNumberUsed} for "#2"/"#3"-style
+    Equipment catalog (store.tempEquipment: [{id, type, label, targetTemp, location}],
+    plus store.tempEquipmentCounters: {type: highestNumberUsed} for "#2"/"#3"-style
     duplicate numbering that never reuses a number after a deletion) is persistent,
-    same pattern as inventoryCatalog. Adding/removing equipment and changing target
-    temps requires the manager PIN; logging today's readings does not — any signed-in
-    user can do that, unlike Inventory/Settings which gate the whole tab. Recallable
+    same pattern as inventoryCatalog. Adding equipment requires the manager PIN;
+    logging today's readings does not — any signed-in user can do that, unlike
+    Inventory/Settings which gate the whole tab. location/targetTemp are set at
+    add-time and edited afterward from the Admin tab (js/settings.js "Freezer/
+    Fridge Equipment"), not inline on this tab (2026-09-13 — the tab used to show
+    the same equipment in two separate lists; now one, view+entry only). Recallable
     from Settings → Freezer/Fridge Temp Log.
 
-All five date-log subcollections are covered by firestore.rules (canAccessStore(storeId) —
-CORPORATE_ADMIN unrestricted, STORE_MANAGER scoped to members/{uid}.stores[]) — not yet
-deployed to production (see TODO.md).
+organizations/{orgId}/stores/{storeId}/flavorOrderLog/{date}
+  onHand: {itemName: number}, updatedAt
+  ← One doc per day's Flavor Order on-hand entry (js/flavor-order.js:
+    loadFlavorOrderToday()) — always today's date, no recall picker (unlike the
+    other date-log subcollections; this list isn't reviewed historically the way
+    Run/Novelties/Inventory are). Item catalog itself (FLAVOR_ORDER_ITEMS) is a
+    fixed, hardcoded 39-item list, not a Firestore collection — see that file's
+    header comment for why and how to update it if Handel's changes the form.
+
+All six date-log subcollections are covered by firestore.rules (canAccessStore(storeId)
+for get/create/update/delete — CORPORATE_ADMIN unrestricted, STORE_MANAGER scoped to
+members/{uid}.stores[]; `list` on the stores collection itself is CORPORATE_ADMIN-only,
+see firestore.rules' `match /stores/{storeId}` comment for why) — deployed to production
+2026-09-13.
 
 organizations/{orgId}/members/{uid}
   uid, email, role, stores[], createdAt

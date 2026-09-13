@@ -46,8 +46,29 @@ service cloud.firestore {
       // doc create only ever happens as part of org bootstrap / "Add Another
       // Store" (both CORPORATE_ADMIN-only in the app), which canAccessStore()
       // already permits via its isCorporateAdmin() branch.
+      //
+      // `get` and `list` are split deliberately — a single `allow read` here
+      // (as this used to be) applies canAccessStore()'s `storeId in
+      // memberStores()` check to `list` queries too, but Firestore can't bind
+      // the {storeId} wildcard to a concrete value while statically proving a
+      // collection-wide list query safe (there's no query constraint tying it
+      // to memberStores()), so it hard-errors the ENTIRE query ("Null value
+      // error") for any STORE_MANAGER instead of just filtering out
+      // inaccessible docs — confirmed via tests/rules-unit-tests.js and a
+      // scenario replay against the local emulator. In the app this broke
+      // loadOrgStores() (js/store-org.js) for every non-corporate account,
+      // which in turn caused the store picker to wrongly show "no stores
+      // found — create your first store" whenever a STORE_MANAGER's cached
+      // store didn't resolve, and silently broke the header's store-name
+      // lookup any time it needed a fresh label. `get` (single-doc reads —
+      // used everywhere the app loads/writes ITS OWN current store) keeps the
+      // full canAccessStore() scoping, unchanged. `list` is CORPORATE_ADMIN-
+      // only; a STORE_MANAGER's loadOrgStores() instead fetches its own
+      // stores[] by individual `get()`, which canAccessStore() already
+      // secures correctly.
       match /stores/{storeId} {
-        allow read, create, update, delete: if canAccessStore(storeId);
+        allow get, create, update, delete: if canAccessStore(storeId);
+        allow list: if isCorporateAdmin();
 
         // Date-recallable daily logs — Ice Cream Run, Novelties checklist, and
         // Inventory counts. Doc IDs are YYYY-MM-DD dates; one small doc per day/
@@ -65,6 +86,9 @@ service cloud.firestore {
           allow read, create, update, delete: if canAccessStore(storeId);
         }
         match /tempLog/{date} {
+          allow read, create, update, delete: if canAccessStore(storeId);
+        }
+        match /flavorOrderLog/{date} {
           allow read, create, update, delete: if canAccessStore(storeId);
         }
       }

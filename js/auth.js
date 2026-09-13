@@ -136,11 +136,16 @@ async function signInManager() {
     // branch below is a genuine new signup and should force-create.
     await loadCurrentUserRole(false);
     _reconcileStoreForSignedInUser();
+    await _refreshHeaderForCurrentStore();
     await window.logOrgEvent('signed_in', { email });
     hideEntryScreen();
     updateConnectivityStatus();
     loadCabinetPref();
-    if (window._firebaseReady) loadOrgMetadata();
+    // Awaited (not fire-and-forget) — showStorePicker() below needs
+    // window._orgHasAnyStores, which this sets, to already be correct by the
+    // time it decides between "create your first store" and "ask your
+    // manager for access" (see loadOrgMetadata()'s comment).
+    if (window._firebaseReady) await loadOrgMetadata();
     if (!window.getCurrentStoreId()) {
       await loadOrgStores().catch(() => {});
       showStorePicker();
@@ -154,11 +159,12 @@ async function signInManager() {
         await window._signInWithEmailAndPassword(window._auth, email, password);
         await loadCurrentUserRole(true);
         _reconcileStoreForSignedInUser();
+        await _refreshHeaderForCurrentStore();
         await window.logOrgEvent('account_created', { email });
         hideEntryScreen();
         updateConnectivityStatus();
         loadCabinetPref();
-        if (window._firebaseReady) loadOrgMetadata();
+        if (window._firebaseReady) await loadOrgMetadata();
         if (!window.getCurrentStoreId()) {
           await loadOrgStores().catch(() => {});
           showStorePicker();

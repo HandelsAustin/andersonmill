@@ -187,13 +187,13 @@ async function _toggleTempsDateMenu() {
 }
 
 // ── Equipment CRUD (manager-gated) ──────────────────────────────────────────
-function _addTempEquipment(type, targetTemp) {
+function _addTempEquipment(type, targetTemp, location) {
   const nextNum = (tempEquipmentCounters[type] || 0) + 1;
   tempEquipmentCounters[type] = nextNum;
   const label = nextNum === 1 ? type : `${type} #${nextNum}`;
   tempEquipment.push({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    type, label, targetTemp
+    type, label, targetTemp, location: location || ''
   });
   saveTempEquipment();
   renderTempsPage();
@@ -219,6 +219,11 @@ function _removeTempEquipment(id) {
   });
 }
 
+// Add-new-equipment form only — the per-equipment list itself lives in
+// renderTempsPage()'s single unified list below (Name/Location/Target/
+// Current/Delete), not duplicated here. Location + Target Temp are set here
+// at creation time; editing either afterward happens from the Admin tab
+// (js/settings.js "Freezer/Fridge Equipment" section), not inline in Temps.
 function _buildTempEquipmentManager(container) {
   const addRow = document.createElement('div');
   addRow.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;';
@@ -234,6 +239,9 @@ function _buildTempEquipmentManager(container) {
     typeSelect.appendChild(opt);
   });
 
+  const locationField = _settingsInput('Location', '', 'text');
+  locationField.wrap.style.width = '140px';
+
   const targetField = _settingsInput('Target °F', '', 'number');
   targetField.wrap.style.width = '100px';
 
@@ -242,44 +250,12 @@ function _buildTempEquipmentManager(container) {
   addBtn.textContent = '+ Add';
   addBtn.onclick = () => {
     if (targetField.input.value === '') { targetField.input.focus(); return; }
-    _addTempEquipment(typeSelect.value, parseFloat(targetField.input.value));
+    _addTempEquipment(typeSelect.value, parseFloat(targetField.input.value), locationField.input.value.trim());
     targetField.input.value = '';
+    locationField.input.value = '';
   };
-  addRow.append(typeSelect, targetField.wrap, addBtn);
+  addRow.append(typeSelect, locationField.wrap, targetField.wrap, addBtn);
   container.appendChild(addRow);
-
-  if (!tempEquipment.length) {
-    const empty = document.createElement('div');
-    empty.className = 'settings-note';
-    empty.textContent = 'No equipment set up yet — add a piece above.';
-    container.appendChild(empty);
-    return;
-  }
-
-  tempEquipment.forEach(eq => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
-    const label = document.createElement('span');
-    label.style.cssText = 'flex:1;min-width:140px;font-size:13px;';
-    label.textContent = eq.label;
-    const targetInput = document.createElement('input');
-    targetInput.type = 'number';
-    targetInput.className = 'settings-input';
-    targetInput.style.width = '90px';
-    targetInput.value = eq.targetTemp;
-    targetInput.onchange = () => {
-      eq.targetTemp = parseFloat(targetInput.value) || 0;
-      saveTempEquipment();
-      renderTempsPage();
-    };
-    const removeBtn = document.createElement('button');
-    removeBtn.textContent = '🗑';
-    removeBtn.title = 'Remove equipment';
-    removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:4px 6px;';
-    removeBtn.onclick = () => _removeTempEquipment(eq.id);
-    row.append(label, targetInput, removeBtn);
-    container.appendChild(row);
-  });
 }
 
 // ── Reset / Submit ───────────────────────────────────────────────────────────
@@ -393,27 +369,33 @@ function renderTempsPage() {
     content.appendChild(note);
   }
 
-  // ── Manage Equipment (manager-gated) ─────────────────────────────────────
+  // ── Manage Equipment (manager-gated: add new equipment only) ─────────────
   const manageSection = _settingsSection('Manage Equipment');
-  if (_managerUnlocked || userHasRole(ROLES.CORPORATE_ADMIN)) {
+  const canManage = _managerUnlocked || userHasRole(ROLES.CORPORATE_ADMIN);
+  if (canManage) {
     _buildTempEquipmentManager(manageSection);
   } else {
     const lockNote = document.createElement('div');
     lockNote.className = 'settings-note';
     lockNote.style.cssText = 'cursor:pointer;';
-    lockNote.textContent = '🔒 Manager PIN required to add/remove equipment or change target temps — tap to unlock.';
+    lockNote.textContent = '🔒 Manager PIN required to add equipment — tap to unlock.';
     lockNote.onclick = () => requireManager(renderTempsPage);
     manageSection.appendChild(lockNote);
   }
   content.appendChild(manageSection);
 
-  // ── Today's Readings (open to everyone) ──────────────────────────────────
-  const readingsSection = _settingsSection(`Readings · ${tempEquipment.length}`);
+  // ── Equipment (single list, open to everyone — was two separate lists of
+  // the same equipment before: this one and Manage Equipment's own listing
+  // above, both showing every piece with overlapping controls) ────────────
+  // Columns left to right: Name, Location, Target Temp, Current Temp (entry),
+  // Delete. Location/Target Temp are read-only here — set at creation above,
+  // edited afterward from the Admin tab (js/settings.js), not inline here.
+  const equipmentSection = _settingsSection(`Equipment · ${tempEquipment.length}`);
   if (!tempEquipment.length) {
     const empty = document.createElement('div');
     empty.className = 'settings-note';
     empty.textContent = 'No equipment set up yet — a manager needs to add some above first.';
-    readingsSection.appendChild(empty);
+    equipmentSection.appendChild(empty);
   }
   tempEquipment.forEach(eq => {
     const row = document.createElement('div');
@@ -421,9 +403,14 @@ function renderTempsPage() {
     row.style.cssText += 'margin-bottom:8px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;';
 
     const nameEl = document.createElement('div');
-    nameEl.style.cssText = 'font-size:13px;font-weight:700;flex:1;min-width:140px;';
+    nameEl.style.cssText = 'font-size:13px;font-weight:700;flex:1;min-width:120px;';
     nameEl.textContent = eq.label;
     row.appendChild(nameEl);
+
+    const locationEl = document.createElement('div');
+    locationEl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:90px;';
+    locationEl.textContent = eq.location ? eq.location : '—';
+    row.appendChild(locationEl);
 
     const targetEl = document.createElement('div');
     targetEl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:80px;';
@@ -447,9 +434,18 @@ function renderTempsPage() {
     }
     row.appendChild(currentField.wrap);
 
-    readingsSection.appendChild(row);
+    if (canManage) {
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '🗑';
+      removeBtn.title = 'Remove equipment';
+      removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:4px 6px;';
+      removeBtn.onclick = () => _removeTempEquipment(eq.id);
+      row.appendChild(removeBtn);
+    }
+
+    equipmentSection.appendChild(row);
   });
-  content.appendChild(readingsSection);
+  content.appendChild(equipmentSection);
 
   // ── Reset / Submit (hidden once submitted — see the Reopen button above) ──
   if (tempEquipment.length && !_tempSubmitted) {

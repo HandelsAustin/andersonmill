@@ -121,6 +121,12 @@ window.getStoreTempLogRef = function(date, orgId = window.getCurrentOrgId(), sto
 window.getStoreTempLogCollectionRef = function(orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
   return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'tempLog');
 };
+window.getStoreFlavorOrderLogRef = function(date, orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._doc(window._db, 'organizations', orgId, 'stores', storeId, 'flavorOrderLog', date);
+};
+window.getStoreFlavorOrderLogCollectionRef = function(orgId = window.getCurrentOrgId(), storeId = window.getCurrentStoreId()) {
+  return window._collection(window._db, 'organizations', orgId, 'stores', storeId, 'flavorOrderLog');
+};
 
 // Lazily creates (once) and refreshes the shared <datalist> of every region
 // currently in use in the org, so both the "Add Store" form (js/store-org.js:
@@ -250,7 +256,11 @@ window.logOrgEvent = async function(type, payload = {}) {
     id: `${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
     type,
     orgId: window.getCurrentOrgId(),
-    storeId: window.getCurrentStoreId(),
+    // null, not undefined — Firestore's setDoc() rejects undefined field
+    // values outright, which silently broke every analytics event logged
+    // before a store was selected yet (e.g. 'signed_in' for an account whose
+    // store the picker hasn't resolved).
+    storeId: window.getCurrentStoreId() || null,
     role: window.getCurrentUserRole(),
     userUid: window.APP_STATE.userUid || null,
     payload,

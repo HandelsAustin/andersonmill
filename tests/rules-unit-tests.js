@@ -112,6 +112,11 @@ async function run() {
     await assertFails(managerDb.doc(`organizations/${ORG_ID}/stores/${STORE_B}/tempLog/2026-01-01`).get(), 'manager read other store temp log');
   });
 
+  await check('Store scoping also covers flavorOrderLog (added 2026-09-13)', async () => {
+    await assertSucceeds(managerDb.doc(`organizations/${ORG_ID}/stores/${STORE_A}/flavorOrderLog/2026-01-01`).set({ onHand: {} }), 'manager write own store flavor-order log');
+    await assertFails(managerDb.doc(`organizations/${ORG_ID}/stores/${STORE_B}/flavorOrderLog/2026-01-01`).get(), 'manager read other store flavor-order log');
+  });
+
   await check('STORE_MANAGER cannot self-grant CORPORATE_ADMIN via their own member doc (privilege escalation)', async () => {
     await assertFails(
       managerDb.doc(`organizations/${ORG_ID}/members/${MANAGER_UID}`).update({ role: 'CORPORATE_ADMIN' }),
@@ -148,6 +153,30 @@ async function run() {
   await check('Only CORPORATE_ADMIN can list the members collection', async () => {
     await assertSucceeds(adminDb.collection(`organizations/${ORG_ID}/members`).get(), 'admin lists members');
     await assertFails(managerDb.collection(`organizations/${ORG_ID}/members`).get(), 'manager lists members');
+  });
+
+  await check('STORE_MANAGER cannot list the stores collection, but CORPORATE_ADMIN can (regression: 2026-09-13)', async () => {
+    // Before this fix, `allow read` (get+list combined) on `stores/{storeId}`
+    // was scoped by canAccessStore(storeId), which depends on an array-
+    // membership check (`storeId in memberStores()`) against the wildcard
+    // path segment. Firestore can't bind that wildcard to a concrete value
+    // while proving a whole-collection list query safe (no query constraint
+    // ties it to memberStores()), so it hard-errored the ENTIRE list request
+    // for ANY STORE_MANAGER — not just when other inaccessible stores existed
+    // — surfaced as an opaque "evaluation error ... Null value error" rather
+    // than a clean permission-denied. In the app (js/store-org.js
+    // loadOrgStores()) this broke the store picker for every non-corporate
+    // account: caught, logged, and silently left window._orgHasAnyStores
+    // false, so any STORE_MANAGER whose cached store didn't resolve saw the
+    // brand-new-org "No stores found — create your first store" bootstrap
+    // form instead of the real picker or the "ask your manager" message.
+    // `get` (single-doc — used everywhere the app loads/writes its OWN
+    // current store) still uses canAccessStore() and must keep working;
+    // `list` is now CORPORATE_ADMIN-only, and loadOrgStores() fetches a
+    // STORE_MANAGER's own stores[] via individual get()s instead.
+    await assertSucceeds(adminDb.collection(`organizations/${ORG_ID}/stores`).get(), 'admin lists stores');
+    await assertFails(managerDb.collection(`organizations/${ORG_ID}/stores`).get(), 'manager lists stores collection');
+    await assertSucceeds(managerDb.doc(`organizations/${ORG_ID}/stores/${STORE_A}`).get(), 'manager still gets own store by id');
   });
 
   await check('A brand-new signed-in user can only self-create a STORE_MANAGER doc in an EXISTING org', async () => {

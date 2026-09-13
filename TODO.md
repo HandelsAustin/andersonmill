@@ -28,7 +28,7 @@ deliberately deferred.
 ## One-time deployment checklist (predates this session — confirm still true)
 - [ ] Firebase Console → Authentication → Authorized domains includes the Vercel production URL (sign-in works today, so this is very likely already done — worth a quick confirmation glance).
 - [ ] SW registers correctly in DevTools → Application → Service Workers on the live URL.
-- [ ] **Deploy the updated `firestore.rules`** (2026-09-12 audit, now also covering `tearDownLog`/`tempLog`) — this is the single most important follow-up from this session; the fixes only protect the live app once deployed.
+- [x] **Deploy the updated `firestore.rules`** (2026-09-12 audit, covering `tearDownLog`/`tempLog`) — deployed 2026-09-13, alongside that session's list-query/stores-collection fix and the new `flavorOrderLog` scoping. See CHANGELOG.md "Fix: Login/Store-Association Bugs (2026-09-13)".
 
 ## Future ideas
 - Forecasting, waste analytics, labor insights, AI production recommendations (long-term, not scoped).

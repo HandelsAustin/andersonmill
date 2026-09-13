@@ -7,6 +7,93 @@ v0.2
 
 ## Recent Changes
 
+### Order Tab Rebuild, Tab Reorganization, Current Inventory Value (2026-09-13)
+Renamed Inventory → **Order** and rebuilt it per a full spec walkthrough with
+the user, plus a new Flavor Order feature and a store-wide inventory
+valuation figure moved to the (also renamed) Admin tab.
+
+- **Tab bar reordered/renamed:** Ice Cream Run, Novelties, Temps, Inventory,
+  Store Settings → Ice Cream Run, Novelties, **Temps, Inventory**, **Admin**
+  (`index.html`, `js/app-core.js`).
+- **Temps tab:** collapsed the two separate equipment lists (Manage
+  Equipment's own listing + the Readings list) into one — Name, Location,
+  Target Temp, Current Temp (entry), delete. New `location` field per
+  equipment, set at creation, editable afterward from Admin. Manage Equipment
+  is now just the add-new-equipment form (`js/temps.js`); Admin gained a
+  "Freezer/Fridge Equipment" editor for Location/Target Temp
+  (`js/settings.js`).
+- **Order tab (`js/inventory.js`):** removed the "Category / Location Label"
+  column; "Distributor Order (#)" renamed "Item #"; new **Source** column
+  (Distributor / Amazon / Grocery Store / custom text). Every column —
+  including Item #, Store Location #, Source — is now fillable both at
+  add-time and inline afterward, not just via CSV import. On Hand accepts
+  fractions via the same whole+quarter widget Novelties already used for
+  Ice Cream Maker Cambros. The printed Order List is now sorted by Item #
+  and shows it.
+- **New: Flavor Order** (`js/flavor-order.js`) — the 39 items from Handel's
+  corporate "FLAVORS" order form (flavoring ingredients + supplies), fixed
+  list, separate from Ice Cream Run's flavor roster despite overlapping
+  names. Manager sets a Target per item; On Hand is entered into its own
+  daily log (`flavorOrderLog/{date}`, new `firestore.rules` match block,
+  deployed); "Produce Flavor Order Form" prints a page styled after the real
+  paper form, ready to email to supplies@handelsicecream.com. Deliberately
+  excluded from Current Inventory Value — the source PDF carries no prices.
+- **New: Current Inventory Value** (Admin tab, `js/settings.js`) — moved out
+  of the Order tab and now combines three sources: the Order list's own
+  value (unchanged calc), the last completed Ice Cream Run's made buckets
+  valued at a new manager-set Price/Bucket per flavor (only flavors that
+  actually appear in `storeEvents`' most recent `run_completed` entry are
+  shown, not the full 60+ flavor roster), and a new flat **Miscellaneous
+  Inventory Items** list (Name/On Hand/Price, add/edit/remove anytime, no
+  history) for anything the other three lists don't cover.
+- Added a regression test (`tests/rules-unit-tests.js`) covering
+  `flavorOrderLog` store-scoping, mirroring the existing tearDownLog/tempLog
+  coverage.
+
+### Fix: Login/Store-Association Bugs (2026-09-13)
+User-reported, recurring: signing into the same account on a different
+device could show the WRONG store's name in the header, and a fresh
+sign-in could wrongly land on "No stores found — create your first store"
+even though the org already had stores. Both reproduced against the local
+Firestore emulator (seeded scenarios, not guesswork) before fixing, with a
+permanent rules regression test added.
+
+- **Fixed — stale header label:** the header's store-name display is cached
+  in a single global, non-store-keyed `car_store_label` localStorage key,
+  only ever refreshed via a fresh Firestore label lookup inside `bootstrap()`
+  (`js/app-core.js`). A live interactive sign-in (`signInManager()`,
+  `js/auth.js`) never called that refresh, so after
+  `_reconcileStoreForSignedInUser()` silently switched the active store, the
+  header kept showing whichever store's name was last cached on that
+  device — the underlying store/data were already correct, only the label
+  was stuck. Added a shared `_refreshHeaderForCurrentStore()`
+  (`js/store-org.js`), called from `signInManager()`'s two success paths and
+  `bootstrap()`.
+- **Fixed — false "no stores found" onboarding:** `firestore.rules` scoped
+  the `stores/{storeId}` collection with `canAccessStore(storeId)` for both
+  `get` and `list`, but Firestore can't bind the `{storeId}` wildcard to a
+  concrete value while proving a whole-collection `list` query safe for a
+  STORE_MANAGER (no query constraint ties it to `memberStores()`) — it
+  hard-errored the ENTIRE query for any non-corporate account, not just when
+  other inaccessible stores existed, surfaced as an opaque "Null value
+  error". The app swallowed this, concluded the org had zero stores anywhere,
+  and showed the self-service "create your first store" bootstrap form for
+  an org that already had stores. Split `get` (still `canAccessStore()`-
+  scoped) from `list` (now CORPORATE_ADMIN-only, matching members/events);
+  `loadOrgStores()` (`js/store-org.js`) now fetches a STORE_MANAGER's own
+  stores by individual `get()` instead of listing the collection.
+  `window._orgHasAnyStores` is now derived from the org doc's existence
+  (readable by any org member) rather than the now-restricted stores list,
+  so a STORE_MANAGER can still tell "brand new org" apart from "existing org,
+  not assigned to me."
+- **Fixed:** analytics event writes (`logOrgEvent()`, `appHelpers.js`) failed
+  silently whenever no store was selected yet — Firestore rejects `undefined`
+  field values, and `storeId` defaulted to `undefined` instead of `null`.
+- Deployed the updated `firestore.rules` to production (this and the previous
+  session's audit fixes had been sitting undeployed — see prior TODO.md note).
+- Added a regression test (`tests/rules-unit-tests.js`) covering the
+  stores-collection list restriction.
+
 ### Fix: "Take & Dip" Mislabel — TD Actually Stands for Tear Down (2026-09-12)
 The flavor `type` value `'TD'` has always meant **Tear Down**, confirmed by
 the user. `js/dashboard.js`'s flavor-type breakdown (in the corporate
