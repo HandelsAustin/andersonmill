@@ -7,6 +7,16 @@ v0.2
 
 ## Recent Changes
 
+### Deploy Follow-Up: Service Worker Cache (2026-09-12)
+Caught while deploying today's changes: `sw.js`'s precached app-shell list
+(`APP_SHELL`) was missing the new `js/temps.js`, and `CACHE_VERSION` hadn't
+been bumped despite every other `js/*.js` file changing content today. Cache
+is cache-first, so this wouldn't break normal online use (a cache miss just
+falls through to network and caches the response after) — the gap was
+specifically offline-before-first-load of the Temps tab on a device that
+hadn't opened the app since this deploy. Added `js/temps.js` to `APP_SHELL`
+and bumped `v29` → `v30` to force every open session onto the new files.
+
 ### Investigated: Periodic Sign-Out (2026-09-12)
 User report: staff are periodically bounced back to the sign-in screen and
 have to be re-signed-in by someone who knows the shared store credentials.
