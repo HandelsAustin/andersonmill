@@ -7,6 +7,34 @@ v0.2
 
 ## Recent Changes
 
+### Fix: Header Stuck on a Stale Store Name for a Store With No `label` (2026-09-13)
+Found the real cause of the andersonmillemployee@highlandicecream.com report
+that outlasted every earlier fix today — confirmed with live diagnostic
+logging against production, not guessed. The account's role (STORE_MANAGER)
+and stores[] (`["anderson-mill"]`) were correct all along, and the store
+selection itself (`car_store_id`) was ALSO already correctly resolving to
+`anderson-mill` — only the HEADER kept showing "Tester Store". Root cause:
+the `anderson-mill` store document has no `label` field set at all (blank/
+missing). `_refreshHeaderForCurrentStore()` (js/store-org.js, added earlier
+today) correctly refused to overwrite the header with an empty label, but
+that meant it never overwrote the STALE cached label from a previously-used
+store either — so a store with no real label could never self-heal the
+header, no matter how many times the fix ran.
+
+- **Fixed:** once a store is confirmed to exist, `_refreshHeaderForCurrentStore()`
+  now passes a title-cased fallback of its id (e.g. "Anderson Mill" from
+  `anderson-mill`) as the label whenever the real `label` field is blank,
+  instead of leaving the stale cache in place. Verified against the emulator
+  with a store seeded to have no label field at all, on a device with a
+  stale cached label from a different store — confirms the header now
+  self-heals to a reasonable name instead of staying wrong indefinitely.
+- **Also needed (data, not code):** the `anderson-mill` store document is
+  still missing its `label` field — worth setting it explicitly (e.g. to
+  "Anderson Mill") in the Firebase Console for long-term correctness, even
+  though the code fix above already covers the display fallback.
+- Diagnostic `console.log` calls added earlier today to trace this live were
+  removed once the root cause was confirmed.
+
 ### Tab Relocations, Corporate Ice Cream Pricing Import (2026-09-13)
 Follow-up to the Order tab rebuild earlier the same day, based on further
 user feedback: several setup/management controls moved off their daily-use
