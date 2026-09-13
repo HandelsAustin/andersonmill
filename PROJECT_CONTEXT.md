@@ -85,6 +85,13 @@ organizations/{orgId}
   customFlavors: [{name, category, type}]
     ← corporate-added flavors (js/roster.js addNewToRoster()), merged into every store's
       roster alongside MASTER_ROSTER — only CORPORATE_ADMIN can add; applies org-wide
+  defaultFlavorPrices: {flavorName: pricePerBatch}
+    ← corporate-wide ice cream pricing baseline (js/settings.js), keyed by MASTER_ROSTER's
+      full name incl. its "(CODE)" suffix. A store's own flavorPrices (below) overrides
+      this per-flavor if set; otherwise this is what Current Inventory Value's ice-cream
+      component uses. Seeded once via Admin's CORPORATE_ADMIN-only "Import 2025 Batch
+      Price List" button (DEFAULT_ICE_CREAM_PRICES_2025 in js/settings.js) — not all 155
+      roster flavors are on the sheet; unpriced ones show a warning instead of $0.
 
 organizations/{orgId}/stores/{storeId}
   id, label, createdAt, createdBy
@@ -131,13 +138,20 @@ organizations/{orgId}/stores/{storeId}
       (Distributor/Amazon/Grocery Store, or custom) — replaced the old `category`
       field 2026-09-13. distributorOrder is shown to users as "Item #".
       pricePerUnit/locationOrder/distributorOrder support CSV import, dual sort,
-      and $ valuation (the $ total itself now lives on the Admin tab, see
-      "Current Inventory Value" below).
-  flavorPrices: {flavorName: pricePerBucket}
-    ← Admin tab "Flavor Pricing" (js/settings.js) — only ever populated for
-      flavors that have appeared in a completed run (storeEvents' most recent
-      run_completed entry), not the full roster. Feeds Current Inventory Value's
-      ice-cream component.
+      and $ valuation (the $ total itself lives on the Manager Dashboard, see
+      "Current Inventory Value" below — moved off the Admin tab 2026-09-13).
+      Import from Distributor CSV / Add Supply Item also moved to Admin
+      2026-09-13 (js/inventory.js _renderOrderCsvImportSection()/
+      _renderAddSupplyItemSection(), called from js/settings.js) — the Order
+      tab itself is now view + On Hand entry + produce/print only.
+  flavorPrices: {flavorName: pricePerBatch}
+    ← Admin tab "Ice Cream Pricing" (renamed from "Flavor Pricing" 2026-09-13,
+      js/settings.js) — a per-store OVERRIDE of organizations/{orgId}.
+      defaultFlavorPrices (see above); only ever populated for flavors that
+      have appeared in a completed run (storeEvents' most recent
+      run_completed entry), not the full roster. Feeds Current Inventory
+      Value's ice-cream component (Manager Dashboard, js/dashboard.js
+      showManagerDashboard() — moved off the Admin tab 2026-09-13).
   miscInventoryItems: [{name, onHand, pricePerUnit}]
     ← Admin tab "Miscellaneous Inventory Items" (js/settings.js) — flat, manager-
       maintained, no dated history; anything not covered by the Order list, Ice

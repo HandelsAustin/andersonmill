@@ -521,53 +521,22 @@ function _undoLastImport() {
   renderInventoryPage();
 }
 
-function renderInventoryPage() {
-  const content = document.getElementById('inventoryContent');
-  if (!content) return;
-  if (!_workingInventoryDate) {
-    loadInventoryForDate(todayStr()); // async — re-renders once the count session loads
-    return;
-  }
-  if (typeof _applyNewPagesTheme === 'function') _applyNewPagesTheme((_storeSettings && _storeSettings.theme) || 'dark');
-  content.innerHTML = '';
-
-  const dateBar = document.createElement('div');
-  dateBar.id = 'inventoryDatePicker';
-  dateBar.style.marginBottom = '14px';
-  content.appendChild(dateBar);
-  _renderInventoryDatePicker();
-
-  if (_isCountDue()) {
-    const banner = document.createElement('div');
-    banner.style.cssText = 'padding:10px 14px;border-radius:8px;background:rgba(240,165,0,0.12);border:1px solid #f0a500;color:#f0a500;font-size:12px;font-weight:700;margin-bottom:14px;';
-    banner.textContent = _inventoryLastCountedAt
-      ? `⚠ Inventory count due — last counted ${relativeTime(_inventoryLastCountedAt)} (every ${_countIntervalDays()} days)`
-      : '⚠ No inventory count on record yet — do an initial count below.';
-    content.appendChild(banner);
-  } else if (_inventoryLastCountedAt) {
-    const ok = document.createElement('div');
-    ok.className = 'settings-note';
-    ok.style.marginBottom = '14px';
-    ok.textContent = `Last counted ${relativeTime(_inventoryLastCountedAt)}.`;
-    content.appendChild(ok);
-  }
-
-  // Total value display moved to the Admin tab's "Current Inventory Value"
-  // (js/settings.js), which combines this list with the last completed Ice
-  // Cream Run and the misc items list — _inventoryValue()/_orderQty() below
-  // are still used by that calculation, just no longer rendered here.
-
-  // ── CSV import ────────────────────────────────────────────────────────────
+// Called from the Admin tab (js/settings.js "Order Tab Setup", 2026-09-13) —
+// used to render inline on the Order tab itself. Catalog setup (this + Add
+// Supply Item below) now lives in Admin; the Order tab is daily-use only.
+function _renderOrderCsvImportSection(container) {
   const importSection = _settingsSection('Import from Distributor CSV');
   const importPanel = document.createElement('div');
   _buildCsvImportPanel(importPanel);
   importSection.appendChild(importPanel);
-  content.appendChild(importSection);
+  container.appendChild(importSection);
+}
 
-  // ── Add item ────────────────────────────────────────────────────────────
-  // Every column is fillable right here at add time (not just via CSV import)
-  // — Source/Item #/Location Order # used to only be settable through CSV
-  // import, defaulting to blank/0 for a manually-added item.
+// Called from the Admin tab (js/settings.js "Order Tab Setup", 2026-09-13).
+// Every column is fillable right here at add time (not just via CSV import)
+// — Source/Item #/Location Order # used to only be settable through CSV
+// import, defaulting to blank/0 for a manually-added item.
+function _renderAddSupplyItemSection(container) {
   const addSection = _settingsSection('Add Supply Item');
   const addRow = document.createElement('div');
   addRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;';
@@ -625,7 +594,47 @@ function renderInventoryPage() {
   };
   addRow.append(nameInput, unitInput, priceInput, parInput, itemNumInput, locOrderInput, sourceField, addBtn);
   addSection.appendChild(addRow);
-  content.appendChild(addSection);
+  container.appendChild(addSection);
+}
+
+function renderInventoryPage() {
+  const content = document.getElementById('inventoryContent');
+  if (!content) return;
+  if (!_workingInventoryDate) {
+    loadInventoryForDate(todayStr()); // async — re-renders once the count session loads
+    return;
+  }
+  if (typeof _applyNewPagesTheme === 'function') _applyNewPagesTheme((_storeSettings && _storeSettings.theme) || 'dark');
+  content.innerHTML = '';
+
+  const dateBar = document.createElement('div');
+  dateBar.id = 'inventoryDatePicker';
+  dateBar.style.marginBottom = '14px';
+  content.appendChild(dateBar);
+  _renderInventoryDatePicker();
+
+  if (_isCountDue()) {
+    const banner = document.createElement('div');
+    banner.style.cssText = 'padding:10px 14px;border-radius:8px;background:rgba(240,165,0,0.12);border:1px solid #f0a500;color:#f0a500;font-size:12px;font-weight:700;margin-bottom:14px;';
+    banner.textContent = _inventoryLastCountedAt
+      ? `⚠ Inventory count due — last counted ${relativeTime(_inventoryLastCountedAt)} (every ${_countIntervalDays()} days)`
+      : '⚠ No inventory count on record yet — do an initial count below.';
+    content.appendChild(banner);
+  } else if (_inventoryLastCountedAt) {
+    const ok = document.createElement('div');
+    ok.className = 'settings-note';
+    ok.style.marginBottom = '14px';
+    ok.textContent = `Last counted ${relativeTime(_inventoryLastCountedAt)}.`;
+    content.appendChild(ok);
+  }
+
+  // Total value display moved to the Manager Dashboard's "Current Inventory
+  // Value" (js/dashboard.js), which combines this list with the last
+  // completed Ice Cream Run and the misc items list —
+  // _inventoryValue()/_orderQty() below are still used by that calculation,
+  // just no longer rendered here. CSV import and Add Supply Item moved to
+  // the Admin tab (js/settings.js "Order Tab Setup", 2026-09-13) — see
+  // _renderOrderCsvImportSection()/_renderAddSupplyItemSection() below.
 
   // ── Item list ───────────────────────────────────────────────────────────
   const sortLabel = _inventorySortMode === 'distributor' ? 'Item #' : 'Store Location';

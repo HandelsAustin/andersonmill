@@ -4,8 +4,106 @@
 // New page — data lives at store.settings (merged onto the existing store doc).
 
 let _storeSettings = {}; // populated by applyData() in store-org.js: { theme, cabinetNumbersEnabled }
-let flavorPrices = {}; // {flavorName: pricePerBucket} — populated by applyData(); Current Inventory Value's ice-cream component
+let flavorPrices = {}; // {flavorName: pricePerBatch} — per-store OVERRIDE, populated by applyData(); Current Inventory Value's ice-cream component
+let _orgDefaultFlavorPrices = {}; // {flavorName: pricePerBatch} — corporate-wide baseline, populated by loadOrgMetadata() in store-org.js
 let miscInventoryItems = []; // [{name, onHand, pricePerUnit}] — populated by applyData()
+let _tempEquipSectionExpanded = false; // session-only UI state — "Freezer/Fridge Equipment" starts collapsed (2026-09-13)
+
+// 2025 annual batch price list (Handel's corporate recipe-cost sheet),
+// matched to MASTER_ROSTER's exact flavor names (js/roster.js — each carries
+// an appended "(CODE)" the price sheet doesn't use, plus some wording
+// differences: "Cheesecake with Oreo" -> "Cheesecake Made with Oreo®", etc.,
+// resolved by hand against the sheet). 128 of MASTER_ROSTER's 155 flavors are
+// on the sheet; the other 27 (Carrot Cake, the NSA/"No Sugar Added" line,
+// Rocky Road, Taro, etc.) genuinely aren't priced there — they'll show the
+// "no price set" warning on Current Inventory Value if ever made, same as
+// any flavor a store adds later that corporate hasn't priced yet. One-time
+// import via _importDefaultIceCreamPrices() below (Admin tab,
+// CORPORATE_ADMIN-only) — writes to organizations/{orgId}.defaultFlavorPrices,
+// which every store falls back to unless it's entered its own override.
+const DEFAULT_ICE_CREAM_PRICES_2025 = {
+  "Banana (BAN)": 23.70, "Banana Cream Pie (BCP)": 37.64, "Bananas Foster (BF)": 29.73,
+  "Birthday Cake (BDAY)": 40.13, "Black Cherry (BC)": 34.22, "Black Raspberry (BR)": 28.55,
+  "Black Raspberry Chunk (BRC)": 37.33, "Black Raspberry Sherbet (BRS)": 23.81, "Black Walnut (BW)": 27.54,
+  "Blue Monster (BMON)": 38.12, "Blue Moon (BM)": 24.50, "Blue Moon Ice (BMI)": 12.20,
+  "Blueberry Cheesecake Chunk (BBCHZ)": 43.69, "Blueberry Cobbler (BBCOB)": 36.95, "Brownie Dough (BD)": 30.76,
+  "Buckeye (BE)": 41.04, "Butter Pecan (BP)": 37.75, "Butterscotch Ripple (BSR)": 25.67,
+  "Cake Batter (CB)": 28.94, "Caramel Apple (CAP)": 28.14, "Caramel Latte (CL)": 47.22,
+  "Caramel Pretzel Crunch (CPC)": 51.13, "Cheesecake Made with Oreo® (OREOCHZ)": 39.25,
+  "Cherry Cordial (CORD)": 39.59, "Cherry Magnolia (CMAG)": 45.21, "Cherry Vanilla (CV)": 40.95,
+  "Chocoholic Chunk (CK)": 35.58, "Chocoholic Peanut Butter Ripple (CKPBR)": 37.48, "Chocolate (C)": 23.90,
+  "Chocolate Almond (CA)": 34.67, "Chocolate Almond Milk Ice Cream (CAMILK)": 44.10,
+  "Chocolate Cake Batter (CCB)": 33.11, "Chocolate Chip (CHOC CHIP)": 29.10,
+  "Chocolate Chip Cookie Dough (CD)": 33.10, "Chocolate Malt with Caramel (CMC)": 28.31,
+  "Chocolate Marshmallow (CM)": 27.40, "Chocolate Orange (CO)": 26.90,
+  "Chocolate Peanut Butter Brownie (CPBB)": 41.28, "Chocolate Pecan (CP)": 38.22,
+  "Chocolate Raspberry Truffle (CRT)": 49.49, "Chocolate Made with Oreo® (CHOC OREO)": 30.81,
+  "Cinnamon Graham Cracker (CGC)": 32.61, "Cinnamon Roll (CR)": 32.96,
+  "Coconut Almond Fudge Ripple (CAFR)": 43.19, "Coconut Caramel Delight (CCD)": 52.23,
+  "Coconut Milk Ice Cream (COMILK)": 37.89, "Coconut Pineapple (CPINE)": 29.70, "Coffee (COF)": 30.43,
+  "Coffee Chocolate Chip (CCC)": 37.53, "Coffee with Heath (COF w/ H)": 42.68,
+  "Confetti Brownie Batter (CBB)": 46.11, "Cotton Candy (CC)": 31.07, "Deep Dish Apple Pie (DDAP)": 36.07,
+  "Dulce De Leche (DULCE)": 41.19, "Elvis (ELVIS)": 32.78, "French Silk Pie (FSP)": 38.23,
+  "Fudge Ripple (FR)": 28.78, "Fudge Ripple Brownie (FRB)": 37.16, "Graham Canyon (GC)": 38.20,
+  "Graham Central Station (GCS)": 38.71, "Grape (G)": 23.42, "Green Tea (GT)": 27.28,
+  "Heavenly Hash (HH)": 42.87, "Horchata (HOR)": 48.89, "Key Lime Pie (KLP)": 30.80,
+  "Lemon Bar (LB)": 32.81, "Lemon Ice (LEM ICE)": 21.18, "Lemon Meringue Pie (LMP)": 38.73,
+  "Lime Sherbet (LS)": 17.34, "Mango Sorbet (MANGO SOR)": 42.02, "Meri's Joy (MJ)": 44.40,
+  "Midnight Madness (MM)": 47.53, "Mint Chocolate Chip (MCC)": 28.35, "Mint Made with Oreo® (MO)": 29.88,
+  "Mixed Berry Sorbet (MB SOR)": 42.29, "Mocha Almond Fudge Ripple (MAFR)": 48.13,
+  "Monkey Business (MB)": 43.64, "Mud Pie (MP)": 37.71, "Orange Dream Cream (ODC)": 18.11,
+  "Orange Pineapple (OP)": 34.16, "Orange Sherbet (OS)": 16.05, "Peach (PEACH)": 42.39,
+  "Peanut Butter (PB)": 28.90, "Peanut Butter and Jelly (PBJ)": 38.99, "Peanut Butter Parfait (PBP)": 34.68,
+  "Peppermint Bark (PBARK)": 35.06, "Peppermint Stick (PS)": 28.60, "Pineapple Sherbet (PINE SH)": 14.88,
+  "Pineapple Upside Down Cake (PUDC)": 52.81, "Pink Champagne Sherbet (PC)": 21.12, "Pistachio (PIST)": 45.69,
+  "Pomegranate Sorbet (POM SOR)": 45.07, "Praline Pecan (PP)": 39.29, "Pumpkin Cheesecake Chunk (PCHZ)": 37.70,
+  "Pumpkin Pecan (PPEC)": 42.49, "Pumpkin Pie (PPIE)": 34.27, "Pumpkin Ripple (PR)": 34.09,
+  "Raspberry Cheesecake Chunk (RCHZ)": 49.50, "Red Raspberry Sherbet (RS)": 33.12,
+  "Rocky Mocha Blast (RMB)": 40.55, "Salty Caramel Truffle (SCT)": 45.08, "S'Mores (S'M)": 36.80,
+  "Snappy Turtle (ST)": 43.24, "Snickerdoodle (SD)": 32.59, "Snix (SNIX)": 42.17,
+  "Sour Green Apple Ice (SGA ICE)": 12.66, "Spouse Like A House (SLAH)": 46.19, "Strawberry (STRAW)": 26.48,
+  "Strawberry Cheesecake Chunk (SCHZ)": 41.50, "Strawberry Sorbet (STRAW SOR)": 42.29,
+  "Tiger Stripes (TS)": 26.22, "Tin Lizzy (TL)": 36.92, "Toasted Almond (TA)": 31.65,
+  "Twixter (TWIX)": 44.75, "Vanilla (VAN)": 22.60, "Vanilla Caramel Brownie (VCB)": 35.40,
+  "Vanilla Caramel Truffle (VCT)": 35.81, "Vanilla Pineapple Sorbet (VP SOR)": 46.35,
+  "Vanilla Raspberry Chip (VRC)": 41.27, "Vanilla Turtle (VT)": 41.34,
+  "Vanilla Made with Oreo® (OREO)": 28.91, "Watermelon Ice (WM ICE)": 11.57,
+  // Judgment-call matches confirmed with the user 2026-09-13 (wording differs
+  // from the roster but is the same flavor):
+  "Egg Nog (EGG)": 30.78,                                    // sheet: "Eggnog"
+  "Coconut Cream Pie (CCP)": 41.06,                           // sheet: "Coconut Crème Pie"
+  "Choc. Chocolate Chip Cheesecake Chunk (CCCHZ)": 43.49,     // sheet: "Chocolate, Chocolate Chip Cheesecake Chunk"
+  "Chocolate Ooohh...Dough! (CHOC OD)": 34.53,                // sheet: "Chocolate Oree Dough"
+  "Ooohh...Dough! (OD)": 31.86,                               // sheet: "Oree-Dough"
+  "New York Style Cheesecake (NYC)": 42.78,                   // sheet: "New York Cheesecake Chunk"
+};
+
+async function _importDefaultIceCreamPrices() {
+  const n = Object.keys(DEFAULT_ICE_CREAM_PRICES_2025).length;
+  if (!confirm(`This sets the corporate-wide default price for ${n} flavors, used by every store that hasn't entered its own override. Continue?`)) return;
+  try {
+    await window._setDoc(window.getOrgDocRef(), { defaultFlavorPrices: DEFAULT_ICE_CREAM_PRICES_2025 }, { merge: true });
+    _orgDefaultFlavorPrices = DEFAULT_ICE_CREAM_PRICES_2025;
+    showStatusMessage(`✓ Imported ${n} corporate default prices`, 2500);
+    renderSettingsPage();
+  } catch (e) {
+    console.error('Default price import error:', e);
+    showStatusMessage('⚠ Could not import — check your connection', 3000);
+  }
+}
+
+// A flavor's price is its store-level override if one has been entered, else
+// the org-wide default (see organizations/{orgId}.defaultFlavorPrices), else
+// unknown. Batch and bucket are the same unit here — "price per batch" is
+// just the name the paper price sheet uses.
+function _hasFlavorPrice(name) {
+  return Object.prototype.hasOwnProperty.call(flavorPrices, name) || Object.prototype.hasOwnProperty.call(_orgDefaultFlavorPrices, name);
+}
+function _effectiveFlavorPrice(name) {
+  if (Object.prototype.hasOwnProperty.call(flavorPrices, name)) return flavorPrices[name];
+  if (Object.prototype.hasOwnProperty.call(_orgDefaultFlavorPrices, name)) return _orgDefaultFlavorPrices[name];
+  return 0;
+}
 
 // Settings is now a bottom-tab panel rather than a popup overlay — kept as a
 // wrapper since internal call sites (e.g. the roster-management button below)
@@ -81,7 +179,16 @@ function _lastCompletedRunFlavors() {
 function _iceCreamInventoryValue() {
   const flavors = _lastCompletedRunFlavors();
   if (!flavors) return 0;
-  return Object.entries(flavors).reduce((sum, [name, qty]) => sum + qty * (flavorPrices[name] || 0), 0);
+  return Object.entries(flavors).reduce((sum, [name, qty]) => sum + qty * _effectiveFlavorPrice(name), 0);
+}
+
+// Names of on-hand (last-run) flavors with no price anywhere — not on the
+// org's default price sheet and not overridden at this store. Surfaced as a
+// warning on Current Inventory Value rather than silently valuing them at $0.
+function _unpricedOnHandFlavors() {
+  const flavors = _lastCompletedRunFlavors();
+  if (!flavors) return [];
+  return Object.keys(flavors).filter(name => !_hasFlavorPrice(name));
 }
 
 function _miscInventoryValue() {
@@ -125,40 +232,18 @@ function renderSettingsPage() {
   if (!content) return;
   content.innerHTML = '';
 
-  // ── Current Inventory Value ───────────────────────────────────────────────
-  // Moved here from the Order tab (js/inventory.js), which now only shows its
-  // own list's value inline per-item — this is the combined figure: the Order
-  // list's own value, the last completed Ice Cream Run's made buckets valued
-  // at a manager-set price/bucket, and the misc items list below. Flavor
-  // Order (js/flavor-order.js) is deliberately excluded — no per-item pricing
-  // for it (see that file's header comment).
-  // _inventoryLog (Order tab on-hand data) only loads once the Order tab has
-  // been opened this session — kick that off here too so the Order-list
-  // component below isn't stuck at $0 if Admin is opened first. Fires once;
-  // loadInventoryForDate() re-renders this page itself when it resolves.
-  if (typeof _workingInventoryDate !== 'undefined' && !_workingInventoryDate && typeof loadInventoryForDate === 'function') {
-    loadInventoryForDate(todayStr());
-  }
-  const orderValue = _orderListInventoryValue();
-  const iceCreamValue = _iceCreamInventoryValue();
-  const miscValue = _miscInventoryValue();
-  const totalValue = orderValue + iceCreamValue + miscValue;
-  const valueSection = _settingsSection('Current Inventory Value');
-  const valueHeadline = document.createElement('div');
-  valueHeadline.style.cssText = 'font-size:22px;font-weight:700;color:var(--text-primary);margin-bottom:8px;';
-  valueHeadline.textContent = `$${totalValue.toFixed(2)}`;
-  valueSection.appendChild(valueHeadline);
-  const valueBreakdown = document.createElement('div');
-  valueBreakdown.className = 'settings-note';
-  valueBreakdown.innerHTML = `Order list: $${orderValue.toFixed(2)} &nbsp;·&nbsp; Ice Cream (last run): $${iceCreamValue.toFixed(2)} &nbsp;·&nbsp; Misc items: $${miscValue.toFixed(2)}`;
-  valueSection.appendChild(valueBreakdown);
-  content.appendChild(valueSection);
+  // Current Inventory Value itself now lives on the Manager Dashboard
+  // (js/dashboard.js showManagerDashboard()), not here — this tab still owns
+  // the inputs that feed it (Ice Cream Pricing below, Misc Items, and the
+  // Order tab's own catalog).
 
-  // ── Flavor Pricing ────────────────────────────────────────────────────────
-  // Scoped to whichever flavors actually appear in the last completed run
-  // (rather than the whole roster, which can run to 60+ flavors) — that's
-  // exactly what the Ice Cream component of the value above needs priced.
-  const pricingSection = _settingsSection('Flavor Pricing (Last Completed Run)');
+  // ── Ice Cream Pricing (renamed from "Flavor Pricing" 2026-09-13) ─────────
+  // Scoped to whichever flavors actually appear in the last completed run —
+  // the ON-HAND flavors, not the full roster (which can run to 60+ names).
+  // Each price defaults to the org-wide sheet (organizations/{orgId}.
+  // defaultFlavorPrices, corporate-maintained) unless this store has entered
+  // its own override — see _effectiveFlavorPrice() above.
+  const pricingSection = _settingsSection('Ice Cream Pricing (Last Completed Run)');
   const lastRunFlavors = _lastCompletedRunFlavors();
   if (!lastRunFlavors || !Object.keys(lastRunFlavors).length) {
     const note = document.createElement('div');
@@ -166,14 +251,25 @@ function renderSettingsPage() {
     note.textContent = 'No completed run on record yet — nothing to price.';
     pricingSection.appendChild(note);
   } else {
+    const unpriced = _unpricedOnHandFlavors();
+    if (unpriced.length) {
+      const warn = document.createElement('div');
+      warn.style.cssText = 'padding:8px 12px;border-radius:8px;background:rgba(240,165,0,0.12);border:1px solid #f0a500;color:#f0a500;font-size:12px;margin-bottom:10px;';
+      warn.textContent = `⚠ No price on the corporate sheet or this store for: ${unpriced.join(', ')} — these are valued at $0 until priced below.`;
+      pricingSection.appendChild(warn);
+    }
     Object.keys(lastRunFlavors).sort().forEach(name => {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
       const nameEl = document.createElement('span');
       nameEl.style.cssText = 'flex:1;min-width:140px;font-size:13px;';
       nameEl.textContent = `${name} (${lastRunFlavors[name]} made)`;
-      const priceField = _settingsInput('Price / Bucket', flavorPrices[name] || 0, 'number');
+      const priceField = _settingsInput('Price / Batch', _effectiveFlavorPrice(name), 'number');
       priceField.wrap.style.width = '100px';
+      if (!Object.prototype.hasOwnProperty.call(flavorPrices, name) && Object.prototype.hasOwnProperty.call(_orgDefaultFlavorPrices, name)) {
+        priceField.input.title = 'Corporate default — edit to override for this store only';
+        priceField.input.style.color = 'var(--text-muted)';
+      }
       priceField.input.onchange = () => {
         flavorPrices[name] = Math.max(0, parseFloat(priceField.input.value) || 0);
         saveFlavorPrices();
@@ -184,6 +280,29 @@ function renderSettingsPage() {
     });
   }
   content.appendChild(pricingSection);
+
+  // ── Corporate Default Ice Cream Pricing (CORPORATE_ADMIN only) ───────────
+  // One-time import of the 2025 batch price sheet into
+  // organizations/{orgId}.defaultFlavorPrices — see DEFAULT_ICE_CREAM_PRICES_2025
+  // above for the full flavor-matching notes. Every store falls back to these
+  // unless it enters its own override in "Ice Cream Pricing" above.
+  if (userHasRole(ROLES.CORPORATE_ADMIN)) {
+    const importSection = _settingsSection('Corporate Default Ice Cream Pricing');
+    const importNote = document.createElement('div');
+    importNote.className = 'settings-note';
+    importNote.style.marginBottom = '10px';
+    const defaultCount = Object.keys(_orgDefaultFlavorPrices).length;
+    importNote.textContent = defaultCount
+      ? `${defaultCount} flavors currently have a corporate default price set.`
+      : 'No corporate default prices set yet.';
+    importSection.appendChild(importNote);
+    const importBtn = document.createElement('button');
+    importBtn.className = 'btn btn-green';
+    importBtn.textContent = `Import 2025 Batch Price List (${Object.keys(DEFAULT_ICE_CREAM_PRICES_2025).length} flavors)`;
+    importBtn.onclick = () => _importDefaultIceCreamPrices();
+    importSection.appendChild(importBtn);
+    content.appendChild(importSection);
+  }
 
   // ── Miscellaneous Inventory Items ────────────────────────────────────────
   // A simple flat list for anything not covered by the Order list, Ice Cream
@@ -265,6 +384,13 @@ function renderSettingsPage() {
     });
   }
   content.appendChild(miscSection);
+
+  // ── Order Tab Setup ───────────────────────────────────────────────────────
+  // Moved from the Order tab (js/inventory.js) 2026-09-13 — that tab is now
+  // daily-use only (view the list, enter On Hand, produce the order); catalog
+  // setup (importing/adding items) lives here instead.
+  if (typeof _renderOrderCsvImportSection === 'function') _renderOrderCsvImportSection(content);
+  if (typeof _renderAddSupplyItemSection === 'function') _renderAddSupplyItemSection(content);
 
   // ── Store Name ───────────────────────────────────────────────────────────
   // Same email can be assigned to multiple stores (or, for CORPORATE_ADMIN, every
@@ -457,38 +583,55 @@ function renderSettingsPage() {
   content.appendChild(tearDownSection);
 
   // ── Freezer/Fridge Equipment ─────────────────────────────────────────────
-  // Editing Location/Target Temp here (rather than inline on the Temps tab's
-  // own equipment list) keeps that list to plain display + daily entry —
-  // adding/removing equipment still happens there (js/temps.js
-  // _buildTempEquipmentManager()), this is just the "correct it later" path.
+  // Adding new equipment (js/temps.js _buildTempEquipmentManager()) moved
+  // here from the Temps tab 2026-09-13 — that tab is now view + daily entry
+  // only. Editing Location/Target Temp of existing equipment already lived
+  // here. Collapsed behind a toggle by default (2026-09-13) to keep this
+  // page from growing too long — most visits don't need it.
   const tempEquipSection = _settingsSection('Freezer/Fridge Equipment');
-  if (!tempEquipment.length) {
-    const equipNote = document.createElement('div');
-    equipNote.className = 'settings-note';
-    equipNote.textContent = 'No equipment set up yet — add some from the Temps tab.';
-    tempEquipSection.appendChild(equipNote);
-  } else {
-    tempEquipment.forEach(eq => {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
-      const nameEl = document.createElement('span');
-      nameEl.style.cssText = 'flex:1;min-width:120px;font-size:13px;font-weight:700;';
-      nameEl.textContent = eq.label;
-      const locationField = _settingsInput('Location', eq.location || '', 'text');
-      locationField.wrap.style.width = '140px';
-      locationField.input.onchange = () => {
-        eq.location = locationField.input.value.trim();
-        saveTempEquipment();
-      };
-      const targetField = _settingsInput('Target °F', eq.targetTemp, 'number');
-      targetField.wrap.style.width = '100px';
-      targetField.input.onchange = () => {
-        eq.targetTemp = parseFloat(targetField.input.value) || 0;
-        saveTempEquipment();
-      };
-      row.append(nameEl, locationField.wrap, targetField.wrap);
-      tempEquipSection.appendChild(row);
-    });
+  const tempEquipToggle = document.createElement('button');
+  tempEquipToggle.className = 'btn';
+  tempEquipToggle.style.cssText = 'font-size:12px;padding:6px 10px;';
+  tempEquipToggle.textContent = _tempEquipSectionExpanded ? '▾ Hide' : `▸ Manage (${tempEquipment.length})`;
+  tempEquipToggle.onclick = () => {
+    _tempEquipSectionExpanded = !_tempEquipSectionExpanded;
+    renderSettingsPage();
+  };
+  tempEquipSection.appendChild(tempEquipToggle);
+
+  if (_tempEquipSectionExpanded) {
+    const tempEquipBody = document.createElement('div');
+    tempEquipBody.style.marginTop = '10px';
+    _buildTempEquipmentManager(tempEquipBody);
+    if (!tempEquipment.length) {
+      const equipNote = document.createElement('div');
+      equipNote.className = 'settings-note';
+      equipNote.textContent = 'No equipment set up yet — add one above.';
+      tempEquipBody.appendChild(equipNote);
+    } else {
+      tempEquipment.forEach(eq => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
+        const nameEl = document.createElement('span');
+        nameEl.style.cssText = 'flex:1;min-width:120px;font-size:13px;font-weight:700;';
+        nameEl.textContent = eq.label;
+        const locationField = _settingsInput('Location', eq.location || '', 'text');
+        locationField.wrap.style.width = '140px';
+        locationField.input.onchange = () => {
+          eq.location = locationField.input.value.trim();
+          saveTempEquipment();
+        };
+        const targetField = _settingsInput('Target °F', eq.targetTemp, 'number');
+        targetField.wrap.style.width = '100px';
+        targetField.input.onchange = () => {
+          eq.targetTemp = parseFloat(targetField.input.value) || 0;
+          saveTempEquipment();
+        };
+        row.append(nameEl, locationField.wrap, targetField.wrap);
+        tempEquipBody.appendChild(row);
+      });
+    }
+    tempEquipSection.appendChild(tempEquipBody);
   }
   content.appendChild(tempEquipSection);
 

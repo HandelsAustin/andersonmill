@@ -751,6 +751,40 @@ function showManagerDashboard() {
   hdr.innerHTML = `<div style="font-size:17px;font-weight:700;color:#ffffff;">${storeLabel}</div><div style="font-size:11px;color:#8fa3be;font-family:'Arial Narrow',Arial,sans-serif;margin-top:3px;">${lastRunAt ? 'Last production ' + relativeTime(lastRunAt) : 'No production runs recorded yet'}</div>`;
   content.appendChild(hdr);
 
+  // ── Current Inventory Value ───────────────────────────────────────────────
+  // Moved here from the Admin tab (js/settings.js) 2026-09-13 — combines the
+  // Order tab's own catalog value, the last completed Ice Cream Run (valued
+  // via Admin's "Ice Cream Pricing"), and Admin's misc items list. Flavor
+  // Order is deliberately excluded (js/flavor-order.js has no pricing).
+  // _inventoryLog (Order tab on-hand data) only loads once that tab has been
+  // opened this session — kick that off here too so this figure isn't stuck
+  // at $0 if the dashboard is opened first; loadInventoryForDate() re-renders
+  // this dashboard itself when it resolves.
+  if (typeof _workingInventoryDate !== 'undefined' && !_workingInventoryDate && typeof loadInventoryForDate === 'function') {
+    loadInventoryForDate(todayStr());
+  }
+  const civOrderValue = _orderListInventoryValue();
+  const civIceCreamValue = _iceCreamInventoryValue();
+  const civMiscValue = _miscInventoryValue();
+  const civTotal = civOrderValue + civIceCreamValue + civMiscValue;
+  const civSection = _renderMgrSection('Current Inventory Value', true);
+  const civHeadline = document.createElement('div');
+  civHeadline.style.cssText = 'font-size:26px;font-weight:700;color:#ffffff;';
+  civHeadline.textContent = `$${civTotal.toFixed(2)}`;
+  civSection.appendChild(civHeadline);
+  const civBreakdown = document.createElement('div');
+  civBreakdown.style.cssText = 'font-size:11px;color:#8fa3be;font-family:\'Arial Narrow\',Arial,sans-serif;margin-top:4px;';
+  civBreakdown.innerHTML = `Order list: $${civOrderValue.toFixed(2)} &nbsp;·&nbsp; Ice Cream (last run): $${civIceCreamValue.toFixed(2)} &nbsp;·&nbsp; Misc items: $${civMiscValue.toFixed(2)}`;
+  civSection.appendChild(civBreakdown);
+  const civUnpriced = typeof _unpricedOnHandFlavors === 'function' ? _unpricedOnHandFlavors() : [];
+  if (civUnpriced.length) {
+    const civWarn = document.createElement('div');
+    civWarn.style.cssText = 'font-size:11px;color:#f0a500;font-family:\'Arial Narrow\',Arial,sans-serif;margin-top:4px;';
+    civWarn.textContent = `⚠ No price set for: ${civUnpriced.join(', ')} — set in Admin → Ice Cream Pricing.`;
+    civSection.appendChild(civWarn);
+  }
+  content.appendChild(civSection);
+
   // ── Today's Production ───────────────────────────────────────────────────
   const prodSection = _renderMgrSection("Today’s Production", true);
   prodSection.appendChild(_renderProductionGrid([

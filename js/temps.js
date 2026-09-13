@@ -197,6 +197,12 @@ function _addTempEquipment(type, targetTemp, location) {
   });
   saveTempEquipment();
   renderTempsPage();
+  // The add form now lives on the Admin tab (js/settings.js) — refresh it
+  // too if that's where this was just called from, so the new item shows up
+  // immediately in that page's own equipment list without switching tabs.
+  if (document.getElementById('tabPanelSettings')?.classList.contains('active') && typeof renderSettingsPage === 'function') {
+    renderSettingsPage();
+  }
 }
 
 function _removeTempEquipment(id) {
@@ -219,11 +225,12 @@ function _removeTempEquipment(id) {
   });
 }
 
-// Add-new-equipment form only — the per-equipment list itself lives in
-// renderTempsPage()'s single unified list below (Name/Location/Target/
-// Current/Delete), not duplicated here. Location + Target Temp are set here
-// at creation time; editing either afterward happens from the Admin tab
-// (js/settings.js "Freezer/Fridge Equipment" section), not inline in Temps.
+// Add-new-equipment form — called from the Admin tab's "Freezer/Fridge
+// Equipment" section (js/settings.js, 2026-09-13; this used to render inside
+// the Temps tab itself). The per-equipment list lives in renderTempsPage()'s
+// single unified list (Name/Location/Target/Current/Delete). Location +
+// Target Temp are set here at creation time; editing either afterward also
+// happens from that same Admin section, not inline in Temps.
 function _buildTempEquipmentManager(container) {
   const addRow = document.createElement('div');
   addRow.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;';
@@ -369,20 +376,10 @@ function renderTempsPage() {
     content.appendChild(note);
   }
 
-  // ── Manage Equipment (manager-gated: add new equipment only) ─────────────
-  const manageSection = _settingsSection('Manage Equipment');
+  // Adding new equipment moved to the Admin tab's "Freezer/Fridge Equipment"
+  // section (js/settings.js, 2026-09-13) — this tab is now view + daily
+  // entry only, plus deleting (still manager-gated, see canManage below).
   const canManage = _managerUnlocked || userHasRole(ROLES.CORPORATE_ADMIN);
-  if (canManage) {
-    _buildTempEquipmentManager(manageSection);
-  } else {
-    const lockNote = document.createElement('div');
-    lockNote.className = 'settings-note';
-    lockNote.style.cssText = 'cursor:pointer;';
-    lockNote.textContent = '🔒 Manager PIN required to add equipment — tap to unlock.';
-    lockNote.onclick = () => requireManager(renderTempsPage);
-    manageSection.appendChild(lockNote);
-  }
-  content.appendChild(manageSection);
 
   // ── Equipment (single list, open to everyone — was two separate lists of
   // the same equipment before: this one and Manage Equipment's own listing

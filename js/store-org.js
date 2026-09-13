@@ -42,6 +42,7 @@ async function loadOrgMetadata() {
     _orgCustomFlavors = meta?.customFlavors || [];
     _orgFlavorEdits = meta?.flavorEdits || {};
     _orgFlavorRemovals = meta?.flavorRemovals || [];
+    _orgDefaultFlavorPrices = meta?.defaultFlavorPrices || {};
   } catch (e) {
     console.error('Org metadata load error:', e);
   }
@@ -443,15 +444,24 @@ function _reconcileStoreForSignedInUser() {
 // failure the header just keeps whatever it already had, same as before.
 async function _refreshHeaderForCurrentStore() {
   const id = window.getCurrentStoreId();
-  if (!id) return;
+  console.log('DIAG _refreshHeaderForCurrentStore start, id=', id);
+  if (!id) { console.log('DIAG no id, bailing'); return; }
   try {
-    await loadOrgStores();
+    const loaded = await loadOrgStores();
+    console.log('DIAG loadOrgStores returned ids/labels:', JSON.stringify(loaded.map(s => ({ id: s.id, label: s.label }))));
     const store = findStoreById(id);
-    if (store?.label) _storeDisplayLabel(id, store.label);
+    console.log('DIAG findStoreById(', id, ') =', store ? JSON.stringify({ id: store.id, label: store.label }) : 'undefined');
+    if (store?.label) {
+      console.log('DIAG setting fresh label:', store.label);
+      _storeDisplayLabel(id, store.label);
+    } else {
+      console.log('DIAG NOT setting fresh label — store or store.label missing');
+    }
   } catch (e) {
-    console.error('Header store-label refresh error:', e);
+    console.error('DIAG Header store-label refresh error:', e);
   }
   _updateHeaderSub();
+  console.log('DIAG after _updateHeaderSub, car_store_label=', localStorage.getItem('car_store_label'));
 }
 
 // CORPORATE_ADMIN lists the whole stores collection (firestore.rules: `allow
@@ -472,7 +482,9 @@ async function loadOrgStores() {
       stores = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     } else {
       const ids = window._userStores || [];
-      const docs = await Promise.all(ids.map(id => window._getDoc(getStoreDocRef(window.getCurrentOrgId(), id))));
+      console.log('DIAG loadOrgStores (non-admin) ids=', JSON.stringify(ids));
+      const docs = await Promise.all(ids.map(id => window._getDoc(getStoreDocRef(window.getCurrentOrgId(), id)).catch(e => { console.log('DIAG getDoc FAILED for', id, e.code || e.message); throw e; })));
+      console.log('DIAG docs exist flags:', JSON.stringify(docs.map(d => ({ id: d.id, exists: d.exists() }))));
       stores = docs.filter(d => d.exists()).map(d => ({ id: d.id, ...d.data() }));
       // A STORE_MANAGER can't list the collection, so it has no way to learn
       // whether the org has OTHER stores it just isn't assigned to — only
@@ -481,10 +493,11 @@ async function loadOrgStores() {
       // guessing from this account's own scoped result.
     }
     const scoped = _scopedStores(stores);
+    console.log('DIAG loadOrgStores scoped result ids/labels:', JSON.stringify(scoped.map(s => ({ id: s.id, label: s.label }))));
     window.setOrgStores(scoped);
     return scoped;
   } catch (e) {
-    console.error('Org store load error:', e);
+    console.error('DIAG Org store load error:', e);
     return [];
   }
 }

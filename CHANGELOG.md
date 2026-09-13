@@ -7,6 +7,54 @@ v0.2
 
 ## Recent Changes
 
+### Tab Relocations, Corporate Ice Cream Pricing Import (2026-09-13)
+Follow-up to the Order tab rebuild earlier the same day, based on further
+user feedback: several setup/management controls moved off their daily-use
+tabs and onto Admin, and Current Inventory Value gained a real corporate
+price sheet.
+
+- **Temps tab:** the "add equipment" form moved to Admin's "Freezer/Fridge
+  Equipment" section (`js/temps.js` / `js/settings.js`) — Temps itself is
+  now view + daily entry + delete only.
+- **Order tab:** "Import from Distributor CSV" and "Add Supply Item" moved
+  to Admin (`js/inventory.js` `_renderOrderCsvImportSection()` /
+  `_renderAddSupplyItemSection()`, called from `js/settings.js`) — Order is
+  now view + On Hand entry + produce/print only.
+- **Admin tab:** "Flavor Pricing" renamed to "Ice Cream Pricing"; a flavor
+  with no price anywhere (store override or corporate default) now shows an
+  explicit warning instead of silently valuing at $0; "Freezer/Fridge
+  Equipment" collapsed behind a "Manage" toggle, since the page had grown
+  long.
+- **New: corporate-wide default ice cream pricing.** Prices now fall back to
+  `organizations/{orgId}.defaultFlavorPrices` (corporate-maintained) before
+  a store's own override, matching how the Order tab's own item pricing
+  already worked at the per-store level. Seeded from Handel's 2025 annual
+  batch-cost sheet — 128 of MASTER_ROSTER's 155 flavors matched (roster names
+  carry an appended "(CODE)" the price sheet doesn't use, plus wording
+  differences like "Cheesecake with Oreo" vs roster's "Cheesecake Made with
+  Oreo®", resolved by an automated normalized match plus a handful of
+  judgment calls confirmed with the user — see `DEFAULT_ICE_CREAM_PRICES_2025`
+  in `js/settings.js`). The other 27 flavors (the NSA/no-sugar-added line,
+  Carrot Cake, Rocky Road, Taro, etc.) genuinely aren't on the sheet and stay
+  unpriced until corporate adds them. A CORPORATE_ADMIN-only "Import 2025
+  Batch Price List" button in Admin performs the one-time write.
+- **Current Inventory Value moved to the Manager Dashboard**
+  (`js/dashboard.js` `showManagerDashboard()`), per the user's call — it's a
+  per-store figure and didn't belong buried in Admin. Deliberately NOT added
+  to the Corporate multi-store dashboard.
+- **Investigated: andersonmillemployee@gmail.com opening the wrong store
+  with the wrong data** (not just a stale header label, as the earlier fix
+  in this same day addressed) — traced to `openDashboard()` routing that
+  account to the multi-store Corporate Dashboard, which only happens for
+  CORPORATE_ADMIN accounts; `_reconcileStoreForSignedInUser()` deliberately
+  never touches a corporate admin's cached store, since a real corporate
+  admin needs to move between stores freely. Concluded this specific
+  account is very likely mis-assigned (probably the account that originally
+  created the Anderson Mill store, which auto-grants CORPORATE_ADMIN to an
+  org's first store's creator) rather than a code bug — no code change
+  made; pointed the user at Admin → Users & Roles to check/correct the
+  role and stores[] assignment, pending confirmation.
+
 ### Deploy Follow-Up: Service Worker Cache, Round Two (2026-09-13)
 Same class of bug as the 2026-09-12 entry below, caught only because the
 user reported the previous commit's changes weren't showing up live after
