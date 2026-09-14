@@ -96,6 +96,8 @@ function applyData(data) {
   flavorPrices = data?.flavorPrices || {};
   miscInventoryItems = data?.miscInventoryItems || [];
   flavorOrderTargets = data?.flavorOrderTargets || {};
+  locations = data?.locations || [];
+  customSources = data?.customSources || [];
   if (typeof loadCabinetPref === 'function') loadCabinetPref(); // store-wide default may have just changed (switch, live sync)
 }
 
@@ -829,10 +831,16 @@ function selectStore(id) {
   if (typeof switchTab === 'function') switchTab('Run');
   const store = findStoreById(id);
   if (store) {
-    const displayName = _storeDisplayLabel(id, store.label);
-    window.logOrgEvent('store_selected', { storeId: id, label: displayName });
+    window.logOrgEvent('store_selected', { storeId: id, label: _storeLabelFor(store) });
   }
-  _updateHeaderSub();
+  // _refreshHeaderForCurrentStore() (not the older, plain _updateHeaderSub()
+  // this used to call) — a CORPORATE_ADMIN switching stores via the Admin
+  // tab's picker (js/settings.js) reported the header not updating to match;
+  // _updateHeaderSub() alone falls back to whatever's cached whenever the
+  // freshly-picked store's own label is blank (the same class of bug already
+  // fixed for sign-in), and this was the one remaining call site missing
+  // that fix. Not awaited — init() below doesn't need to wait on it.
+  _refreshHeaderForCurrentStore();
   init();
 }
 

@@ -297,7 +297,7 @@ function _buildStoreDetailPanel(store, anchorEl) {
     [
       { key: 'regular', label: 'Regular',   color: '#6ab0ff' },
       { key: 'TD',      label: 'Tear Down',  color: '#ff7a7a' },
-      { key: 'WO',      label: 'Walk-Out',  color: '#a8d8f0' },
+      { key: 'WO',      label: 'Washout',  color: '#a8d8f0' },
     ].filter(({ key }) => byType[key].length).forEach(({ key, label, color }) => {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;';

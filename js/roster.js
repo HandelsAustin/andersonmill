@@ -499,6 +499,15 @@ function toggleFlavor(name) {
 // Generic undo toast — undoFn is stored globally so the inline onclick can call it.
 // No default fallback: every caller (roster bulk-import, org flavor removal,
 // novelties, inventory, day reset) passes its own undoFn.
+// Auto-dismisses after UNDO_TOAST_MS — it used to stay up indefinitely until
+// manually dismissed, which meant a stale "Undo" button could sit onscreen
+// for minutes. Re-showing (a second delete before the first's timer fires)
+// resets the timer rather than stacking one on top of the other — the
+// shared #undoToast element already replaces the message/handler in place,
+// so this just makes sure the OLD delete's window doesn't cut the NEW one
+// short.
+const UNDO_TOAST_MS = 5000;
+let _undoToastTimer = null;
 function showUndoToast(msg, undoFn) {
   window._undoToastHandler = undoFn || (() => {});
   let t = document.getElementById('undoToast');
@@ -510,11 +519,14 @@ function showUndoToast(msg, undoFn) {
   }
   t.innerHTML = `<span>${msg}</span><button onclick="window._undoToastHandler && window._undoToastHandler()" style="background:#d72627;border:none;color:#fff;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;touch-action:manipulation;">Undo</button>`;
   t.style.display = 'flex';
+  if (_undoToastTimer) clearTimeout(_undoToastTimer);
+  _undoToastTimer = setTimeout(hideUndoToast, UNDO_TOAST_MS);
 }
 
 function hideUndoToast() {
   const t = document.getElementById('undoToast');
   if (t) t.style.display = 'none';
+  if (_undoToastTimer) { clearTimeout(_undoToastTimer); _undoToastTimer = null; }
 }
 
 function renderPicker() {

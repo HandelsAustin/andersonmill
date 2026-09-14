@@ -246,8 +246,12 @@ function _buildTempEquipmentManager(container) {
     typeSelect.appendChild(opt);
   });
 
-  const locationField = _settingsInput('Location', '', 'text');
-  locationField.wrap.style.width = '140px';
+  // Shared Store Locations dropdown (Admin, js/settings.js) — was a free-typed
+  // field here before 2026-09-13, which meant the same physical spot could
+  // get spelled differently on different pieces of equipment.
+  let addLocation = '';
+  const locationField = _buildLocationField('', v => { addLocation = v; });
+  locationField.style.width = '150px';
 
   const targetField = _settingsInput('Target °F', '', 'number');
   targetField.wrap.style.width = '100px';
@@ -257,11 +261,10 @@ function _buildTempEquipmentManager(container) {
   addBtn.textContent = '+ Add';
   addBtn.onclick = () => {
     if (targetField.input.value === '') { targetField.input.focus(); return; }
-    _addTempEquipment(typeSelect.value, parseFloat(targetField.input.value), locationField.input.value.trim());
+    _addTempEquipment(typeSelect.value, parseFloat(targetField.input.value), addLocation);
     targetField.input.value = '';
-    locationField.input.value = '';
   };
-  addRow.append(typeSelect, locationField.wrap, targetField.wrap, addBtn);
+  addRow.append(typeSelect, locationField, targetField.wrap, addBtn);
   container.appendChild(addRow);
 }
 

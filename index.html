@@ -506,7 +506,7 @@
   </div>
 
   <div class="tab-panel" id="tabPanelNovelties">
-    <div class="tab-panel-header"><h2>Novelties</h2></div>
+    <div class="tab-panel-header"><h2>Novelties / Store Prep</h2></div>
     <div id="noveltiesContent"></div>
   </div>
 
@@ -529,7 +529,7 @@
     <button class="tab-btn active" id="tabBtnRun" onclick="switchTab('Run')"><span class="tab-icon">&#127848;</span>Ice Cream Run</button>
     <button class="tab-btn" id="tabBtnNovelties" onclick="switchTab('Novelties')"><span class="tab-icon">&#127820;</span>Novelties</button>
     <button class="tab-btn" id="tabBtnTemps" onclick="switchTab('Temps')"><span class="tab-icon">&#127777;&#65039;</span>Temps</button>
-    <button class="tab-btn" id="tabBtnInventory" onclick="requireManager(() => switchTab('Inventory'))"><span class="tab-icon">&#128230;</span>Order</button>
+    <button class="tab-btn" id="tabBtnInventory" onclick="switchTab('Inventory')"><span class="tab-icon">&#128230;</span>Order</button>
     <button class="tab-btn" id="tabBtnSettings" onclick="requireManager(() => switchTab('Settings'))"><span class="tab-icon">&#9881;</span>Admin</button>
   </div>
 </div>
@@ -734,6 +734,30 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary" onclick="closeModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Supply Item Editor (Admin tab — Order tab catalog setup, 2026-09-13) -->
+<div id="supplyItemModalBackdrop" class="modal-backdrop" onclick="if(event.target===this) closeSupplyItemModal()">
+  <div class="modal" style="width:420px;height:auto;max-height:calc(100vh - 16px);">
+    <h2 id="supplyItemModalTitle">Edit Item</h2>
+    <div id="supplyItemModalBody" style="overflow-y:auto;"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeSupplyItemModal()">Cancel</button>
+      <button class="btn btn-green" onclick="saveSupplyItemModal()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ice Cream Pricing (Admin tab, 2026-09-13 — was an always-visible inline list) -->
+<div id="pricingModalBackdrop" class="modal-backdrop" onclick="if(event.target===this) closePricingModal()">
+  <div class="modal" style="width:460px;">
+    <h2>Ice Cream Pricing</h2>
+    <p class="section-label">Last completed run's flavors — price/batch, corporate default shown if this store hasn't overridden it.</p>
+    <div id="pricingModalBody" style="overflow-y:auto;flex:1;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closePricingModal()">Done</button>
     </div>
   </div>
 </div>

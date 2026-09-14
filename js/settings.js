@@ -8,6 +8,45 @@ let flavorPrices = {}; // {flavorName: pricePerBatch} — per-store OVERRIDE, po
 let _orgDefaultFlavorPrices = {}; // {flavorName: pricePerBatch} — corporate-wide baseline, populated by loadOrgMetadata() in store-org.js
 let miscInventoryItems = []; // [{name, onHand, pricePerUnit}] — populated by applyData()
 let _tempEquipSectionExpanded = false; // session-only UI state — "Freezer/Fridge Equipment" starts collapsed (2026-09-13)
+let locations = []; // [locationName, ...] — store-wide location list (Admin "Store Locations"), populated by applyData();
+                     // shared dropdown source for Order tab items AND Freezer/Fridge Equipment (2026-09-13)
+let customSources = []; // [sourceName, ...] — store-wide custom Order-item sources (Admin "Custom Order Sources"),
+                         // populated by applyData(); merged into js/inventory.js _buildSourceField()'s dropdown
+let _pricingModalOpen = false; // session-only — Ice Cream Pricing lives in a popup now, not inline (2026-09-13)
+
+const LOCATION_PRESETS = [
+  'Walk-in Fridge', 'Back of House', 'Ice Cream Maker Freezer', 'Dipping Station',
+  'Prep Table', 'Flavor Shelf', 'Dry Storage', 'Food Storage',
+  'Front of House', 'Online Ordering', 'Sundae Bar', 'Under Counter',
+];
+
+async function _saveLocationsOnce() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — saved locally only', 3000); return; }
+  try {
+    await window._setDoc(getStoreDocRef(), { locations }, { merge: true });
+  } catch (e) {
+    console.error('Locations save error:', e);
+    showStatusMessage('⚠ Could not save', 2500);
+  }
+}
+const saveLocations = _makeCoalescedSaver(_saveLocationsOnce, {
+  onStart:  () => { _saving = true; },
+  onSettle: () => { _saving = false; },
+});
+
+async function _saveCustomSourcesOnce() {
+  if (!window._firebaseReady) { showStatusMessage('Offline — saved locally only', 3000); return; }
+  try {
+    await window._setDoc(getStoreDocRef(), { customSources }, { merge: true });
+  } catch (e) {
+    console.error('Custom sources save error:', e);
+    showStatusMessage('⚠ Could not save', 2500);
+  }
+}
+const saveCustomSources = _makeCoalescedSaver(_saveCustomSourcesOnce, {
+  onStart:  () => { _saving = true; },
+  onSettle: () => { _saving = false; },
+});
 
 // 2025 annual batch price list (Handel's corporate recipe-cost sheet),
 // matched to MASTER_ROSTER's exact flavor names (js/roster.js — each carries
@@ -195,6 +234,59 @@ function _miscInventoryValue() {
   return miscInventoryItems.reduce((sum, i) => sum + (i.onHand || 0) * (i.pricePerUnit || 0), 0);
 }
 
+// Ice Cream Pricing lives in a popup (js/settings.js, 2026-09-13) rather than
+// always-visible inline — Admin has too many sections now to keep a
+// per-flavor price list expanded by default.
+function openPricingModal() {
+  _renderPricingModalBody();
+  document.getElementById('pricingModalBackdrop').classList.add('open');
+}
+
+function closePricingModal() {
+  document.getElementById('pricingModalBackdrop').classList.remove('open');
+  renderSettingsPage(); // refreshes the "N unpriced" count on the button behind it
+}
+
+function _renderPricingModalBody() {
+  const body = document.getElementById('pricingModalBody');
+  body.innerHTML = '';
+  const lastRunFlavors = _lastCompletedRunFlavors();
+  if (!lastRunFlavors || !Object.keys(lastRunFlavors).length) {
+    const note = document.createElement('div');
+    note.className = 'settings-note';
+    note.textContent = 'No completed run on record yet — nothing to price.';
+    body.appendChild(note);
+    return;
+  }
+  const unpriced = _unpricedOnHandFlavors();
+  if (unpriced.length) {
+    const warn = document.createElement('div');
+    warn.style.cssText = 'padding:8px 12px;border-radius:8px;background:rgba(240,165,0,0.12);border:1px solid #f0a500;color:#f0a500;font-size:12px;margin-bottom:10px;';
+    warn.textContent = `⚠ No price on the corporate sheet or this store for: ${unpriced.join(', ')} — these are valued at $0 until priced below.`;
+    body.appendChild(warn);
+  }
+  Object.keys(lastRunFlavors).sort().forEach(name => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
+    const nameEl = document.createElement('span');
+    nameEl.style.cssText = 'flex:1;min-width:140px;font-size:13px;';
+    nameEl.textContent = `${name} (${lastRunFlavors[name]} made)`;
+    const priceField = _settingsInput('Price / Batch', _effectiveFlavorPrice(name), 'number');
+    priceField.wrap.style.width = '100px';
+    if (!Object.prototype.hasOwnProperty.call(flavorPrices, name) && Object.prototype.hasOwnProperty.call(_orgDefaultFlavorPrices, name)) {
+      priceField.input.title = 'Corporate default — edit to override for this store only';
+      priceField.input.style.color = 'var(--text-muted)';
+    }
+    priceField.input.onchange = () => {
+      flavorPrices[name] = Math.max(0, parseFloat(priceField.input.value) || 0);
+      saveFlavorPrices();
+      _renderPricingModalBody();
+    };
+    row.append(nameEl, priceField.wrap);
+    body.appendChild(row);
+  });
+}
+
 function _orderListInventoryValue() {
   return inventoryCatalog.reduce((sum, item) => {
     const entry = _inventoryLog.find(e => e.name === item.name);
@@ -237,48 +329,18 @@ function renderSettingsPage() {
   // the inputs that feed it (Ice Cream Pricing below, Misc Items, and the
   // Order tab's own catalog).
 
-  // ── Ice Cream Pricing (renamed from "Flavor Pricing" 2026-09-13) ─────────
-  // Scoped to whichever flavors actually appear in the last completed run —
-  // the ON-HAND flavors, not the full roster (which can run to 60+ names).
-  // Each price defaults to the org-wide sheet (organizations/{orgId}.
-  // defaultFlavorPrices, corporate-maintained) unless this store has entered
-  // its own override — see _effectiveFlavorPrice() above.
-  const pricingSection = _settingsSection('Ice Cream Pricing (Last Completed Run)');
-  const lastRunFlavors = _lastCompletedRunFlavors();
-  if (!lastRunFlavors || !Object.keys(lastRunFlavors).length) {
-    const note = document.createElement('div');
-    note.className = 'settings-note';
-    note.textContent = 'No completed run on record yet — nothing to price.';
-    pricingSection.appendChild(note);
-  } else {
-    const unpriced = _unpricedOnHandFlavors();
-    if (unpriced.length) {
-      const warn = document.createElement('div');
-      warn.style.cssText = 'padding:8px 12px;border-radius:8px;background:rgba(240,165,0,0.12);border:1px solid #f0a500;color:#f0a500;font-size:12px;margin-bottom:10px;';
-      warn.textContent = `⚠ No price on the corporate sheet or this store for: ${unpriced.join(', ')} — these are valued at $0 until priced below.`;
-      pricingSection.appendChild(warn);
-    }
-    Object.keys(lastRunFlavors).sort().forEach(name => {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
-      const nameEl = document.createElement('span');
-      nameEl.style.cssText = 'flex:1;min-width:140px;font-size:13px;';
-      nameEl.textContent = `${name} (${lastRunFlavors[name]} made)`;
-      const priceField = _settingsInput('Price / Batch', _effectiveFlavorPrice(name), 'number');
-      priceField.wrap.style.width = '100px';
-      if (!Object.prototype.hasOwnProperty.call(flavorPrices, name) && Object.prototype.hasOwnProperty.call(_orgDefaultFlavorPrices, name)) {
-        priceField.input.title = 'Corporate default — edit to override for this store only';
-        priceField.input.style.color = 'var(--text-muted)';
-      }
-      priceField.input.onchange = () => {
-        flavorPrices[name] = Math.max(0, parseFloat(priceField.input.value) || 0);
-        saveFlavorPrices();
-        renderSettingsPage();
-      };
-      row.append(nameEl, priceField.wrap);
-      pricingSection.appendChild(row);
-    });
-  }
+  // ── Ice Cream Pricing (popup, 2026-09-13 — was an always-visible inline
+  // list; moved behind a button to save space on an already-long page) ─────
+  const pricingSection = _settingsSection('Ice Cream Pricing');
+  const pricingUnpriced = _unpricedOnHandFlavors();
+  const pricingBtn = document.createElement('button');
+  pricingBtn.className = 'btn';
+  pricingBtn.style.cssText = 'font-size:12px;padding:8px 12px;';
+  pricingBtn.textContent = pricingUnpriced.length
+    ? `🍦 Manage Pricing (${pricingUnpriced.length} unpriced)`
+    : '🍦 Manage Pricing';
+  pricingBtn.onclick = () => openPricingModal();
+  pricingSection.appendChild(pricingBtn);
   content.appendChild(pricingSection);
 
   // ── Corporate Default Ice Cream Pricing (CORPORATE_ADMIN only) ───────────
@@ -391,6 +453,121 @@ function renderSettingsPage() {
   // setup (importing/adding items) lives here instead.
   if (typeof _renderOrderCsvImportSection === 'function') _renderOrderCsvImportSection(content);
   if (typeof _renderAddSupplyItemSection === 'function') _renderAddSupplyItemSection(content);
+  if (typeof _renderSupplyItemsSection === 'function') _renderSupplyItemsSection(content);
+
+  // ── Store Locations ───────────────────────────────────────────────────────
+  // Shared dropdown source for Order tab items and Freezer/Fridge Equipment
+  // (2026-09-13) — location used to be a free-typed field on each piece of
+  // equipment; centralizing it here means the same name gets reused
+  // consistently instead of retyped (and possibly misspelled) everywhere.
+  const locSection = _settingsSection('Store Locations');
+  const locAddRow = document.createElement('div');
+  locAddRow.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:flex-end;';
+  const locSelect = document.createElement('select');
+  locSelect.className = 'settings-input';
+  locSelect.style.width = 'auto';
+  LOCATION_PRESETS.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p; opt.textContent = p;
+    locSelect.appendChild(opt);
+  });
+  const locCustomOpt = document.createElement('option');
+  locCustomOpt.value = '__custom__';
+  locCustomOpt.textContent = 'Custom…';
+  locSelect.appendChild(locCustomOpt);
+  const locCustomInput = document.createElement('input');
+  locCustomInput.type = 'text';
+  locCustomInput.className = 'settings-input';
+  locCustomInput.placeholder = 'Custom location name';
+  locCustomInput.style.cssText = 'display:none;';
+  locSelect.onchange = () => {
+    locCustomInput.style.display = locSelect.value === '__custom__' ? '' : 'none';
+    if (locSelect.value === '__custom__') locCustomInput.focus();
+  };
+  const locAddBtn = document.createElement('button');
+  locAddBtn.className = 'btn btn-green';
+  locAddBtn.textContent = '+ Add';
+  locAddBtn.onclick = () => {
+    const name = (locSelect.value === '__custom__' ? locCustomInput.value : locSelect.value).trim();
+    if (!name) { locCustomInput.focus(); return; }
+    if (locations.includes(name)) { showStatusMessage('Already in the list', 2000); return; }
+    locations = [...locations, name];
+    saveLocations();
+    renderSettingsPage();
+  };
+  locAddRow.append(locSelect, locCustomInput, locAddBtn);
+  locSection.appendChild(locAddRow);
+  if (!locations.length) {
+    const locEmpty = document.createElement('div');
+    locEmpty.className = 'settings-note';
+    locEmpty.textContent = 'No locations set up yet — add one above.';
+    locSection.appendChild(locEmpty);
+  } else {
+    locations.forEach((loc, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--panel-border);';
+      const label = document.createElement('span');
+      label.style.fontSize = '13px';
+      label.textContent = loc;
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '🗑';
+      removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:4px 6px;';
+      removeBtn.onclick = () => {
+        locations = locations.filter((_, i) => i !== idx);
+        saveLocations();
+        renderSettingsPage();
+      };
+      row.append(label, removeBtn);
+      locSection.appendChild(row);
+    });
+  }
+  content.appendChild(locSection);
+
+  // ── Custom Order Sources ──────────────────────────────────────────────────
+  const srcSection = _settingsSection('Custom Order Sources');
+  const srcNote = document.createElement('div');
+  srcNote.className = 'settings-note';
+  srcNote.style.marginBottom = '10px';
+  srcNote.textContent = "Distributor, Amazon, and Grocery Store are always available. Add any others you order from regularly.";
+  srcSection.appendChild(srcNote);
+  const srcAddRow = document.createElement('div');
+  srcAddRow.style.cssText = 'display:flex;gap:6px;margin-bottom:10px;';
+  const srcInput = document.createElement('input');
+  srcInput.type = 'text';
+  srcInput.className = 'settings-input';
+  srcInput.placeholder = "e.g. Sam's Club";
+  const srcAddBtn = document.createElement('button');
+  srcAddBtn.className = 'btn btn-green';
+  srcAddBtn.textContent = '+ Add';
+  srcAddBtn.onclick = () => {
+    const name = srcInput.value.trim();
+    if (!name) { srcInput.focus(); return; }
+    if (customSources.includes(name)) { showStatusMessage('Already in the list', 2000); return; }
+    customSources = [...customSources, name];
+    saveCustomSources();
+    srcInput.value = '';
+    renderSettingsPage();
+  };
+  srcAddRow.append(srcInput, srcAddBtn);
+  srcSection.appendChild(srcAddRow);
+  customSources.forEach((src, idx) => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--panel-border);';
+    const label = document.createElement('span');
+    label.style.fontSize = '13px';
+    label.textContent = src;
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '🗑';
+    removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:4px 6px;';
+    removeBtn.onclick = () => {
+      customSources = customSources.filter((_, i) => i !== idx);
+      saveCustomSources();
+      renderSettingsPage();
+    };
+    row.append(label, removeBtn);
+    srcSection.appendChild(row);
+  });
+  content.appendChild(srcSection);
 
   // ── Store Name ───────────────────────────────────────────────────────────
   // Same email can be assigned to multiple stores (or, for CORPORATE_ADMIN, every
@@ -660,19 +837,18 @@ function renderSettingsPage() {
         const nameEl = document.createElement('span');
         nameEl.style.cssText = 'flex:1;min-width:120px;font-size:13px;font-weight:700;';
         nameEl.textContent = eq.label;
-        const locationField = _settingsInput('Location', eq.location || '', 'text');
-        locationField.wrap.style.width = '140px';
-        locationField.input.onchange = () => {
-          eq.location = locationField.input.value.trim();
+        const locationField = _buildLocationField(eq.location || '', v => {
+          eq.location = v;
           saveTempEquipment();
-        };
+        });
+        locationField.style.width = '150px';
         const targetField = _settingsInput('Target °F', eq.targetTemp, 'number');
         targetField.wrap.style.width = '100px';
         targetField.input.onchange = () => {
           eq.targetTemp = parseFloat(targetField.input.value) || 0;
           saveTempEquipment();
         };
-        row.append(nameEl, locationField.wrap, targetField.wrap);
+        row.append(nameEl, locationField, targetField.wrap);
         tempEquipBody.appendChild(row);
       });
     }

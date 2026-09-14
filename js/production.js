@@ -305,11 +305,11 @@ function renderTable() {
       // Manager/admin empty state: give a clear first action
       tbody.innerHTML = `<tr><td colspan="7"><div style="text-align:center;padding:2.5rem 1rem;">
         <div style="font-size:26px;margin-bottom:12px;">🧁</div>
-        <div style="font-size:15px;font-weight:700;color:#ffffff;margin-bottom:8px;">Set up today's flavors</div>
+        <div style="font-size:15px;font-weight:700;color:#ffffff;margin-bottom:8px;">Set up current flavors</div>
         <div style="font-size:13px;color:#98d4e3;line-height:1.6;margin-bottom:18px;font-family:'Arial Narrow',Arial,sans-serif;">
           Tap <strong style="color:#ffffff;">&#9776; Edit Flavors</strong> to select which flavors you're running today.
         </div>
-        <button class="btn" onclick="requireManager(openAddModal)" style="font-size:14px;padding:12px 22px;">&#9776; Set Up Today's Flavors</button>
+        <button class="btn" onclick="requireManager(openAddModal)" style="font-size:14px;padding:12px 22px;">&#9776; Set Up Current Flavors</button>
       </div></td></tr>`;
     } else {
       // Employee empty state: explain they need a manager

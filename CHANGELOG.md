@@ -7,6 +7,55 @@ v0.2
 
 ## Recent Changes
 
+### Store Locations, Custom Sources, Supply Item Popup Editor, Misc Fixes (2026-09-14)
+Another round of user feedback after the tab-relocation work — mostly about
+where setup lives vs. daily use, plus a handful of independent small fixes.
+
+- **New: Store Locations** (Admin) — a shared, store-wide list of named
+  locations (12 presets — Walk-in Fridge, Back of House, Ice Cream Maker
+  Freezer, Dipping Station, Prep Table, Flavor Shelf, Dry Storage, Food
+  Storage, Front of House, Online Ordering, Sundae Bar, Under Counter — plus
+  custom), persisted at `store.locations`. Freezer/Fridge Equipment's
+  Location field (previously free-typed, inconsistently spelled) and a new
+  Location field on Order tab items both now pick from this same list
+  (`_buildLocationField()`, `js/inventory.js`). Distinct from the existing
+  numeric "Store Location #" sort key, which is unchanged.
+- **New: Custom Order Sources** (Admin) — a saved, reusable list on top of
+  the fixed Distributor/Amazon/Grocery Store options
+  (`store.customSources`), so a source only has to be typed once instead of
+  every time it's picked. The inline "Custom…" option in the Source dropdown
+  is still there for a genuine one-off.
+- **Order tab catalog setup moved to Admin.** Par Level, Price/Unit, Item #,
+  Location, and Source used to be edited inline on the Order tab itself;
+  they're now read-only there. Admin gained a "Supply Items" list
+  (name + compact info line) with an "Edit" button per item that opens a
+  popup with all five fields (`js/inventory.js` `openSupplyItemModal()`) —
+  matching the "similar to ice cream flavor setup" request. Deleting an item
+  also moved to this list. Import from Distributor CSV / Add Supply Item
+  stay as they were (already in Admin from the previous round).
+- **Ice Cream Pricing moved into a popup** (`js/settings.js`
+  `openPricingModal()`) instead of an always-expanded inline list — Admin
+  has grown too long to keep everything unfolded by default. The Admin page
+  now shows a single "🍦 Manage Pricing (N unpriced)" button.
+- **Order tab no longer PIN-protected** — matches Temps' model now that its
+  setup/editing lives in the (still PIN-gated) Admin tab.
+- **Undo toast auto-dismisses** after 5 seconds instead of staying up
+  indefinitely; showing a new one (a second delete before the first's timer
+  fires) resets the timer instead of the old one's cutting the new one short.
+- **Fixed: CORPORATE_ADMIN header not updating when switching stores** via
+  the Admin tab's store picker — `selectStore()` was still calling the
+  older, less robust `_updateHeaderSub()` directly instead of
+  `_refreshHeaderForCurrentStore()` (added in the previous round's header
+  fix), so a switch to a store with a blank `label` field could show the
+  wrong name. Now uses the more robust function everywhere the active store
+  can change.
+- **Fixed: "Walk-Out" mislabel** in the Corporate Dashboard's flavor-type
+  breakdown — should be "Washout" (type code `WO`), matching the spelling
+  the Ice Cream Run tab's own legend already used correctly. Same class of
+  issue as the 2026-09-12 "Take & Dip" → "Tear Down" fix.
+- Novelties tab renamed "Novelties / Store Prep"; Ice Cream Run's empty-state
+  copy changed from "Set up today's flavors" to "Set up current flavors".
+
 ### New: Rename Store from the Admin Tab (2026-09-13)
 Follow-up to the missing-`label` fix above — the user's next question was
 "how do I check/set that field without digging through a huge Firestore

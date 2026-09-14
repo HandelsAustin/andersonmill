@@ -254,8 +254,12 @@ function _buildSourceField(value, onChange) {
   label.textContent = 'Source';
   const select = document.createElement('select');
   select.className = 'settings-input';
-  const isCustom = !!value && !INVENTORY_SOURCE_OPTIONS.includes(value);
-  INVENTORY_SOURCE_OPTIONS.forEach(opt => {
+  // customSources (Admin "Custom Order Sources", js/settings.js) are saved,
+  // reusable sources on top of the three fixed ones — "Custom…" below is
+  // still there for a genuine one-off not worth saving to that list.
+  const allOptions = [...INVENTORY_SOURCE_OPTIONS, ...customSources];
+  const isCustom = !!value && !allOptions.includes(value);
+  allOptions.forEach(opt => {
     const o = document.createElement('option');
     o.value = opt;
     o.textContent = opt;
@@ -287,6 +291,36 @@ function _buildSourceField(value, onChange) {
   customInput.onchange = () => onChange(customInput.value.trim());
 
   wrap.append(label, select, customInput);
+  return wrap;
+}
+
+// Location dropdown — reads from the store-wide `locations` list (Admin
+// "Store Locations", js/settings.js), shared with Freezer/Fridge Equipment
+// (js/temps.js). Plain <select>, no inline custom-add here — that's a
+// deliberate Admin-only action (js/settings.js) so the list stays a single,
+// reusable set of names rather than getting created ad hoc from wherever a
+// dropdown happens to appear.
+function _buildLocationField(value, onChange) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+  const label = document.createElement('span');
+  label.className = 'settings-label';
+  label.textContent = 'Location';
+  const select = document.createElement('select');
+  select.className = 'settings-input';
+  const noneOpt = document.createElement('option');
+  noneOpt.value = '';
+  noneOpt.textContent = locations.length ? '— none —' : 'No locations set up (Admin)';
+  select.appendChild(noneOpt);
+  locations.forEach(loc => {
+    const opt = document.createElement('option');
+    opt.value = loc;
+    opt.textContent = loc;
+    if (loc === value) opt.selected = true;
+    select.appendChild(opt);
+  });
+  select.onchange = () => onChange(select.value);
+  wrap.append(label, select);
   return wrap;
 }
 
@@ -573,6 +607,9 @@ function _renderAddSupplyItemSection(container) {
   let addSource = '';
   const sourceField = _buildSourceField('', v => { addSource = v; });
   sourceField.style.width = '150px';
+  let addLocation = '';
+  const locationField = _buildLocationField('', v => { addLocation = v; });
+  locationField.style.width = '150px';
   const addBtn = document.createElement('button');
   addBtn.className = 'btn btn-green';
   addBtn.textContent = '+ Add';
@@ -583,6 +620,7 @@ function _renderAddSupplyItemSection(container) {
       name,
       unit: unitInput.value.trim() || 'units',
       source: addSource,
+      location: addLocation,
       locationOrder: parseInt(locOrderInput.value) || 0,
       distributorOrder: parseInt(itemNumInput.value) || 0,
       pricePerUnit: parseFloat(priceInput.value) || 0,
@@ -592,9 +630,95 @@ function _renderAddSupplyItemSection(container) {
     saveInventoryCatalog();
     renderInventoryPage();
   };
-  addRow.append(nameInput, unitInput, priceInput, parInput, itemNumInput, locOrderInput, sourceField, addBtn);
+  addRow.append(nameInput, unitInput, priceInput, parInput, itemNumInput, locOrderInput, locationField, sourceField, addBtn);
   addSection.appendChild(addRow);
   container.appendChild(addSection);
+}
+
+// Admin-tab management list for the Order tab's catalog (2026-09-13) —
+// name + a compact info line, "Edit" opens the full field editor
+// (openSupplyItemModal() below) instead of everything being inline. Delete
+// also lives here now, not on the Order tab, matching "setup lives in
+// Admin, the Order tab is daily-use only."
+function _renderSupplyItemsSection(container) {
+  const section = _settingsSection(`Supply Items · ${inventoryCatalog.length}`);
+  if (!inventoryCatalog.length) {
+    const empty = document.createElement('div');
+    empty.className = 'settings-note';
+    empty.textContent = 'No supply items yet — import a CSV or add one above.';
+    section.appendChild(empty);
+  }
+  [...inventoryCatalog].sort((a, b) => a.name.localeCompare(b.name)).forEach(item => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;';
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:160px;';
+    info.innerHTML = `<div style="font-size:13px;font-weight:700;">${item.name}</div><div style="font-size:11px;color:var(--text-muted);">#${item.distributorOrder || '—'} · ${item.location || 'No location'} · ${item.source || 'No source'}</div>`;
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:6px;flex-shrink:0;';
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn';
+    editBtn.style.cssText = 'font-size:11px;padding:6px 10px;';
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = () => openSupplyItemModal(item.name);
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '🗑';
+    removeBtn.title = 'Remove item';
+    removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:4px 6px;';
+    removeBtn.onclick = () => _removeInventoryItem(item.name);
+    btnRow.append(editBtn, removeBtn);
+    row.append(info, btnRow);
+    section.appendChild(row);
+  });
+  container.appendChild(section);
+}
+
+let _supplyItemModalName = null; // which item is currently open in the editor
+function openSupplyItemModal(name) {
+  const item = inventoryCatalog.find(i => i.name === name);
+  if (!item) return;
+  _supplyItemModalName = name;
+  document.getElementById('supplyItemModalTitle').textContent = item.name;
+  const body = document.getElementById('supplyItemModalBody');
+  body.innerHTML = '';
+
+  const unitField = _settingsInput('Unit', item.unit || '', 'text');
+  const parField = _settingsInput('Par Level', item.parLevel || 0, 'number');
+  const priceField = _settingsInput('Price / Unit', item.pricePerUnit || 0, 'number');
+  const itemNumField = _settingsInput('Item #', item.distributorOrder || 0, 'number');
+  const locOrderField = _settingsInput('Store Location #', item.locationOrder || 0, 'number');
+  let modalSource = item.source || '';
+  const sourceField = _buildSourceField(modalSource, v => { modalSource = v; });
+  let modalLocation = item.location || '';
+  const locationField = _buildLocationField(modalLocation, v => { modalLocation = v; });
+
+  body.append(unitField.wrap, parField.wrap, priceField.wrap, itemNumField.wrap, locOrderField.wrap, locationField, sourceField);
+  body._fields = { unitField, parField, priceField, itemNumField, locOrderField, getSource: () => modalSource, getLocation: () => modalLocation };
+
+  document.getElementById('supplyItemModalBackdrop').classList.add('open');
+}
+
+function closeSupplyItemModal() {
+  document.getElementById('supplyItemModalBackdrop').classList.remove('open');
+  _supplyItemModalName = null;
+}
+
+function saveSupplyItemModal() {
+  const item = inventoryCatalog.find(i => i.name === _supplyItemModalName);
+  if (!item) { closeSupplyItemModal(); return; }
+  const f = document.getElementById('supplyItemModalBody')._fields;
+  item.unit = f.unitField.input.value.trim() || 'units';
+  item.parLevel = Math.max(0, parseInt(f.parField.input.value) || 0);
+  item.pricePerUnit = Math.max(0, parseFloat(f.priceField.input.value) || 0);
+  item.distributorOrder = parseInt(f.itemNumField.input.value) || 0;
+  item.locationOrder = parseInt(f.locOrderField.input.value) || 0;
+  item.source = f.getSource();
+  item.location = f.getLocation();
+  saveInventoryCatalog();
+  closeSupplyItemModal();
+  renderSettingsPage();
+  if (document.getElementById('tabPanelInventory')?.classList.contains('active')) renderInventoryPage();
+  showStatusMessage(`✓ "${item.name}" updated`, 2000);
 }
 
 function renderInventoryPage() {
@@ -655,6 +779,10 @@ function renderInventoryPage() {
     empty.textContent = 'No supply items yet — add one above or import a CSV.';
     listSection.appendChild(empty);
   }
+  // Par Level/Price/Item #/Location/Source are now read-only here — set up
+  // and edited from Admin's "Supply Items" popup editor (js/inventory.js
+  // _renderSupplyItemsSection()/openSupplyItemModal(), 2026-09-13). This tab
+  // is daily-use only: view the list, enter On Hand, produce the order.
   _sortedInventoryCatalog().forEach(item => {
     const entry = _getInventoryEntry(item);
     const row = document.createElement('div');
@@ -668,17 +796,13 @@ function renderInventoryPage() {
     nameEl.style.cssText = 'font-size:13px;font-weight:700;flex:1;min-width:140px;';
     nameEl.textContent = `${item.name} (${item.unit})`;
     topRow.appendChild(nameEl);
-
-    const removeBtn = document.createElement('button');
-    removeBtn.textContent = '🗑';
-    removeBtn.title = 'Remove item';
-    removeBtn.style.cssText = 'background:none;border:none;color:var(--text-dim);font-size:15px;cursor:pointer;padding:4px 6px;';
-    removeBtn.onclick = () => _removeInventoryItem(item.name);
-    topRow.appendChild(removeBtn);
     row.appendChild(topRow);
 
-    // Every column is editable right here — not just at add/import time —
-    // so "fill in all information for each item" holds after the fact too.
+    const infoLine = document.createElement('div');
+    infoLine.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:2px;';
+    infoLine.textContent = `#${item.distributorOrder || '—'} · ${item.location || 'No location'} · ${item.source || 'No source'} · Par ${item.parLevel || 0}`;
+    row.appendChild(infoLine);
+
     const fieldsRow = document.createElement('div');
     fieldsRow.style.cssText = 'display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;';
 
@@ -698,58 +822,19 @@ function renderInventoryPage() {
     });
     onHandWrap.append(onHandCaption, onHandWidget);
 
-    const parField = _settingsInput('Par Level', item.parLevel, 'number');
-    parField.wrap.style.width = '90px';
-    const priceField = _settingsInput('Price / Unit', item.pricePerUnit, 'number');
-    priceField.wrap.style.width = '90px';
-    const itemNumField = _settingsInput('Item #', item.distributorOrder || 0, 'number');
-    itemNumField.wrap.style.width = '80px';
-    const locOrderField = _settingsInput('Store Location #', item.locationOrder || 0, 'number');
-    locOrderField.wrap.style.width = '110px';
-    const sourceField = _buildSourceField(item.source || '', v => {
-      item.source = v;
-      saveInventoryCatalog();
-    });
-    sourceField.style.width = '150px';
-
     const orderEl = document.createElement('div');
     orderEl.style.cssText = 'font-size:12px;';
-    const valueLine = document.createElement('div');
-    valueLine.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:2px;';
-    const renderOrder = () => {
-      const qty = _orderQty(item, entry);
-      orderEl.innerHTML = qty > 0
-        ? `<span style="color:#ff8080;font-weight:700;">Order ${_formatQty(qty)} ${item.unit}</span>`
-        : `<span style="color:#22a05a;font-weight:700;">Stocked</span>`;
-      valueLine.textContent = `Value: $${_inventoryValue(item, entry).toFixed(2)}`;
-    };
-    renderOrder();
+    const qty = _orderQty(item, entry);
+    orderEl.innerHTML = qty > 0
+      ? `<span style="color:#ff8080;font-weight:700;">Order ${_formatQty(qty)} ${item.unit}</span>`
+      : `<span style="color:#22a05a;font-weight:700;">Stocked</span>`;
 
-    // Full re-render on change — the Order List section below aggregates
-    // across all items and would otherwise go stale.
-    parField.input.onchange = () => {
-      item.parLevel = Math.max(0, parseInt(parField.input.value) || 0);
-      saveInventoryCatalog();
-      renderInventoryPage();
-    };
-    priceField.input.onchange = () => {
-      item.pricePerUnit = Math.max(0, parseFloat(priceField.input.value) || 0);
-      saveInventoryCatalog();
-      renderInventoryPage();
-    };
-    itemNumField.input.onchange = () => {
-      item.distributorOrder = parseInt(itemNumField.input.value) || 0;
-      saveInventoryCatalog();
-      renderInventoryPage();
-    };
-    locOrderField.input.onchange = () => {
-      item.locationOrder = parseInt(locOrderField.input.value) || 0;
-      saveInventoryCatalog();
-      renderInventoryPage();
-    };
-
-    fieldsRow.append(onHandWrap, parField.wrap, priceField.wrap, itemNumField.wrap, locOrderField.wrap, sourceField, orderEl);
+    fieldsRow.append(onHandWrap, orderEl);
     row.appendChild(fieldsRow);
+
+    const valueLine = document.createElement('div');
+    valueLine.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:4px;';
+    valueLine.textContent = `Value: $${_inventoryValue(item, entry).toFixed(2)}`;
     row.appendChild(valueLine);
 
     if (item.history && item.history.length) {
