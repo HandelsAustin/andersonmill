@@ -7,6 +7,17 @@ v0.2
 
 ## Recent Changes
 
+### New: Rename Store from the Admin Tab (2026-09-13)
+Follow-up to the missing-`label` fix above — the user's next question was
+"how do I check/set that field without digging through a huge Firestore
+document." Rather than sending them into the Firebase Console at all,
+added a "✏️ Rename" button next to the Store Name display in Admin
+(`js/settings.js`), which writes directly to the current store's `label`
+field and immediately refreshes the header. No new gating — any account
+that can reach Admin already has write access to its own current store
+(`firestore.rules` `canAccessStore()`). Verified against the emulator on
+the same no-label store used to confirm the earlier fix.
+
 ### Fix: Header Stuck on a Stale Store Name for a Store With No `label` (2026-09-13)
 Found the real cause of the andersonmillemployee@highlandicecream.com report
 that outlasted every earlier fix today — confirmed with live diagnostic

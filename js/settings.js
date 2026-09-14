@@ -403,6 +403,9 @@ function renderSettingsPage() {
   const currentStore = accessibleStores.find(s => s.id === currentId);
   const currentLabel = currentId ? _storeDisplayLabel(currentId, currentStore?.label) : 'No store selected';
 
+  const nameRow = document.createElement('div');
+  nameRow.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+
   if (accessibleStores.length > 1) {
     const picker = document.createElement('select');
     picker.className = 'settings-input';
@@ -415,13 +418,55 @@ function renderSettingsPage() {
       picker.appendChild(opt);
     });
     picker.onchange = () => selectStore(picker.value);
-    nameSection.appendChild(picker);
+    nameRow.appendChild(picker);
   } else {
     const nameDisplay = document.createElement('div');
     nameDisplay.style.cssText = 'font-size:18px;font-weight:700;color:var(--text-primary);';
     nameDisplay.textContent = currentLabel;
-    nameSection.appendChild(nameDisplay);
+    nameRow.appendChild(nameDisplay);
   }
+
+  // Renames whichever store is CURRENTLY selected — added 2026-09-13 after a
+  // real store (created without ever getting a `label` field) had no way to
+  // fix that except editing raw Firestore data directly. Any account that
+  // can reach Admin already has write access to its own current store
+  // (firestore.rules canAccessStore()), so no extra gating needed here.
+  if (currentId) {
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn';
+    editBtn.style.cssText = 'font-size:12px;padding:6px 10px;';
+    editBtn.textContent = '✏️ Rename';
+    editBtn.onclick = () => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'settings-input';
+      input.style.width = 'auto';
+      input.value = currentLabel === 'No store selected' ? '' : currentLabel;
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn btn-green';
+      saveBtn.style.cssText = 'font-size:12px;padding:6px 10px;';
+      saveBtn.textContent = 'Save';
+      saveBtn.onclick = async () => {
+        const newLabel = input.value.trim();
+        if (!newLabel) { input.focus(); return; }
+        try {
+          await window._setDoc(getStoreDocRef(), { label: newLabel }, { merge: true });
+          showStatusMessage(`✓ Renamed to "${newLabel}"`, 2000);
+          await _refreshHeaderForCurrentStore();
+          renderSettingsPage();
+        } catch (e) {
+          console.error('Store rename error:', e);
+          showStatusMessage('⚠ Could not rename — check your connection', 2500);
+        }
+      };
+      nameRow.innerHTML = '';
+      nameRow.append(input, saveBtn);
+      input.focus();
+    };
+    nameRow.appendChild(editBtn);
+  }
+
+  nameSection.appendChild(nameRow);
   content.appendChild(nameSection);
 
   // ── Flavor Roster ─────────────────────────────────────────────────────────
